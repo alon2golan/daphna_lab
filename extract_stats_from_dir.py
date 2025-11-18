@@ -11,55 +11,53 @@ def moving_average(data, window_size):
 
 
 
-BASE_OUTPUT_PATH = "/cs/labs/daphna/itai.david/py_repos/TypiClust/visual_outputs/"
+# Get the repository base directory
+REPO_BASE = os.path.dirname(os.path.abspath(__file__))
+BASE_OUTPUT_PATH = os.path.join(REPO_BASE, "visual_outputs")
 # Replace with your actual root directory path
-# ROOT_DIRS = ['/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_9_21']# ,'/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_8_15',  '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_8_14',  '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_8_13']
-# ROOT_DIRS = [  '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_9_16',
-#  '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_9_21',]
-              # '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_9_17']
-# ROOT_DIRS = ['/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_9_22',
-#                 '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_9_23',
-#              '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_9_24',
-#              '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_9_25',
-#             '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_9_28',
-#              '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_9_27']
-#              # ]
-# ROOT_DIRS = ['/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_10_16',
-#              '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_10_19',
-#              '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_10_20',
-#              '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_10_22']
-# ROOT_DIRS = [ '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_10_28',
-#               '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_10_29',
-#               '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_10_30',
-#               '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_1',
-#               '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_2']
-# ROOT_DIRS = [
-#                 '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_4',
-#               '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_5',
-#               '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_7',
-#               '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_10']
+# ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR100/resnet18/2025_9_21')]
+# ROOT_DIRS = [  os.path.join(REPO_BASE, 'output/CIFAR100/resnet18/2025_9_16'),
+#                os.path.join(REPO_BASE, 'output/CIFAR100/resnet18/2025_9_21')]
+# ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR100/resnet18/2025_9_22'),
+#              os.path.join(REPO_BASE, 'output/CIFAR100/resnet18/2025_9_23'),
+#              os.path.join(REPO_BASE, 'output/CIFAR100/resnet18/2025_9_24'),
+#              os.path.join(REPO_BASE, 'output/CIFAR100/resnet18/2025_9_25'),
+#              os.path.join(REPO_BASE, 'output/CIFAR100/resnet18/2025_9_28'),
+#              os.path.join(REPO_BASE, 'output/CIFAR100/resnet18/2025_9_27')]
+# ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_10_16'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_10_19'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_10_20'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_10_22')]
+# ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_10_28'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_10_29'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_10_30'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_1'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_2')]
+# ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_4'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_5'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_7'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_10')]
+
+ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_4'),
+             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_5'),
+             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_7'),
+             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_10'),
+             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_11'),
+             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_12')]
+
+# ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_10_26'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_10_23'),
+#              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/')]
 
 
-ROOT_DIRS = [   '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_4',
-                '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_5',
-              '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_7',
-              '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_10',
-    '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_11',
-             '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_11_12']
+# ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR100/resnet18/2025_11_2'),
+#              os.path.join(REPO_BASE, 'output/CIFAR100/resnet18/2025_11_3')]
 
-# ROOT_DIRS = [ '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_10_26',
-#              '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/2025_10_23',
-#               '/cs/labs/daphna/itai.david/py_repos/TypiClust_clean/output/CIFAR10/resnet18/']
-
-
-# ROOT_DIRS = ['/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_11_2',
-#               '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR100/resnet18/2025_11_3']
-
-# ROOT_DIRS = [ '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/HALF_MOON/resnet18/2025_10_20',
-#              '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/SCENARIO_A/resnet18/2025_10_20',
-#               '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/HALF_MOON/resnet18/2025_10_22',
-#               '/cs/labs/daphna/itai.david/py_repos/TypiClust/output/SCENARIO_A/resnet18/2025_10_22'
-#               ]
+# ROOT_DIRS = [os.path.join(REPO_BASE, 'output/HALF_MOON/resnet18/2025_10_20'),
+#              os.path.join(REPO_BASE, 'output/SCENARIO_A/resnet18/2025_10_20'),
+#              os.path.join(REPO_BASE, 'output/HALF_MOON/resnet18/2025_10_22'),
+#              os.path.join(REPO_BASE, 'output/SCENARIO_A/resnet18/2025_10_22')
+#              ]
 
 # Store all the data in a structured form
 records = []
@@ -134,7 +132,7 @@ for root_dir in ROOT_DIRS:
             })
 # Convert to DataFrame for easier plotting/grouping
 
-base_path = "/cs/labs/daphna/itai.david/py_repos/TypiClust/stats_parquets"
+base_path = os.path.join(REPO_BASE, "stats_parquets")
 parquet_name = "1211_bayes_misp_CIFAR10_from_images_tophat_HIGH_BUDGET_RESULTS.parquet"
 full_path = os.path.join(base_path, parquet_name)
 df = pd.DataFrame(records)

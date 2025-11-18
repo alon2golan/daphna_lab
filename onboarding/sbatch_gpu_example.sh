@@ -7,7 +7,7 @@
 #SBATCH --mail-type=FAIL,TIME_LIMIT
 #SBATCH --output=gpu_train_al_%j.out
 
-dir=/cs/labs/daphna/$USER/projects/TypiClust/
+dir=/cs/labs/daphna/$USER/projects/daphna_lab/
 cd $dir
 source $dir/venv/bin/activate
 cd $dir/deep-al/tools

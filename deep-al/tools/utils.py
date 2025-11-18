@@ -4,6 +4,10 @@ from sklearn.manifold import TSNE
 import seaborn as sns
 import sys
 import os
+
+# Get the repository base directory
+REPO_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 def add_path(path):
     if path not in sys.path:
         sys.path.insert(0, path)
@@ -31,8 +35,8 @@ def visualize_tsne(
     :param include_indices: Optional array of indices to always include and highlight
     """
 
-    embeddings_path = f"/cs/labs/daphna/itai.david/py_repos/TypiClust/results/t-sne/{dataset_name}_t-sne_embeddings.npy"
-    labels_path = f"/cs/labs/daphna/itai.david/py_repos/TypiClust/results/t-sne/{dataset_name}_t-sne_labels.npy"
+    embeddings_path = os.path.join(REPO_BASE, f"results/t-sne/{dataset_name}_t-sne_embeddings.npy")
+    labels_path = os.path.join(REPO_BASE, f"results/t-sne/{dataset_name}_t-sne_labels.npy")
     embeddings = np.load(embeddings_path)
     labels = np.load(labels_path)
     num_classes = len(np.unique(labels))
@@ -91,7 +95,7 @@ def visualize_tsne(
     #     print(f"Plot saved to {save_path}")
     # else:
     num_labeled_samples = len(labeled_indices)
-    save_full_path = f'/cs/labs/daphna/itai.david/py_repos/TypiClust/results/t-sne-visual/{algo_name}_{dataset_name}_labeled_{num_labeled_samples}.png'
+    save_full_path = os.path.join(REPO_BASE, f'results/t-sne-visual/{algo_name}_{dataset_name}_labeled_{num_labeled_samples}.png')
     plt.savefig(save_full_path, bbox_inches='tight')
     plt.show()
 
@@ -107,8 +111,8 @@ def visualize_tsne(
 #     :param file_path: Path to save the embeddings
 #     """
 #     assert embeddings.shape[0] == labels.shape[0], "Embeddings and labels must have same length"
-#     embed_output_path = f"/cs/labs/daphna/itai.david/py_repos/TypiClust/results/t-sne/{dataset_name}_t-sne_embeddings.npy"
-#     label_output_path = f"/cs/labs/daphna/itai.david/py_repos/TypiClust/results/t-sne/{dataset_name}_t-sne_labels.npy"
+#     embed_output_path = os.path.join(REPO_BASE, f"results/t-sne/{dataset_name}_t-sne_embeddings.npy")
+#     label_output_path = os.path.join(REPO_BASE, f"results/t-sne/{dataset_name}_t-sne_labels.npy")
 #     tsne = TSNE(n_components=2,
 #                 perplexity=30,  # Experiment with values like 20, 30, 50
 #                 learning_rate=200,  # Experiment with values like 100, 200, 500, 1000
@@ -138,7 +142,7 @@ def visualize_tsne(
 #     save_embeddings_to_file(all_features, labels, "CIFAR10")
 
 
-# path = "/cs/labs/daphna/itai.david/py_repos/TypiClust/output/CIFAR10/resnet18/CIFAR10_resnet18_2025_6_10_171959_564799/plot_episode_yvalues.npy"
+# path = os.path.join(REPO_BASE, "output/CIFAR10/resnet18/CIFAR10_resnet18_2025_6_10_171959_564799/plot_episode_yvalues.npy")
 #
 # x = np.load(path)
 # print(x)
