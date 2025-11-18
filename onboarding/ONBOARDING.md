@@ -103,7 +103,7 @@ activenv
 ### Run an Example
 Now you can check that everything installed and works fine. Run an example:
 ```
-cd /cs/labs/daphna/<user>/projects/TypiClust/deep-al/tools/
+cd /cs/labs/daphna/<user>/projects/daphna_lab/deep-al/tools/
 python train_al.py --cfg ../configs/cifar10/al/RESNET18.yaml --al typiclust_rp --exp-name auto --initial_size 0 --budget 100
 ```
 

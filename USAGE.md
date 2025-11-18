@@ -4,7 +4,7 @@
 
 Clone the repository
 ```
-git clone https://github.com/avihu111/TypiClust
+git clone https://github.com/alon2golan/daphna_lab
 cd TypiClust
 ```
 
