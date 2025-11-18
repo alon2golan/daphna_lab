@@ -10,29 +10,34 @@ import matplotlib.pyplot as plt
 ###MISP = maximum importance sampling points
 torch.cuda.empty_cache()
 
-def compute_norm(x1, x2, device, batch_size=512):
-    x1, x2 = x1.unsqueeze(0).to(device), x2.unsqueeze(0).to(device) # 1 x n x d, 1 x n' x d
-    dist_matrix = []
-    batch_round = x2.shape[1] // batch_size + int(x2.shape[1] % batch_size > 0)
-    for i in range(batch_round):
-        # distance comparisons are done in batches to reduce memory consumption
-        x2_subset = x2[:, i * batch_size: (i + 1) * batch_size]
-        dist = torch.cdist(x1, x2_subset, p=2.0) #.to(dtype=torch.float16)
-
-        dist_matrix.append(dist.cpu())
-        del dist
-
-    dist_matrix = torch.cat(dist_matrix, dim=-1).squeeze(0)
-    return dist_matrix
 
 class RBFKernel(object):
     def __init__(self, device):
         self.device = device
 
-    def compute_kernel(self, x1, x2, h=1.0, batch_size=512):
-        norm = compute_norm(x1, x2, self.device, batch_size=batch_size)
-        k = torch.exp(-1.0 * (norm / h) ** 2)
-        return k
+    def compute_kernel(self, x1, x2, sigma=1.0, batch_size=8192, final_type=torch.float32):
+        x1, x2 = x1.unsqueeze(0).to(self.device), x2.unsqueeze(0).to(self.device)
+        K = []
+        rounds = x2.shape[1] // batch_size + int(x2.shape[1] % batch_size > 0)
+        x1_sq = (x1 * x1).sum(dim=-1, keepdim=True)     # (1, n1, 1)
+        for i in range(rounds):
+            # distance comparisons are done in batches to reduce memory consumption
+            x2_subset = x2[:, i * batch_size: (i + 1) * batch_size]
+            x2_sq = (x2_subset * x2_subset).sum(dim=-1, keepdim=True)  # (1, b, 1)
+            x2_sq = x2_sq.transpose(1, 2)  # → (1, 1, b)   <-- only transpose x2
+            # dot product
+            xy = x1 @ x2_subset.transpose(1, 2)
+            dist2 = x1_sq + x2_sq - 2.0 * xy
+            dist2 = torch.clamp(dist2, min=0)
+            # Using in-place operation to save memory
+            K_batch = torch.exp_(-dist2 / (2 * (sigma ** 2))) 
+
+            K.append(K_batch.squeeze(0).cpu().to(dtype=final_type))
+            del x2_subset, x2_sq, xy, dist2, K_batch
+
+        K = torch.cat(K, dim=-1)
+        return K
+    
 
 class TopHatKernel(object):
     def __init__(self, device):
@@ -59,16 +64,15 @@ class BAYES_MISP:
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
+        
         self.all_features = ds_utils.load_features(self.ds_name, train=True)
         self.alpha = self.cfg.ALPHA
         self.debug = self.cfg.DEBUG
-        self.norm_importance = self.cfg.NORM_IMPORTANCE
-        self.confidence_method = self.cfg.CONFIDENCE_METHOD if 'CONFIDENCE_METHOD' in self.cfg else 'max'
         self.cont_method = self.cfg.CONT_METHOD if 'CONT_METHOD' in self.cfg else 'positive'
-        self.decrease_alpha = self.cfg.DECREASING_ALPHA if 'DECREASING_ALPHA' in self.cfg else False
+
         self.budgetSize = budgetSize
-        self.delta = delta
-        self.soft_border_val = self.cfg.SOFT_BORDER_VAL if 'SOFT_BORDER_VAL' in self.cfg else 0.15
+        self.delta = delta # delta for topHat, sigma for RBF
+
         self.diff_method = self.cfg.DIFF_METHOD if 'DIFF_METHOD' in self.cfg else 'abs_diff'
         kernel_type = self.cfg.KERNEL_TYPE if 'KERNEL_TYPE' in self.cfg else 'rbf'
         if kernel_type == 'tophat':
@@ -77,68 +81,57 @@ class BAYES_MISP:
             self.kernel_fn = RBFKernel('cuda')
 
         self.train_labels_general = np.array(train_labels)
-        unique_labels = np.unique(self.train_labels_general)
-        self.C_general = torch.full((self.all_features.shape[0], unique_labels.size), self.alpha, device='cuda', dtype=torch.float16)
-        self.num_of_classes = np.unique(self.train_labels_general).size
+        self.unique_labels = np.unique(self.train_labels_general)
+        self.num_of_classes = self.unique_labels.size
+        # Attention! float16 
+        self.C_general = torch.full((self.all_features.shape[0], self.num_of_classes), self.alpha, device='cuda', dtype=torch.float16)
+        # Track labeled points information - to CUDA??
         self.chosen_labels_num = torch.zeros(self.num_of_classes).to('cuda')
         self.cum_labels_info = torch.zeros(self.num_of_classes).to('cuda')
-        if lset is not None and lset.size > 0:
-            temp_K = self.kernel_fn.compute_kernel(
-                torch.from_numpy(self.all_features), torch.from_numpy(self.all_features), self.delta).to('cuda')
-            class_indices = {label: np.where(self.train_labels_general[lset.astype(int)] == label)[0] for label in unique_labels}
-
-            for label in unique_labels:
-
-                curr_labels_sim = temp_K[class_indices[label]]
-                self.C_general[:, label] = torch.max(curr_labels_sim, axis=0).values
-            del temp_K, curr_labels_sim, class_indices
+        # Here was the initialization of C from the lset. TODO make this in initSamplingLoop
         torch.cuda.empty_cache()
 
-    def init_sampling_loop(self,lset, uset):
+
+    def load_C_from_lset(self):
+        """
+        Load matrix C as if lset was labeled in the algorithm process.
+        -- Assumes self.K is already computed --
+        """
+        class_indices = {label: np.where(self.train_labels_general[self.lSet.astype(int)] == label)[0] for label in self.unique_labels}
+        for label in self.unique_labels:
+            K_lset_label = self.K[class_indices[label]]  # K subset for already labeled points with current label
+            self.C[:, label] += torch.sum(K_lset_label, axis=0)
+    
+
+    def init_sampling_loop(self, lset, uset):
+        self.lSet = lset
+        self.uSet = uset
         torch.cuda.empty_cache()
-        self.set_rel_features(lset, uset)
+        self.set_rel_features()
         self.activeSet = []
         self.K = self.kernel_fn.compute_kernel(
             self.rel_features, self.rel_features, self.delta)
-        self.C = self.C_general[self.relevant_indices].to('cuda')
+        self.C = self.C_general[self.relevant_indices].to('cuda') # C stays on the GPU throught the process?
         self.train_labels = self.train_labels_general[self.relevant_indices]
 
-    def set_rel_features(self, lset, uset):
-        self.lSet = lset
-        self.uSet = uset
-        print(lset)
+
+    def set_rel_features(self):
+        """
+        Reorganizing the features to [lset and then uset].
+        """
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
-        # self.relevant_indices = np.arange(self.lSet.size +self.uSet.size).astype(int)
         if isinstance(self.all_features, torch.Tensor):
             self.rel_features = self.all_features[self.relevant_indices]
         elif isinstance(self.all_features, np.ndarray):
             self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices])
 
+
     def select_samples(self, lset, uset):
-        """
-        selecting samples using the greedy algorithm.
-        iteratively:
-        - removes incoming edges to all covered samples
-        - selects the sample high the highest out degree (covers most new samples)
-
-        """
-
+        
         self.init_sampling_loop(lset, uset)
 
-        # lset = np.array([12763, 48804, 36863, 40453, 46313, 44436, 15302, 48657, 34025, 44459])
-        #
-        # for i, l in enumerate(lset):
-        #     label_idx = np.where(self.relevant_indices == l)[0][0]
-        #     chosen_label = self.train_labels[label_idx]
-        #     self.C[:, chosen_label] += self.K[label_idx].squeeze()
-        # invalid_mask = np.isin(uset, lset)
-        # uset = uset[~invalid_mask]
         print(f'Start selecting {self.budgetSize} samples.')
         selected = []
-        if self.decrease_alpha and len(lset) > 0:
-            self.C -= self.alpha
-            self.alpha /= 2
-            self.C += self.alpha
         for i in range(self.budgetSize):
             curr_l_set = np.concatenate((np.arange(len(self.lSet)), selected)).astype(int)
             # curr_l_set = np.concatenate((self.lSet, selected)).astype(int)
@@ -182,12 +175,6 @@ class BAYES_MISP:
             assert sampled_point not in selected, 'sample was already selected'
             selected.append(sampled_point)
 
-
-
-        if False:
-            name = "prob_method_v1"
-            np.save(f"/cs/labs/daphna/itai.david/py_repos/TypiClust/vectors_debug/0708/{name}.npy", self.K[selected].cpu())
-
         assert len(selected) == self.budgetSize, 'added a different number of samples'
         activeSet = self.relevant_indices[selected]
 
@@ -207,7 +194,7 @@ class BAYES_MISP:
         sampled_indices = np.array(self.activeSet).astype(int)
         visualize_tsne(labeled_indices, sampled_indices, algo_name='MISP')
 
-# @torch.compile(backend="inductor")
+
 def batched_diffs_efficient_weighted(K: torch.Tensor, C: torch.Tensor, chunk_size: int = 1024, diff_method: str = "abs_diff", cont_method: str = "positive", class_corr=None):
     D, N, _ = K.shape
     result = torch.empty((D, )).to(device=C.device)
@@ -273,6 +260,7 @@ def batched_diffs_efficient_weighted(K: torch.Tensor, C: torch.Tensor, chunk_siz
 
     return result
 
+
 def batched_diffs_efficient_weighted_v2(K: torch.Tensor, C: torch.Tensor, chunk_size: int = 256, diff_method: str = "abs_diff", cont_method: int = 0):
     D, N, _ = K.shape
     results_list = []
@@ -308,7 +296,6 @@ def batched_diffs_efficient_weighted_v2(K: torch.Tensor, C: torch.Tensor, chunk_
     return result
 
 
-
 def batched_diffs(K, C, alpha, number_of_classes, chunk_size=1024, diff_method="abs_diff"):
     D, N = K.shape
     result = torch.empty(D).to(device=C.device)
@@ -327,7 +314,8 @@ def batched_diffs(K, C, alpha, number_of_classes, chunk_size=1024, diff_method="
         else:
             raise ValueError(f"Unknown diff method: {diff_method}")
     return result
-# @torch.compile(backend="cudagraphs")
+
+
 def batched_diffs_weighted(K, C, vals, inds, chunk_size=1024, diff_method="abs_diff", cont_method="positive"):
     D, N = K.shape
     result = torch.empty((D, )).to(device=C.device)
@@ -362,6 +350,4 @@ def batched_diffs_weighted(K, C, vals, inds, chunk_size=1024, diff_method="abs_d
         else:
             raise ValueError(f"Unknown diff method: {diff_method}")
     return result
-
-
 
