@@ -17,7 +17,7 @@ jobs:
 
       - name: Check for large files
         run: |
-          MAX_SIZE=104857600  # 100MB in bytes
+          MAX_SIZE=10485760  # 10MB in bytes
           
           # Get the list of files in the push/PR
           if [ "${{ github.event_name }}" = "pull_request" ]; then
