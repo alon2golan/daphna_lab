@@ -1,0 +1,54 @@
+name: Check File Size
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - '**'
+
+jobs:
+  check-large-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Check for large files
+        run: |
+          MAX_SIZE=104857600  # 100MB in bytes
+          
+          # Get the list of files in the push/PR
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            files=$(git diff --name-only origin/${{ github.base_ref }})
+          else
+            # For push events, compare with previous commit
+            if [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+              files=$(git diff --name-only ${{ github.event.before }}..${{ github.sha }})
+            else
+              files=$(git ls-files)
+            fi
+          fi
+          
+          echo "Checking file sizes..."
+          large_files_found=0
+          
+          while IFS= read -r file; do
+            if [ -f "$file" ]; then
+              size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
+              if [ "$size" -gt "$MAX_SIZE" ]; then
+                size_mb=$((size / 1024 / 1024))
+                echo "❌ Error: File '$file' is too large (${size_mb}MB). Maximum allowed: 100MB"
+                large_files_found=1
+              fi
+            fi
+          done <<< "$files"
+          
+          if [ $large_files_found -eq 1 ]; then
+            echo ""
+            echo "❌ Push rejected: Large files detected"
+            exit 1
+          fi
+          
+          echo "✅ All files are within size limits"
