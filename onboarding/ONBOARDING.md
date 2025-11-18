@@ -50,7 +50,7 @@ First, you need to clone the lab repo:
 cd /cs/labs/daphna/<user>/
 mkdir projects
 cd projects/
-git clone https://github.com/avihu111/TypiClust
+git clone https://github.com/alon2golan/daphna_lab.git
 ```
 
 ### Create a Python Virtual Environment
@@ -60,15 +60,15 @@ Next you create a python virtual env for this repo. Most of the users in the lab
 cd /cs/labs/daphna/<user>/
 mkdir envs/
 cd envs/
-virtualenv --system-site-packages -p python3.11 venv311
-cd /cs/labs/daphna/<user>/projects/TypiClust/
+virtualenv -p python3.11 venv311
+cd /cs/labs/daphna/<user>/projects/daphna_lab/
 ln -s /cs/labs/daphna/<user>/envs/venv311/ venv # create a symbolic link to the venv inside the project
 ```
 
 ### Install Requirements
 Now you have to install the requirements inside the virtual env:
 ```
-cd /cs/labs/daphna/<user>/projects/TypiClust/
+cd /cs/labs/daphna/<user>/projects/daphna_lab/
 source venv/bin/activate
 pip install -r deep-al/requirements.txt
 ```
@@ -108,7 +108,6 @@ python train_al.py --cfg ../configs/cifar10/al/RESNET18.yaml --al typiclust_rp -
 ```
 
 ## VSCode Setup
-(thanks to gpt)
 
 ### 1. Prerequisites
 - VS Code installed on your local machine
@@ -171,7 +170,7 @@ Host takara
 ### 5. Open Your Remote Project
 In the remote VS Code window, go to:
 1. File → Open Folder
-2. Browse to the folder containing your project (e.g., `/cs/labs/daphna/alongol/projects/TypiClust`)
+2. Browse to the folder containing your project (e.g., `/cs/labs/daphna/alongol/projects/daphna_lab`)
 3. Click OK
 
 ✅ You can now edit, run, and debug code directly on the remote machine.
@@ -234,7 +233,7 @@ Needs to be done from a virtual machine `phoenix-gw.cs.huji.ac.il`.
 ### Prepare a Script File
 First need to prepare a script file.
 
-Example: simple hello world script at `/cs/labs/daphna/alongol/projects/TypiClust/onboarding/sbatch_print_arguments.sh`:
+Example: simple hello world script at `/cs/labs/daphna/alongol/projects/daphna_lab/onboarding/sbatch_print_arguments.sh`:
 
 ```bash
 #!/bin/bash
@@ -244,7 +243,7 @@ Example: simple hello world script at `/cs/labs/daphna/alongol/projects/TypiClus
 #SBATCH --array=1-3
 #SBATCH --output=example_print_arguments_%j.out
 
-dir=/cs/labs/daphna/$USER/projects/TypiClust/
+dir=/cs/labs/daphna/$USER/projects/daphna_lab/
 cd $dir
 source $dir/venv/bin/activate
 cd $dir/onboarding/
@@ -271,7 +270,7 @@ ssh phoenix-gw
 cd /cs/labs/daphna/$USER/
 mkdir test_sbatch/
 cd test_sbatch/
-sbatch TypiClust/onboarding/sbatch_print_arguments.sh
+sbatch /cs/labs/daphna/$USER/projects/daphna_lab/onboarding/sbatch_print_arguments.sh
 ```
 
 ### Track your queue
@@ -288,5 +287,5 @@ Stdout/stderr of the runnings can be found in the current dir:
 ### Running with GPU
 Now a bit more complicated - let's run on sbatch `train_al.py` with GPU:
 ```
-sbatch TypiClust/onboarding/sbatch_gpu_example.sh
+sbatch /cs/labs/daphna/$USER/projects/daphna_lab/onboarding/sbatch_gpu_example.sh
 ```
