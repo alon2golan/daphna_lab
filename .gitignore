@@ -3,3 +3,21 @@ venv
 .env
 *tmp*
 *temp*
+
+# PyCharm
+.idea/
+
+# Mac
+.DS_STORE
+
+# Data symlinks
+pycls/datasets/data/
+
+# Other
+logs/
+scratch*
+*.out
+
+output/
+*.ipynb_checkpoints/
+data/
