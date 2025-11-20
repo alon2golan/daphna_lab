@@ -58,6 +58,7 @@ class TopHatKernel(object):
         # k = (dist_matrix < h).to(dtype=torch.float16)
         return dist_matrix
 
+# ----------------------- Main Logic ----------------------- #
 
 class BAYES_MISP:
     def __init__(self, cfg, budgetSize, train_labels, lset, delta=1):
@@ -66,7 +67,7 @@ class BAYES_MISP:
         self.seed = self.cfg['RNG_SEED']
         
         self.all_features = ds_utils.load_features(self.ds_name, train=True)
-        self.alpha = self.cfg.ALPHA
+        self.alpha = self.cfg.ALPHA if self.diff_method not in ['prob_cover', 'max_herding'] else 0
         self.debug = self.cfg.DEBUG
         self.cont_method = self.cfg.CONT_METHOD if 'CONT_METHOD' in self.cfg else 'positive'
 
@@ -87,8 +88,6 @@ class BAYES_MISP:
         self.C_general = torch.full((self.all_features.shape[0], self.num_of_classes), self.alpha, device='cuda', dtype=torch.float16)
         # Track labeled points information - to CUDA??
         self.chosen_labels_num = torch.zeros(self.num_of_classes).to('cuda')
-        self.cum_labels_info = torch.zeros(self.num_of_classes).to('cuda')
-        # Here was the initialization of C from the lset. TODO make this in initSamplingLoop
         torch.cuda.empty_cache()
 
 
@@ -111,80 +110,86 @@ class BAYES_MISP:
         self.activeSet = []
         self.K = self.kernel_fn.compute_kernel(
             self.rel_features, self.rel_features, self.delta)
-        self.C = self.C_general[self.relevant_indices].to('cuda') # C stays on the GPU throught the process?
-        self.train_labels = self.train_labels_general[self.relevant_indices]
+        self.C = self.C_general[self.relevant_indices_order].to('cuda') # C stays on the GPU throught the process?
+        self.train_labels = self.train_labels_general[self.relevant_indices_order]
+        # TODO: Load C from lset should be here. Important.
 
 
     def set_rel_features(self):
         """
         Reorganizing the features to [lset and then uset].
         """
-        self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
+        self.relevant_indices_order = np.concatenate([self.lSet, self.uSet]).astype(int)
         if isinstance(self.all_features, torch.Tensor):
-            self.rel_features = self.all_features[self.relevant_indices]
+            self.rel_features = self.all_features[self.relevant_indices_order]
         elif isinstance(self.all_features, np.ndarray):
-            self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices])
+            self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices_order])
 
 
     def select_samples(self, lset, uset):
         
-        self.init_sampling_loop(lset, uset)
+        self.lSet = lset
+        self.uSet = uset
+        self.set_rel_features()
+        self.C = self.C_general[self.relevant_indices_order].to('cuda') # C stays on the GPU throught the process?
+        self.train_labels = self.train_labels_general[self.relevant_indices_order]
+        self.K = self.K[self.relevant_indices_order, :][:, self.relevant_indices_order]
 
         print(f'Start selecting {self.budgetSize} samples.')
         selected = []
+        curr_l_set = list(range(len(lset)))
         for i in range(self.budgetSize):
-            curr_l_set = np.concatenate((np.arange(len(self.lSet)), selected)).astype(int)
-            # curr_l_set = np.concatenate((self.lSet, selected)).astype(int)
-            C_sum = torch.sum(self.C, dim=1, keepdim=True)
-            norm_C =  C_sum
-            # norm_C = self.C / C_sum
-            class_corr = (self.C.T - self.alpha) @ (self.C -self.alpha)
-            points_intres_class = (self.C - self.alpha) @ class_corr
+            
             if self.diff_method == 'margin':
                 vals, inds = torch.topk(self.C, k=2, dim=1)
-
                 old_margin = vals[:, 0] - vals[:, 1]
-
                 point_total_contribution = batched_diffs(self.K, old_margin, self.alpha, self.num_of_classes, diff_method="margin")
             elif self.diff_method == 'max':  ### old proxy with alphas vector without prior
-                max_vals, indices = torch.max(norm_C, dim=1)
+                max_vals, indices = torch.max(self.C, dim=1) # TODO
                 point_total_contribution = batched_diffs(self.K, max_vals, self.alpha, self.num_of_classes, diff_method="max")
-
             elif self.diff_method == 'top2_weighted_max':
-
                 vals, inds = torch.topk(self.C, k=2, dim=1)
                 point_total_contribution = batched_diffs_weighted(self.K, self.C, vals, inds, diff_method="weighted_max", cont_method=self.cont_method)
             elif self.diff_method == 'full_weighted_max': ### the method with the excepectation
-                if len(self.K.shape)==2:
+                if len(self.K.shape) == 2:
                     self.K.unsqueeze_(2)
+                class_corr = (self.C.T - self.alpha) @ (self.C -self.alpha)
+                points_intres_class = (self.C - self.alpha) @ class_corr
                 point_total_contribution = batched_diffs_efficient_weighted(self.K, self.C,
                                                           diff_method="efficient_full_weighted_max",cont_method=self.cont_method, class_corr=points_intres_class)
+            elif self.diff_method in ['prob_cover', 'max_herding']:
+                max_vals, indices = torch.max(self.C, dim=1)
+                point_total_contribution = batched_diffs(self.K, max_vals, 0, self.num_of_classes,
+                                                         diff_method="abs_diff")
             else:
                 point_total_contribution = batched_diffs(self.K, self.C, diff_method=self.diff_method)
+            # TODO: Make sure we don't even calculate contribution for selected points in the first place
             point_total_contribution[curr_l_set] = -np.inf
-            # sampled_point = point_total_contribution.argmax().item()
+            # Note: This is for stability - argmax is weird sometimes.
             sampled_point = np.argsort(point_total_contribution.cpu().numpy(), kind='stable')[::-1][0].item()
             chosen_label = self.train_labels[sampled_point].item()
 
             self.chosen_labels_num[chosen_label] += 1
 
-            self.C[:, chosen_label] += self.K[sampled_point].squeeze().to('cuda')
-            # self.C[:, chosen_label] = torch.maximum(self.C[:, chosen_label], self.K[sampled_point].squeeze())
-            self.cum_labels_info[chosen_label] += torch.sum(self.K[sampled_point].to('cuda'))
+            if self.diff_method in ['prob_cover', 'max_herding']:
+                self.C[:, chosen_label] = torch.maximum(self.C[:, chosen_label], self.K[sampled_point].to('cuda').squeeze())
+            else:
+                self.C[:, chosen_label] += self.K[sampled_point].squeeze().to('cuda')
 
             assert sampled_point not in selected, 'sample was already selected'
             selected.append(sampled_point)
+            curr_l_set.append(sampled_point)
 
         assert len(selected) == self.budgetSize, 'added a different number of samples'
-        activeSet = self.relevant_indices[selected]
+        activeSet = self.relevant_indices_order[selected]
 
-        self.C_general[self.relevant_indices] = self.C
+        # Updating the general C matrix with changes after point selections
+        self.C_general[self.relevant_indices_order] = self.C
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
         self.activeSet = activeSet
         print(f'Finished the selection of {len(activeSet)} samples.')
         print(f'Active set is {activeSet}')
 
-        del self.K
         del self.C
 
         return activeSet, remainSet
@@ -194,6 +199,7 @@ class BAYES_MISP:
         sampled_indices = np.array(self.activeSet).astype(int)
         visualize_tsne(labeled_indices, sampled_indices, algo_name='MISP')
 
+# ----------------------- Functions for Contribution Computation ----------------------- #
 
 def batched_diffs_efficient_weighted(K: torch.Tensor, C: torch.Tensor, chunk_size: int = 1024, diff_method: str = "abs_diff", cont_method: str = "positive", class_corr=None):
     D, N, _ = K.shape
@@ -307,7 +313,7 @@ def batched_diffs(K, C, alpha, number_of_classes, chunk_size=1024, diff_method="
             K_batched = K[start:end]
             K_batched = K_batched.to('cuda')
             result[start:end] = torch.sum(
-                torch.maximum(((K_batched + alpha) / (torch.maximum( K_batched+ alpha * number_of_classes, torch.full_like(K_batched, 1e-8)))) - C, torch.zeros_like(K_batched).to(device=C.device)), dim=1)
+                torch.maximum(((K_batched + alpha) / (torch.maximum( K_batched + alpha * number_of_classes, torch.full_like(K_batched, 1e-8)))) - C, torch.zeros_like(K_batched).to(device=C.device)), dim=1)
         elif diff_method == 'margin':
             result[start:end] = torch.sum(
                 torch.maximum((K[start:end] / (K[start:end] + alpha * number_of_classes)) - C, torch.zeros_like(K[start:end]).to(device=C.device)), dim=1)
