@@ -17,7 +17,7 @@ add_path(os.path.abspath('..'))
 
 from pycls.al.ActiveLearning import ActiveLearning
 import pycls.core.builders as model_builder
-from pycls.core.config import cfg, dump_cfg
+from pycls.core.config import cfg, dump_cfg, setup_cfg
 import pycls.core.losses as losses
 import pycls.core.optimizer as optim
 from pycls.datasets.data import Data
@@ -133,6 +133,7 @@ def is_eval_epoch(cur_epoch):
 
 
 def main(cfg):
+    print("RNG_SEED is set to {}".format(cfg.RNG_SEED))
     # Setting up GPU args
     use_cuda = (cfg.NUM_GPUS > 0) and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -183,7 +184,7 @@ def main(cfg):
         print("Experiment Directory Already Exists: {}. Reusing it may lead to loss of old logs in the directory.\n".format(exp_dir))
     cfg.EXP_DIR = exp_dir
 
-    # Save the config file in EXP_DIR
+    # Save the config file in EXP_DIR and OUT_DIR
     dump_cfg(cfg)
 
     # Setup Logger
@@ -743,98 +744,11 @@ def get_label_epoch(images_loader, model, get_label_meter):
     return final_preds
 
 
-def define_eval_model_type(cfg, debug=False):
-    if cfg.EVAL_MODEL_TYPE == 'NN1':
-        cfg.MODEL.USE_1NN = True
-        cfg.MODEL.LINEAR_FROM_FEATURES = True
-        cfg.MODEL.LINEAR_FROM_IMAGES = False
-        if debug:
-            cfg.OPTIM.MAX_EPOCH = 1
-        else:
-            cfg.OPTIM.MAX_EPOCH = 200
-    elif cfg.EVAL_MODEL_TYPE == 'from_features':
-        cfg.MODEL.USE_1NN = False
-        cfg.MODEL.LINEAR_FROM_FEATURES = True
-        cfg.MODEL.LINEAR_FROM_IMAGES = False
-        if debug:
-            cfg.OPTIM.MAX_EPOCH = 1
-        else:
-            cfg.OPTIM.MAX_EPOCH = 200
-    elif cfg.EVAL_MODEL_TYPE == 'from_images':
-        cfg.MODEL.USE_1NN = False
-        cfg.MODEL.LINEAR_FROM_FEATURES = False
-        cfg.MODEL.LINEAR_FROM_IMAGES = True
-        if debug:
-            cfg.OPTIM.MAX_EPOCH = 1
-        else:
-            cfg.OPTIM.MAX_EPOCH = 200
+
 
 if __name__ == "__main__":
-    # print(1)
+    # Parse command line arguments and setup config in one call
     args = argparser().parse_args()
-    cfg.merge_from_file(args.cfg_file)
-    cfg.EXP_NAME = args.exp_name
-    cfg.ACTIVE_LEARNING.SAMPLING_FN = args.al
-    cfg.ACTIVE_LEARNING.BUDGET_SIZE = args.budget
-    cfg.ACTIVE_LEARNING.INITIAL_DELTA = args.initial_delta
-    cfg.KERNEL_TYPE = args.kernel_type
-    cfg.SOFT_BORDER_VAL = args.soft_border_val
-    cfg.DIFF_METHOD = args.diff_method
-    cfg.CONT_METHOD = args.cont_method
-    cfg.DECREASING_ALPHA = args.decrease_alpha
-    debug = cfg.DEBUG = args.debug
-    cfg.HIGH_BUDGET = args.high_budget
-    cfg.CONFIDENCE_METHOD = args.confidence_method
-    if debug:
-        cfg.RNG_SEED = 0
-    else:
-        cfg.RNG_SEED = args.seed
-    cfg.ALPHA = args.alpha
-    cfg.NORM_IMPORTANCE = args.norm_importance
-    cfg.SPARSE_DS = args.sparse_ds
-    # cfg.OWN_ALPHA_WEIGHTING = args.own_alpha_weighting
-
-    print("RNG_SEED is set to {}".format(cfg.RNG_SEED))
-    # cfg.MODEL.LINEAR_FROM_FEATURES = args.linear_from_features
-    cfg.ACTIVE_LEARNING.A_LOGISTIC = args.a_logistic
-    cfg.ACTIVE_LEARNING.K_LOGISTIC = args.k_logistic
-    cfg.EVAL_MODEL_TYPE = args.eval_model_type
-    cfg.ACTIVE_LEARNING.MAX_ITER = args.max_iter
-    define_eval_model_type(cfg, debug)
-
-    main(cfg)
-
-
-# --cfg ../configs/cifar10/al/RESNET18.yaml --al probcover --exp-name auto --initial_size 0 --budget 10 --initial_delta 0.75
-# """
-# #!/bin/bash
-# #SBATCH --mem=20g ## amount of memory
-# #SBATCH -c 20 ## number of cpu
-# #SBATCH --time=40:00:00 ## time limit for the process
-# #SBATCH --gres=gpu:a10:1,vmem:20g ## gpu::<type of gpu>:<number of gpus>,vmem:<amount of memory on gpu (max 10gb/24gb/40gb)>
-# #SBATCH --array=0-2 ## array of jobs to run (job 0, job 1, job 2)
-# #SBATCH --output /cs/labs/daphna/maorni_cse/SupContrast/run_outputs/run_exp_%A_%a.txt
-# ## those are the type of the potential gpus : gpu:rtx2080:1, gpu:a10:1, gpu:g4:1 (can check in the university for more)
-# dir=/cs/labs/daphna/maorni_cse/SupContrast
-#
-# cd $dir
-#
-# source /cs/labs/daphna/maorni_cse/virs/reembedding/bin/activate
-#
-# python run_it.py --job_id ${SLURM_ARRAY_TASK_ID}
-# """
-
-###some utils functions should be copied to train_al.py instead of train.py
-
-### need to change it to save the metrics in the test function of the eval model, it is not saving by default
-
-## change in the sbatch to my paths instead of Maor
-
-## scancel <job_id> to cancel the job
-
-## sbatch <script_name> to run the job
-
-## sbatch <script_name> --killable to run the job with killable resources
-
-
-## change alpha values (on from features)
+    cfg_instance = setup_cfg(args)
+    # Run main with the initialized config
+    main(cfg_instance)

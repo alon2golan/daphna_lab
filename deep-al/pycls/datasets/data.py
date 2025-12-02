@@ -16,6 +16,8 @@ from pycls.datasets.custom_datasets import CIFAR10, CIFAR100, MNIST, SVHN, SCENA
 from pycls.datasets.imbalanced_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 from pycls.datasets.sampler import IndexedSequentialSampler
 from pycls.datasets.tiny_imagenet import TinyImageNet
+from pycls.datasets.imagenet import ImageNet
+
 logger = lu.get_logger(__name__)
 
 class _RepeatSampler(object):

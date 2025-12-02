@@ -267,3 +267,216 @@ def load_cfg(out_dir, cfg_dest='config.yaml'):
     """Loads config from specified output directory."""
     cfg_file = os.path.join(out_dir, cfg_dest)
     _C.merge_from_file(cfg_file)
+
+
+def initialize_cfg(cfg_file, args_dict):
+    """
+    Unified config initialization function that merges all three config sources.
+    
+    Priority order (highest to lowest):
+    1. argparse arguments (args_dict) - highest priority
+    2. yaml config file (cfg_file)
+    3. config.py defaults (_C) - lowest priority
+    
+    Args:
+        cfg_file (str): Path to the YAML configuration file
+        args_dict (dict): Dictionary of argparse arguments to override configs
+    
+    Returns:
+        cfg: The merged configuration object
+    """
+    # Start with default config from config.py
+    cfg = _C.clone()
+    
+    # Step 1: Merge YAML config file (lower priority than argparse)
+    if cfg_file:
+        cfg.merge_from_file(cfg_file)
+    
+    # Step 2: Apply argparse arguments (highest priority - these override everything)
+    if args_dict:
+        # Filter out None values to only apply explicitly set arguments
+        for key, value in args_dict.items():
+            if value is not None:
+                # Handle nested config attributes (e.g., 'ACTIVE_LEARNING.SAMPLING_FN')
+                if isinstance(key, str) and '.' in key:
+                    parts = key.split('.')
+                    config_obj = cfg
+                    for part in parts[:-1]:
+                        config_obj = getattr(config_obj, part)
+                    setattr(config_obj, parts[-1], value)
+                else:
+                    # Direct attribute assignment
+                    try:
+                        setattr(cfg, key, value)
+                    except Exception:
+                        # If direct assignment fails, try nested access
+                        pass
+    
+    return cfg
+
+
+def get_config_aliases():
+    """
+    Returns a dictionary of configuration aliases.
+    Each alias maps a single argument value to multiple config parameter updates.
+    This allows setting multiple related config params with one argument.
+    
+    Example:
+        aliases['eval_model_type']['from_features'] = {
+            'MODEL.USE_1NN': False,
+            'MODEL.LINEAR_FROM_FEATURES': True,
+            ...
+        }
+    """
+    aliases = {
+        'eval_model_type': {
+            'NN1': {
+                'MODEL.USE_1NN': True,
+                'MODEL.LINEAR_FROM_FEATURES': True,
+                'MODEL.LINEAR_FROM_IMAGES': False,
+            },
+            'from_features': {
+                'MODEL.USE_1NN': False,
+                'MODEL.LINEAR_FROM_FEATURES': True,
+                'MODEL.LINEAR_FROM_IMAGES': False,
+            },
+            'from_images': {
+                'MODEL.USE_1NN': False,
+                'MODEL.LINEAR_FROM_FEATURES': False,
+                'MODEL.LINEAR_FROM_IMAGES': True,
+            },
+        },
+        'debug': {
+            True: {
+                'OPTIM.MAX_EPOCH': 1,
+                'RNG_SEED': 0,
+            },
+        }
+    }
+    return aliases
+
+
+def apply_config_aliases(alias_name, alias_value, aliases):
+    """
+    Applies configuration aliases to get all related config parameter updates.
+    
+    Args:
+        alias_name (str): The name of the alias (e.g., 'eval_model_type')
+        alias_value (str): The value of the alias (e.g., 'from_features')
+        aliases (dict): The aliases dictionary from get_config_aliases()
+    
+    Returns:
+        dict: Dictionary of config parameters to update, or empty dict if alias not found
+    """
+    if alias_name not in aliases:
+        return {}
+    
+    alias_dict = aliases[alias_name]
+    if alias_value not in alias_dict:
+        return {}
+    
+    return alias_dict[alias_value]
+
+
+def merge_alias_updates(args_dict, aliases_to_apply, overwrite=False):
+    """
+    Merges alias updates into the arguments dictionary.
+    
+    Args:
+        args_dict (dict): The arguments dictionary to merge updates into
+        aliases_to_apply (list): List of tuples (alias_name, alias_value, aliases_dict)
+        overwrite (bool): If True, aliases overwrite existing args_dict values.
+                         If False, aliases only set values that don't exist in args_dict.
+                         Default is False (non-invasive mode).
+    
+    Returns:
+        dict: The updated args_dict
+    """
+    for alias_name, alias_value, aliases_dict in aliases_to_apply:
+        updates = apply_config_aliases(alias_name, alias_value, aliases_dict)
+        
+        for key, value in updates.items():
+            if overwrite or key not in args_dict:
+                args_dict[key] = value
+    
+    return args_dict
+
+
+def build_args_dict(args):
+    """
+    Builds the complete arguments dictionary from parsed command-line arguments,
+    including alias updates.
+    
+    This function consolidates:
+    1. Direct argument mapping to config keys
+    2. Alias-based config parameter updates
+    
+    Args:
+        args: Parsed arguments from argparser()
+    
+    Returns:
+        dict: The complete args_dict with all direct arguments and alias updates
+    """
+    debug = args.debug
+    
+    # Build base arguments dictionary
+    args_dict = {
+        'EXP_NAME': args.exp_name,
+        'ACTIVE_LEARNING.SAMPLING_FN': args.al,
+        'ACTIVE_LEARNING.BUDGET_SIZE': args.budget,
+        'ACTIVE_LEARNING.INITIAL_DELTA': args.initial_delta,
+        'KERNEL_TYPE': args.kernel_type,
+        'SOFT_BORDER_VAL': args.soft_border_val,
+        'DIFF_METHOD': args.diff_method,
+        'CONT_METHOD': args.cont_method,
+        'DECREASING_ALPHA': args.decrease_alpha,
+        'DEBUG': debug,
+        'HIGH_BUDGET': args.high_budget,
+        'CONFIDENCE_METHOD': args.confidence_method,
+        'RNG_SEED': args.seed,
+        'ALPHA': args.alpha,
+        'NORM_IMPORTANCE': args.norm_importance,
+        'SPARSE_DS': args.sparse_ds,
+        'ACTIVE_LEARNING.A_LOGISTIC': args.a_logistic,
+        'ACTIVE_LEARNING.K_LOGISTIC': args.k_logistic,
+        'EVAL_MODEL_TYPE': args.eval_model_type,
+        'ACTIVE_LEARNING.MAX_ITER': args.max_iter,
+    }
+    
+    # Get config aliases
+    aliases = get_config_aliases()
+    
+    # Apply eval_model_type alias with non-invasive mode (doesn't overwrite existing values)
+    eval_model_updates = [('eval_model_type', args.eval_model_type, aliases)]
+    merge_alias_updates(args_dict, eval_model_updates, overwrite=False)
+    
+    # Apply debug alias with invasive mode (overwrites existing values)
+    debug_updates = [('debug', debug, aliases)]
+    merge_alias_updates(args_dict, debug_updates, overwrite=True)
+    
+    return args_dict
+
+
+def setup_cfg(args):
+    """
+    One-shot configuration setup from command-line arguments.
+    
+    Takes parsed arguments, builds the complete args_dict (including aliases),
+    initializes the config with proper priority ordering, and prints RNG_SEED.
+    
+    This is the main entry point for config setup in training scripts.
+    
+    Args:
+        args: Parsed arguments from argparser() (must have cfg_file attribute)
+    
+    Returns:
+        cfg: The initialized and merged configuration object
+    """
+    # Build args_dict from arguments (handles aliases, special cases)
+    args_dict = build_args_dict(args)
+    
+    # Initialize config with unified function
+    # Priority: argparse (highest) > cfg_file > config.py defaults (lowest)
+    cfg_instance = initialize_cfg(args.cfg_file, args_dict)
+    return cfg_instance
+
