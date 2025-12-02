@@ -34,17 +34,6 @@ from pycls.utils.plotting_state import PlottingManager
 logger = lu.get_logger(__name__)
 
 
-def str2bool(v):
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
-
-
 def argparser():
     parser = argparse.ArgumentParser(description='Active Learning - Image Classification')
     parser.add_argument('--cfg', dest='cfg_file', help='Config file', required=True, type=str)
@@ -53,7 +42,7 @@ def argparser():
     parser.add_argument('--budget', help='Budget Per Round', required=True, type=int) ## in each iteration how much labels can I get
     parser.add_argument('--initial_size', help='Size of the initial random labeled set', default=0, type=int)
     parser.add_argument('--seed', help='Random seed', default=1, type=int)
-    parser.add_argument('--finetune', help='Whether to continue with existing model between rounds', type=str2bool, default=False) # train the eval model from last ckpt and not from scratch (between iters)
+    parser.add_argument('--finetune', help='Whether to continue with existing model between rounds', action='store_true') # train the eval model from last ckpt and not from scratch (between iters)
     parser.add_argument('--eval_model_type', help='eval_model_type', type=str) # train the eval model from features not images
     parser.add_argument('--initial_delta', help='Relevant only for ProbCover and DCoM', default=0.6, type=float)
     parser.add_argument('--kernel_type', default='rbf', type=str)
