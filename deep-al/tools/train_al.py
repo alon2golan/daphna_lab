@@ -29,47 +29,10 @@ import pycls.utils.model_handler as mh
 from pycls.utils.meters import TestMeter
 from pycls.utils.meters import TrainMeter
 from pycls.utils.meters import ValMeter
+from pycls.utils.plotting_state import PlottingManager
 
 logger = lu.get_logger(__name__)
 
-plot_episode_xvalues = []
-plot_episode_yvalues = []
-
-plot_epoch_xvalues = []
-plot_epoch_yvalues = []
-
-plot_it_x_values = []
-plot_it_y_values = []
-
-delta_avg_lst = []
-delta_std_lst = []
-
-
-def plot_arrays(x_vals, y_vals, x_name, y_name, dataset_name, out_dir, isDebug=False):
-    import matplotlib.pyplot as plt
-    temp_name = "{}_vs_{}".format(x_name, y_name)
-    plt.xlabel(x_name)
-    plt.ylabel(y_name)
-    plt.title("Dataset: {}; {}".format(dataset_name, temp_name))
-    plt.plot(x_vals, y_vals)
-
-    if isDebug: print("plot_saved at : {}".format(os.path.join(out_dir, temp_name + '.png')))
-
-    plt.savefig(os.path.join(out_dir, temp_name + ".png"))
-    plt.close()
-
-
-def save_plot_values(temp_arrays, temp_names, out_dir, isParallel=True, saveInTextFormat=False, isDebug=True):
-    """ Saves arrays provided in the list in npy format """
-    for i in range(len(temp_arrays)):
-        temp_arrays[i] = np.array(temp_arrays[i])
-        temp_dir = out_dir
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir)
-        if saveInTextFormat:
-            np.savetxt(temp_dir + '/' + temp_names[i] + ".txt", temp_arrays[i], fmt="%d")
-        else:
-            np.save(temp_dir + '/' + temp_names[i] + ".npy", temp_arrays[i])
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -119,6 +82,7 @@ def is_eval_epoch(cur_epoch):
 
 
 def main(cfg):
+    plotting_manager = PlottingManager()
     print("RNG_SEED is set to {}".format(cfg.RNG_SEED))
     # Setting up GPU args
     use_cuda = (cfg.NUM_GPUS > 0) and torch.cuda.is_available()
@@ -218,7 +182,7 @@ def main(cfg):
             print('Labeled Set is Empty - Create and save the first delta values list')
             lSet_deltas = [str(cfg.ACTIVE_LEARNING.INITIAL_DELTA)] * cfg.ACTIVE_LEARNING.BUDGET_SIZE
             cfg.ACTIVE_LEARNING.DELTA_LST = lSet_deltas
-            delta_avg_lst.append(cfg.ACTIVE_LEARNING.INITIAL_DELTA)
+            plotting_manager.add_delta_stats(cfg.ACTIVE_LEARNING.INITIAL_DELTA, 0.0)
 
         print('Labeled Set is Empty - Sampling an Initial Pool')
         activeSet, new_uSet = al_obj.sample_from_uSet(model, lSet, uSet, train_data)
@@ -266,7 +230,7 @@ def main(cfg):
         cfg.EPISODE_DIR = episode_dir
 
         checkpoint_file = train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader,
-                                               valSet_loader)
+                                               valSet_loader, plotting_manager)
 
         # No need to perform active sampling in the last episode iteration
         if cur_episode == cfg.ACTIVE_LEARNING.MAX_ITER:
@@ -275,7 +239,7 @@ def main(cfg):
             data_obj.saveSet(uSet, 'uSet', cfg.EPISODE_DIR)
             break
 
-        Dcom_delta_update(cfg, data_obj, checkpoint_file, lSet, train_data, uSet)
+        Dcom_delta_update(cfg, data_obj, checkpoint_file, lSet, train_data, uSet, plotting_manager)
 
         # Active Sample 
         lSet, lSet_loader, uSet, valSet_loader = active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet,
@@ -288,9 +252,11 @@ def main(cfg):
             next_initial_deltas = [str(round(np.average(delta_lst_float), 2))] * cfg.ACTIVE_LEARNING.BUDGET_SIZE
             cfg.ACTIVE_LEARNING.DELTA_LST.extend(next_initial_deltas)
             print("Current delta list: ", cfg.ACTIVE_LEARNING.DELTA_LST)
-            print("Current delta avg list: ", delta_avg_lst)
-            print("Current delta std list: ", delta_std_lst)
-        print('Current accuracy values: ', plot_episode_yvalues)
+            delta_avg, delta_std = plotting_manager.get_delta_stats()
+            print("Current delta avg list: ", delta_avg)
+            print("Current delta std list: ", delta_std)
+        _, ep_y = plotting_manager.get_episode_data()
+        print('Current accuracy values: ', ep_y)
 
         if not cfg.ACTIVE_LEARNING.FINE_TUNE:
             # start model from scratch
@@ -329,24 +295,24 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
     return lSet, lSet_loader, uSet, valSet_loader
 
 
-def train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader, valSet_loader):
+def train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader, valSet_loader, plotting_manager):
     # Train model
     print("======== TRAINING ========")
     logger.info("======== TRAINING ========")
-    best_val_acc, best_val_epoch, checkpoint_file, model = train_model(lSet_loader, valSet_loader, model, optimizer, cfg)
+    best_val_acc, best_val_epoch, checkpoint_file, model = train_model(lSet_loader, valSet_loader, model, optimizer, cfg, plotting_manager)
     print("Best Validation Accuracy: {}\nBest Epoch: {}\n".format(round(best_val_acc, 4), best_val_epoch))
     logger.info("EPISODE {} Best Validation Accuracy: {}\tBest Epoch: {}\n".format(cur_episode, round(best_val_acc, 4),
                                                                                    best_val_epoch))
     # Test best model checkpoint
     print("======== TESTING ========\n")
     logger.info("======== TESTING ========\n")
-    test_acc = test_model(test_loader, checkpoint_file, cfg, cur_episode, model)
+    test_acc = test_model(test_loader, checkpoint_file, cfg, cur_episode, model, plotting_manager)
     print("Test Accuracy: {}.\n".format(round(test_acc, 4)))
     logger.info("EPISODE {} Test Accuracy {}.\n".format(cur_episode, test_acc))
     return checkpoint_file
 
 
-def Dcom_delta_update(cfg, data_obj, checkpoint_file, lSet, train_data, uSet):
+def Dcom_delta_update(cfg, data_obj, checkpoint_file, lSet, train_data, uSet, plotting_manager):
 
     if cfg.ACTIVE_LEARNING.SAMPLING_FN.lower() in ["dcom"]:
         print("======== Update the deltas dynamically ========\n")
@@ -369,19 +335,10 @@ def Dcom_delta_update(cfg, data_obj, checkpoint_file, lSet, train_data, uSet):
                                                                               budget=cfg.ACTIVE_LEARNING.BUDGET_SIZE)
 
         delta_lst_float = [float(delta) for delta in cfg.ACTIVE_LEARNING.DELTA_LST]
-        delta_avg_lst.append(np.average(delta_lst_float))
-        delta_std_lst.append(np.std(delta_lst_float))
+        plotting_manager.add_delta_stats(np.average(delta_lst_float), np.std(delta_lst_float))
 
 
-def train_model(train_loader, val_loader, model, optimizer, cfg):
-    global plot_episode_xvalues
-    global plot_episode_yvalues
-
-    global plot_epoch_xvalues
-    global plot_epoch_yvalues
-
-    global plot_it_x_values
-    global plot_it_y_values
+def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manager):
 
     if cfg.MODEL.USE_1NN:  # TODO move to train_model function
 
@@ -423,7 +380,7 @@ def train_model(train_loader, val_loader, model, optimizer, cfg):
 
         # Train for one epoch
         train_loss, clf_iter_count = train_epoch(train_loader, model, loss_fun, optimizer, train_meter, \
-                                        cur_epoch, cfg, clf_iter_count, clf_change_lr_iter, clf_train_iterations)
+                                        cur_epoch, cfg, clf_iter_count, clf_change_lr_iter, clf_train_iterations, plotting_manager)
 
         # Compute precise BN stats
         if cfg.BN.USE_PRECISE_STATS:
@@ -453,8 +410,7 @@ def train_model(train_loader, val_loader, model, optimizer, cfg):
             val_acc_epochs_x.append(cur_epoch+1)
             val_acc_epochs_y.append(val_set_acc)
 
-        plot_epoch_xvalues.append(cur_epoch+1)
-        plot_epoch_yvalues.append(train_loss)
+        plotting_manager.add_epoch(cur_epoch+1, train_loss)
         logger.info("Successfully logged numpy arrays!!")
 
         print('Training Epoch: {}/{}\tTrain Loss: {}\tVal Accuracy: {}'.format(cur_epoch+1, cfg.OPTIM.MAX_EPOCH, round(train_loss, 4), round(val_set_acc, 4)))
@@ -466,10 +422,7 @@ def train_model(train_loader, val_loader, model, optimizer, cfg):
     print('\nWrote Best Model Checkpoint to: {}\n'.format(checkpoint_file.split('/')[-1]))
     logger.info('Wrote Best Model Checkpoint to: {}\n'.format(checkpoint_file))
 
-    plot_epoch_xvalues = []
-    plot_epoch_yvalues = []
-    plot_it_x_values = []
-    plot_it_y_values = []
+    plotting_manager.reset_epoch_plots()
 
     best_val_acc = temp_best_val_acc
     best_val_epoch = temp_best_val_epoch
@@ -477,16 +430,7 @@ def train_model(train_loader, val_loader, model, optimizer, cfg):
     return best_val_acc, best_val_epoch, checkpoint_file, None
 
 
-def test_model(test_loader, checkpoint_file, cfg, cur_episode, model):
-
-    global plot_episode_xvalues
-    global plot_episode_yvalues
-
-    global plot_epoch_xvalues
-    global plot_epoch_yvalues
-
-    global plot_it_x_values
-    global plot_it_y_values
+def test_model(test_loader, checkpoint_file, cfg, cur_episode, model, plotting_manager):
 
     test_meter = TestMeter(len(test_loader))
 
@@ -501,28 +445,16 @@ def test_model(test_loader, checkpoint_file, cfg, cur_episode, model):
         test_err = test_epoch(test_loader, model, test_meter, cur_episode)
         test_acc = 100. - test_err
 
-    plot_episode_xvalues.append(cur_episode)
-    plot_episode_yvalues.append(test_acc)
+    plotting_manager.add_episode(cur_episode, test_acc)
     print(f"OUTPUT FOLDER IS {cfg.EXP_DIR}")
-    plot_arrays(x_vals=plot_episode_xvalues, y_vals=plot_episode_yvalues, \
-                x_name="Episodes", y_name="Test Accuracy", dataset_name=cfg.DATASET.NAME, out_dir=cfg.EXP_DIR)
-
-    save_plot_values([plot_episode_xvalues, plot_episode_yvalues], \
-                     ["plot_episode_xvalues", "plot_episode_yvalues"], out_dir=cfg.EXP_DIR)
+    plotting_manager.plot_episode_results(dataset_name=cfg.DATASET.NAME, out_dir=cfg.EXP_DIR)
+    plotting_manager.save_episode_data(out_dir=cfg.EXP_DIR)
 
     return test_acc
 
 
-def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch, cfg, clf_iter_count, clf_change_lr_iter, clf_max_iter):
+def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch, cfg, clf_iter_count, clf_change_lr_iter, clf_max_iter, plotting_manager):
     """Performs one epoch of training."""
-    global plot_episode_xvalues
-    global plot_episode_yvalues
-
-    global plot_epoch_xvalues
-    global plot_epoch_yvalues
-
-    global plot_it_x_values
-    global plot_it_y_values
 
     # Shuffle the data
     if cfg.NUM_GPUS>1:  train_loader.sampler.set_epoch(cur_epoch)
@@ -559,8 +491,7 @@ def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch
         # Copy the stats from GPU to CPU (sync point)
         loss, top1_err = loss.item(), top1_err.item()
         if cur_iter != 0 and cur_iter%19 == 0:
-            plot_it_x_values.append((cur_epoch)*len_train_loader + cur_iter)
-            plot_it_y_values.append(loss)
+            plotting_manager.add_iteration((cur_epoch)*len_train_loader + cur_iter, loss)
             print('Training Epoch: {}/{}\tIter: {}/{}'.format(cur_epoch+1, cfg.OPTIM.MAX_EPOCH, cur_iter, len(train_loader)))
 
         train_meter.iter_toc()
@@ -588,16 +519,6 @@ def get_label_from_model(images_loader, checkpoint_file, cfg, model=None):
 @torch.no_grad()
 def test_epoch(test_loader, model, test_meter, cur_epoch):
     """Evaluates the model on the test set."""
-
-    global plot_episode_xvalues
-    global plot_episode_yvalues
-
-    global plot_epoch_xvalues
-    global plot_epoch_yvalues
-
-    global plot_it_x_values
-    global plot_it_y_values
-
     if torch.cuda.is_available():
         model.cuda()
 
