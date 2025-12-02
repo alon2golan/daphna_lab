@@ -46,9 +46,6 @@ delta_std_lst = []
 
 
 def plot_arrays(x_vals, y_vals, x_name, y_name, dataset_name, out_dir, isDebug=False):
-    # if not du.is_master_proc():
-    #     return
-
     import matplotlib.pyplot as plt
     temp_name = "{}_vs_{}".format(x_name, y_name)
     plt.xlabel(x_name)
@@ -64,24 +61,14 @@ def plot_arrays(x_vals, y_vals, x_name, y_name, dataset_name, out_dir, isDebug=F
 
 def save_plot_values(temp_arrays, temp_names, out_dir, isParallel=True, saveInTextFormat=False, isDebug=True):
     """ Saves arrays provided in the list in npy format """
-    # Return if not master process
-    # if isParallel:
-    #     if not du.is_master_proc():
-    #         return
-
     for i in range(len(temp_arrays)):
         temp_arrays[i] = np.array(temp_arrays[i])
         temp_dir = out_dir
-        # if cfg.TRAIN.TRANSFER_EXP:
-        #     temp_dir += os.path.join("transfer_experiment",cfg.MODEL.TRANSFER_MODEL_TYPE+"_depth_"+str(cfg.MODEL.TRANSFER_MODEL_DEPTH))+"/"
-
         if not os.path.exists(temp_dir):
             os.makedirs(temp_dir)
         if saveInTextFormat:
-            # if isDebug: print(f"Saving {temp_names[i]} at {temp_dir+temp_names[i]}.txt in text format!!")
             np.savetxt(temp_dir + '/' + temp_names[i] + ".txt", temp_arrays[i], fmt="%d")
         else:
-            # if isDebug: print(f"Saving {temp_names[i]} at {temp_dir+temp_names[i]}.npy in numpy format!!")
             np.save(temp_dir + '/' + temp_names[i] + ".npy", temp_arrays[i])
 
 def str2bool(v):
@@ -105,7 +92,6 @@ def argparser():
     parser.add_argument('--seed', help='Random seed', default=1, type=int)
     parser.add_argument('--finetune', help='Whether to continue with existing model between rounds', type=str2bool, default=False) # train the eval model from last ckpt and not from scratch (between iters)
     parser.add_argument('--eval_model_type', help='eval_model_type', type=str) # train the eval model from features not images
-    # parser.add_argument('--linear_from_features', help='Whether to use a linear layer from self-supervised features', action='store_true') # train the eval model from features not images
     parser.add_argument('--initial_delta', help='Relevant only for ProbCover and DCoM', default=0.6, type=float)
     parser.add_argument('--kernel_type', default='rbf', type=str)
     parser.add_argument('--diff_method', default='abs_diff', type=str)
@@ -144,10 +130,6 @@ def main(cfg):
         cfg.RNG_SEED = np.random.randint(100)
 
     # Using specific GPU
-    # os.environ['NVIDIA_VISIBLE_DEVICES'] = str(cfg.GPU_ID)
-    # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-    # print("Using GPU : {}.\n".format(cfg.GPU_ID))
-
     # Getting the output directory ready (default is "/output")
     cfg.OUT_DIR = os.path.join(os.path.abspath('../..'), cfg.OUT_DIR)
     if not os.path.exists(cfg.OUT_DIR):
@@ -160,9 +142,6 @@ def main(cfg):
     # all logs, labeled, unlabeled, validation sets are stroed here 
     # E.g., output/CIFAR10/resnet18/{timestamp or cfg.EXP_NAME based on arguments passed}
     if cfg.EXP_NAME == 'auto':
-        # now = datetime.now()
-        # exp_suffix = f'{now.year}_{now.month}_{now.day}_{now.hour:02}{now.minute:02}{now.second:02}_{now.microsecond}'
-        # exp_dir = f'{cfg.DATASET.NAME}_{cfg.MODEL.TYPE}_{exp_suffix}'
         exp_prefix = ""
     else:
         exp_prefix = f"{cfg.EXP_NAME}_"
@@ -222,7 +201,6 @@ def main(cfg):
 
     lSet, uSet, valSet = data_obj.loadPartitions(lSetPath=cfg.ACTIVE_LEARNING.LSET_PATH, \
             uSetPath=cfg.ACTIVE_LEARNING.USET_PATH, valSetPath = cfg.ACTIVE_LEARNING.VALSET_PATH)
-    # model = model_builder.build_model(cfg).cuda()
     model = mh.get_model(cfg)
     if cfg.HIGH_BUDGET:
         seed = 42
@@ -245,8 +223,6 @@ def main(cfg):
         print('Labeled Set is Empty - Sampling an Initial Pool')
         activeSet, new_uSet = al_obj.sample_from_uSet(model, lSet, uSet, train_data)
         print(f'Initial Pool is {activeSet}')
-        # Save current lSet, new_uSet and activeSet in the episode directory
-        # data_obj.saveSets(lSet, uSet, activeSet, cfg.EPISODE_DIR)
         # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode
         lSet = np.append(lSet, activeSet)
         uSet = new_uSet
@@ -267,7 +243,6 @@ def main(cfg):
     logger.info("model: {}\n".format(cfg.MODEL.TYPE))
 
     # Construct the optimizer
-    # model = model_builder.build_model(cfg)
     model = mh.get_model(cfg)
     optimizer = optim.construct_optimizer(cfg, model)
     opt_init_state = deepcopy(optimizer.state_dict()) if not cfg.MODEL.USE_1NN else None
@@ -300,7 +275,6 @@ def main(cfg):
             data_obj.saveSet(uSet, 'uSet', cfg.EPISODE_DIR)
             break
 
-        # DCoM's delta-s updating
         Dcom_delta_update(cfg, data_obj, checkpoint_file, lSet, train_data, uSet)
 
         # Active Sample 
@@ -333,9 +307,6 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
                          valSet_loader, al_obj):
     print("======== ACTIVE SAMPLING ========\n")
     logger.info("======== ACTIVE SAMPLING ========\n")
-    # al_obj = ActiveLearning(data_obj, cfg) if al_obj is None else al_obj
-    # clf_model = model_builder.build_model(cfg)
-    # clf_model = cu.load_checkpoint(checkpoint_file, clf_model)
     clf_model = mh.get_model(cfg, checkpoint_file)
     activeSet, new_uSet = al_obj.sample_from_uSet(clf_model, lSet, uSet, train_data)
     # Save current lSet, new_uSet and activeSet in the episode directory
@@ -347,7 +318,6 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
     valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
     if valSet_loader is None:
         valSet_loader = lSet_loader
-    # uSet_loader = data_obj.getSequentialDataLoader(indexes=uSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
     print(
         "Active Sampling Complete. After Episode {}:\nNew Labeled Set: {}, New Unlabeled Set: {}, Active Set: {}\n".format(
             cur_episode, len(lSet), len(uSet), len(activeSet)))
@@ -432,7 +402,6 @@ def train_model(train_loader, val_loader, model, optimizer, cfg):
     val_meter = ValMeter(len(val_loader))
 
     # Perform the training loop
-    # print("Len(train_loader):{}".format(len(train_loader)))
     logger.info('Start epoch: {}'.format(start_epoch + 1))
     val_set_acc = 0.
 
@@ -486,20 +455,7 @@ def train_model(train_loader, val_loader, model, optimizer, cfg):
 
         plot_epoch_xvalues.append(cur_epoch+1)
         plot_epoch_yvalues.append(train_loss)
-
-        # save_plot_values([plot_epoch_xvalues, plot_epoch_yvalues, plot_it_x_values, plot_it_y_values, val_acc_epochs_x, val_acc_epochs_y],\
-        #     ["plot_epoch_xvalues", "plot_epoch_yvalues", "plot_it_x_values", "plot_it_y_values","val_acc_epochs_x","val_acc_epochs_y"], out_dir=cfg.EPISODE_DIR, isDebug=False)
         logger.info("Successfully logged numpy arrays!!")
-
-        # Plot arrays
-        # plot_arrays(x_vals=plot_epoch_xvalues, y_vals=plot_epoch_yvalues, \
-        # x_name="Epochs", y_name="Loss", dataset_name=cfg.DATASET.NAME, out_dir=cfg.EPISODE_DIR)
-        #
-        # plot_arrays(x_vals=val_acc_epochs_x, y_vals=val_acc_epochs_y, \
-        # x_name="Epochs", y_name="Validation Accuracy", dataset_name=cfg.DATASET.NAME, out_dir=cfg.EPISODE_DIR)
-
-        # save_plot_values([plot_epoch_xvalues, plot_epoch_yvalues, plot_it_x_values, plot_it_y_values, val_acc_epochs_x, val_acc_epochs_y], \
-        #         ["plot_epoch_xvalues", "plot_epoch_yvalues", "plot_it_x_values", "plot_it_y_values","val_acc_epochs_x","val_acc_epochs_y"], out_dir=cfg.EPISODE_DIR)
 
         print('Training Epoch: {}/{}\tTrain Loss: {}\tVal Accuracy: {}'.format(cur_epoch+1, cfg.OPTIM.MAX_EPOCH, round(train_loss, 4), round(val_set_acc, 4)))
 
@@ -509,15 +465,6 @@ def train_model(train_loader, val_loader, model, optimizer, cfg):
 
     print('\nWrote Best Model Checkpoint to: {}\n'.format(checkpoint_file.split('/')[-1]))
     logger.info('Wrote Best Model Checkpoint to: {}\n'.format(checkpoint_file))
-
-    # plot_arrays(x_vals=plot_epoch_xvalues, y_vals=plot_epoch_yvalues, \
-    #     x_name="Epochs", y_name="Loss", dataset_name=cfg.DATASET.NAME, out_dir=cfg.EPISODE_DIR)
-    #
-    # plot_arrays(x_vals=plot_it_x_values, y_vals=plot_it_y_values, \
-    #     x_name="Iterations", y_name="Loss", dataset_name=cfg.DATASET.NAME, out_dir=cfg.EPISODE_DIR)
-    #
-    # plot_arrays(x_vals=val_acc_epochs_x, y_vals=val_acc_epochs_y, \
-    #     x_name="Epochs", y_name="Validation Accuracy", dataset_name=cfg.DATASET.NAME, out_dir=cfg.EPISODE_DIR)
 
     plot_epoch_xvalues = []
     plot_epoch_yvalues = []
@@ -543,17 +490,12 @@ def test_model(test_loader, checkpoint_file, cfg, cur_episode, model):
 
     test_meter = TestMeter(len(test_loader))
 
-    # model = model_builder.build_model(cfg)
-    # model = cu.load_checkpoint(checkpoint_file, model, weights_only=False)
-
-
     if cfg.MODEL.USE_1NN:
         # # 1NN model does not have a predict method, so we use the fit method to train it
         data = test_loader.dataset.features
         labels = test_loader.dataset.targets
         preds = model.predict(data)
         test_acc = 100. * (preds == np.array(labels)).mean()
-        # return test_acc
     else:
         model = mh.get_model(cfg, checkpoint_file)
         test_err = test_epoch(test_loader, model, test_meter, cur_episode)
@@ -583,7 +525,6 @@ def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch
     global plot_it_y_values
 
     # Shuffle the data
-    #loader.shuffle(train_loader, cur_epoch)
     if cfg.NUM_GPUS>1:  train_loader.sampler.set_epoch(cur_epoch)
 
     # Update the learning rate
@@ -615,30 +556,13 @@ def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch
         optimizer.step()
         # Compute the errors
         top1_err, top5_err = mu.topk_errors(preds, labels, [1, 5])
-        # Combine the stats across the GPUs
-        # if cfg.NUM_GPUS > 1:
-        #     #Average error and losses across GPUs
-        #     #Also this this calls wait method on reductions so we are ensured
-        #     #to obtain synchronized results
-        #     loss, top1_err = du.scaled_all_reduce(
-        #         [loss, top1_err]
-        #     )
         # Copy the stats from GPU to CPU (sync point)
         loss, top1_err = loss.item(), top1_err.item()
-        # #Only master process writes the logs which are used for plotting
-        # if du.is_master_proc():
         if cur_iter != 0 and cur_iter%19 == 0:
-            #because cur_epoch starts with 0
             plot_it_x_values.append((cur_epoch)*len_train_loader + cur_iter)
             plot_it_y_values.append(loss)
-            # save_plot_values([plot_it_x_values, plot_it_y_values],["plot_it_x_values", "plot_it_y_values"], out_dir=cfg.EPISODE_DIR, isDebug=False)
-            # print(plot_it_x_values)
-            # print(plot_it_y_values)
-            #Plot loss graphs
-            # plot_arrays(x_vals=plot_it_x_values, y_vals=plot_it_y_values, x_name="Iterations", y_name="Loss", dataset_name=cfg.DATASET.NAME, out_dir=cfg.EPISODE_DIR,)
             print('Training Epoch: {}/{}\tIter: {}/{}'.format(cur_epoch+1, cfg.OPTIM.MAX_EPOCH, cur_iter, len(train_loader)))
 
-        #Compute the difference in time now from start time initialized just before this for loop.
         train_meter.iter_toc()
         train_meter.update_stats(top1_err=top1_err, loss=loss, \
             lr=lr, mb_size=inputs.size(0) * cfg.NUM_GPUS)
@@ -656,10 +580,7 @@ def get_label_from_model(images_loader, checkpoint_file, cfg, model=None):
     """
     get_label_meter = TestMeter(len(images_loader))
     if model is None:
-        # model = model_builder.build_model(cfg)
-        # model = cu.load_checkpoint(checkpoint_file, model)
         model = mh.get_model(cfg, checkpoint_file)
-
 
     pred = get_label_epoch(images_loader, model, get_label_meter)
     return pred
@@ -680,7 +601,6 @@ def test_epoch(test_loader, model, test_meter, cur_epoch):
     if torch.cuda.is_available():
         model.cuda()
 
-    # Enable eval mode
     model.eval()
     test_meter.iter_tic()
 
@@ -689,19 +609,10 @@ def test_epoch(test_loader, model, test_meter, cur_epoch):
 
     for cur_iter, (inputs, labels) in enumerate(test_loader):
         with torch.no_grad():
-            # Transfer the data to the current GPU device
             inputs, labels = inputs.cuda(), labels.cuda(non_blocking=True)
             inputs = inputs.type(torch.cuda.FloatTensor)
-            # Compute the predictions
             preds = model(inputs)
-            # Compute the errors
             top1_err, top5_err = mu.topk_errors(preds, labels, [1, 5])
-            # Combine the errors across the GPUs
-            # if cfg.NUM_GPUS > 1:
-            #     top1_err = du.scaled_all_reduce([top1_err])
-            #     #as above returns a list
-            #     top1_err = top1_err[0]
-            # Copy the errors from GPU to CPU (sync point)
             top1_err = top1_err.item()
             # Multiply by Number of GPU's as top1_err is scaled by 1/Num_GPUs
             misclassifications += top1_err * inputs.size(0) * cfg.NUM_GPUS
@@ -725,16 +636,13 @@ def get_label_epoch(images_loader, model, get_label_meter):
     if torch.cuda.is_available():
         model.cuda()
 
-    # Enable eval mode
     model.eval()
     get_label_meter.iter_tic()
 
     all_preds = []
     for cur_iter, (inputs, _) in enumerate(images_loader):
         with torch.no_grad():
-            # Transfer the data to the current GPU device
             inputs = inputs.cuda().type(torch.cuda.FloatTensor)
-            # Compute the predictions
             preds = model(inputs)
             all_preds += preds
 
