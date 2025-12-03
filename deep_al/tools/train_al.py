@@ -13,7 +13,6 @@ import torch
 from copy import deepcopy
 
 from deep_al.pycls.al.ActiveLearning import ActiveLearning
-import deep_al.pycls.core.builders as model_builder
 from deep_al.pycls.core.config import cfg, dump_cfg, setup_cfg
 import deep_al.pycls.core.losses as losses
 import deep_al.pycls.core.optimizer as optim
@@ -67,61 +66,17 @@ def is_eval_epoch(cur_epoch):
     )
 
 
-def main(cfg):
-    plotting_manager = PlottingManager()
-    print("RNG_SEED is set to {}".format(cfg.RNG_SEED))
-    # Setting up GPU args
-    use_cuda = (cfg.NUM_GPUS > 0) and torch.cuda.is_available()
-    device = torch.device("cuda" if use_cuda else "cpu")
-    kwargs = {'num_workers': cfg.DATA_LOADER.NUM_WORKERS, 'pin_memory': cfg.DATA_LOADER.PIN_MEMORY} if use_cuda else {}
-
-    # Auto assign a RNG_SEED when not supplied a value
-    if cfg.RNG_SEED is None:
-        cfg.RNG_SEED = np.random.randint(100)
-
-    # Using specific GPU
-    # Getting the output directory ready (default is "/output")
-    cfg.OUT_DIR = os.path.join(os.path.abspath('../..'), cfg.OUT_DIR)
-    if not os.path.exists(cfg.OUT_DIR):
-        os.mkdir(cfg.OUT_DIR)
-    # Create "DATASET/MODEL TYPE" specific directory
-    dataset_out_dir = os.path.join(cfg.OUT_DIR, cfg.DATASET.NAME, cfg.MODEL.TYPE)
-    if not os.path.exists(dataset_out_dir):
-        os.makedirs(dataset_out_dir)
-    # Creating the experiment directory inside the dataset specific directory 
-    # all logs, labeled, unlabeled, validation sets are stroed here 
-    # E.g., output/CIFAR10/resnet18/{timestamp or cfg.EXP_NAME based on arguments passed}
-    if cfg.EXP_NAME == 'auto':
-        exp_prefix = ""
-    else:
-        exp_prefix = f"{cfg.EXP_NAME}_"
-
-    now = datetime.now()
-    day_dir = f'{now.year}_{now.month}_{now.day}'
-    exp_suffix = f'{now.year}_{now.month}_{now.day}_{now.hour:02}{now.minute:02}{now.second:02}_{now.microsecond}'
-    exp_name = f'{exp_prefix}{cfg.DATASET.NAME}_{cfg.ACTIVE_LEARNING.SAMPLING_FN}_{cfg.EVAL_MODEL_TYPE}_{exp_suffix}'
-
-    full_day_dir = os.path.join(dataset_out_dir, day_dir)
-    if not os.path.exists(full_day_dir):
-        os.mkdir(full_day_dir)
-
-    exp_dir = os.path.join(full_day_dir, exp_name)
-    if not os.path.exists(exp_dir):
-        os.mkdir(exp_dir)
-        print("Experiment Directory is {}.\n".format(exp_dir))
-    else:
-        print("Experiment Directory Already Exists: {}. Reusing it may lead to loss of old logs in the directory.\n".format(exp_dir))
-    cfg.EXP_DIR = exp_dir
-
-    # Save the config file in EXP_DIR and OUT_DIR
-    dump_cfg(cfg)
-
-    # Setup Logger
-    lu.setup_logging(cfg)
-
-    # Dataset preparing steps
-    print("\n======== PREPARING DATA AND MODEL ========\n")
-    cfg.DATASET.ROOT_DIR = os.path.join(os.path.abspath('../..'), cfg.DATASET.ROOT_DIR)
+def prepare_datasets(cfg, args):
+    """Prepare and load datasets including sparse dataset handling.
+    
+    Args:
+        cfg: Configuration object
+        args: Command line arguments
+        
+    Returns:
+        Tuple of (data_obj, train_data, test_data, train_size, test_size)
+    """
+    cfg.DATASET.ROOT_DIR = os.path.join(_repo_root, cfg.DATASET.ROOT_DIR)
     data_obj = Data(cfg)
     train_data, train_size = data_obj.getDataset(save_dir=cfg.DATASET.ROOT_DIR, isTrain=True, isDownload=True)
     test_data, test_size = data_obj.getDataset(save_dir=cfg.DATASET.ROOT_DIR, isTrain=False, isDownload=True)
@@ -137,6 +92,79 @@ def main(cfg):
         test_data.features = test_data.features[test_spare_inds]
         test_data.targets = np.array(test_data.targets)[test_spare_inds].tolist()
         test_data.data = test_data.data[test_spare_inds.astype(int)]
+
+    return data_obj, train_data, test_data, train_size, test_size
+
+
+def setup_experiment_directory(cfg):
+    """Setup experiment directory structure and configuration.
+    
+    Args:
+        cfg: Configuration object
+        
+    Returns:
+        exp_dir: Path to the experiment directory
+    """
+    # Get the output directory ready (default is "/output")
+    cfg.OUT_DIR = os.path.join(_repo_root, cfg.OUT_DIR)
+    if not os.path.exists(cfg.OUT_DIR):
+        os.mkdir(cfg.OUT_DIR)
+    
+    # Create "DATASET/MODEL TYPE" specific directory
+    dataset_out_dir = os.path.join(cfg.OUT_DIR, cfg.DATASET.NAME, cfg.MODEL.TYPE)
+    if not os.path.exists(dataset_out_dir):
+        os.makedirs(dataset_out_dir)
+    
+    # Create day-specific directory
+    now = datetime.now()
+    day_dir = f'{now.year}_{now.month}_{now.day}'
+    full_day_dir = os.path.join(dataset_out_dir, day_dir)
+    if not os.path.exists(full_day_dir):
+        os.mkdir(full_day_dir)
+    
+    # Generate experiment name with prefix
+    if cfg.EXP_NAME == 'auto':
+        exp_prefix = ""
+    else:
+        exp_prefix = f"{cfg.EXP_NAME}_"
+    
+    exp_suffix = f'{now.year}_{now.month}_{now.day}_{now.hour:02}{now.minute:02}{now.second:02}_{now.microsecond}'
+    exp_name = f'{exp_prefix}{cfg.DATASET.NAME}_{cfg.ACTIVE_LEARNING.SAMPLING_FN}_{cfg.EVAL_MODEL_TYPE}_{exp_suffix}'
+    
+    # Create experiment directory
+    exp_dir = os.path.join(full_day_dir, exp_name)
+    if not os.path.exists(exp_dir):
+        os.mkdir(exp_dir)
+        print("Experiment Directory is {}.\n".format(exp_dir))
+    else:
+        print("Experiment Directory Already Exists: {}. Reusing it may lead to loss of old logs in the directory.\n".format(exp_dir))
+    
+    cfg.EXP_DIR = exp_dir
+    return exp_dir
+
+
+def main(cfg):
+    plotting_manager = PlottingManager()
+    print("RNG_SEED is set to {}".format(cfg.RNG_SEED))
+    # Setting up GPU args
+    use_cuda = (cfg.NUM_GPUS > 0) and torch.cuda.is_available()
+
+    # Auto assign a RNG_SEED when not supplied a value
+    if cfg.RNG_SEED is None:
+        cfg.RNG_SEED = np.random.randint(100)
+
+    # Setup experiment directory structure
+    setup_experiment_directory(cfg)
+
+    # Save the config file in EXP_DIR and OUT_DIR
+    dump_cfg(cfg)
+
+    # Setup Logger
+    lu.setup_logging(cfg)
+
+    # Dataset preparing steps
+    print("\n======== PREPARING DATA AND MODEL ========\n")
+    data_obj, train_data, test_data, train_size, test_size = prepare_datasets(cfg, args)
 
     cfg.ACTIVE_LEARNING.INIT_L_RATIO = args.initial_size / train_size
     print("\nDataset {} Loaded Sucessfully.\nTotal Train Size: {} and Total Test Size: {}\n".format(cfg.DATASET.NAME, train_size, test_size))
