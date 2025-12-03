@@ -6,11 +6,11 @@ from collections import deque
 import datetime
 import numpy as np
 
-from pycls.core.config import cfg
-from pycls.utils.timer import Timer
+from deep_al.pycls.core.config import cfg
+from deep_al.pycls.utils.timer import Timer
 
-import pycls.utils.logging as lu
-import pycls.utils.metrics as metrics
+import deep_al.pycls.utils.logging as lu
+import deep_al.pycls.utils.metrics as metrics
 
 
 def eta_str(eta_td):

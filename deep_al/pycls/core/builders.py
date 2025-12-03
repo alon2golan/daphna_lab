@@ -2,10 +2,10 @@
 
 """Model and loss construction functions."""
 
-from pycls.core.net import SoftCrossEntropyLoss
-from pycls.models.resnet import *
-from pycls.models.vgg import *
-from pycls.models.alexnet import *
+from deep_al.pycls.core.net import SoftCrossEntropyLoss
+from deep_al.pycls.models.resnet import *
+from deep_al.pycls.models.vgg import *
+from deep_al.pycls.models.alexnet import *
 
 import torch
 from torch import nn

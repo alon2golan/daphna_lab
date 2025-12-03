@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import torch
 from sklearn.preprocessing import MinMaxScaler
-import pycls.datasets.utils as ds_utils
+import deep_al.pycls.datasets.utils as ds_utils
 from tqdm import tqdm
 
 class DCoM:

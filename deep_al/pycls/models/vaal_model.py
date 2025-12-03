@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 
-import pycls.utils.logging as lu
+import deep_al.pycls.utils.logging as lu
 
 logger = lu.get_logger(__name__)
 

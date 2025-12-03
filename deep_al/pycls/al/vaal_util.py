@@ -7,9 +7,9 @@
 import os
 import torch
 
-from pycls.models import vaal_model as vm
-import pycls.utils.logging as lu
-# import pycls.datasets.loader as imagenet_loader
+from deep_al.pycls.models import vaal_model as vm
+import deep_al.pycls.utils.logging as lu
+# import deep_al.pycls.datasets.loader as imagenet_loader
 
 logger = lu.get_logger(__name__)
 

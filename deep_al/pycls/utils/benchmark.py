@@ -7,13 +7,13 @@
 
 """Benchmarking functions."""
 
-import pycls.core.logging as logging
-import pycls.core.net as net
-import pycls.datasets.loader as loader
+import deep_al.pycls.core.logging as logging
+import deep_al.pycls.core.net as net
+import deep_al.pycls.datasets.loader as loader
 import torch
 import torch.cuda.amp as amp
-from pycls.core.config import cfg
-from pycls.core.timer import Timer
+from deep_al.pycls.core.config import cfg
+from deep_al.pycls.core.timer import Timer
 
 
 logger = logging.get_logger(__name__)

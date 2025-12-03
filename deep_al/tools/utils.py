@@ -5,6 +5,11 @@ import seaborn as sns
 import sys
 import os
 
+# Ensure repo root is in sys.path for clean imports
+_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
 # Get the repository base directory
 REPO_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

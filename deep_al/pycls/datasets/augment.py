@@ -39,7 +39,7 @@ Tested as of 10/07/2020. Can alter corresponding params for both and should matc
 
 Finally, the ops and augmentations can be visualized as follows:
     from PIL import Image
-    import pycls.datasets.augment as augment
+    import deep_al.pycls.datasets.augment as augment
     im = Image.open("scratch.jpg")
     im_ops = augment.visualize_ops(im)
     im_rand = augment.visualize_aug(im, augment=augment.rand_augment, magnitude=0.5)

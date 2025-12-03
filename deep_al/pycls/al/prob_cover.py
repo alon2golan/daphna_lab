@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import torch
-import pycls.datasets.utils as ds_utils
+import deep_al.pycls.datasets.utils as ds_utils
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 from tools.utils import visualize_tsne

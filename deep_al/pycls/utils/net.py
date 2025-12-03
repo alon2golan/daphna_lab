@@ -12,7 +12,7 @@ import math
 import torch
 import torch.nn as nn
 
-from pycls.core.config import cfg
+from deep_al.pycls.core.config import cfg
 
 
 def init_weights(m):

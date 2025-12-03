@@ -14,7 +14,7 @@ from glob import glob
 from typing import Any
 from tqdm import tqdm
 
-import pycls.datasets.utils as ds_utils
+import deep_al.pycls.datasets.utils as ds_utils
 
 
 class ImageNet(datasets.ImageFolder):

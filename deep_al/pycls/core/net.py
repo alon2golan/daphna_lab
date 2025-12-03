@@ -8,9 +8,9 @@
 """Functions for manipulating networks."""
 
 import numpy as np
-# import pycls.core.distributed as dist
+# import deep_al.pycls.core.distributed as dist
 import torch
-from pycls.core.config import cfg
+from deep_al.pycls.core.config import cfg
 
 
 def unwrap_model(model):

@@ -4,9 +4,13 @@ from datetime import datetime
 import argparse
 import numpy as np
 
+# Ensure repo root is in sys.path for clean imports
+_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
 import torch
 from copy import deepcopy
-
 
 from deep_al.pycls.al.ActiveLearning import ActiveLearning
 import deep_al.pycls.core.builders as model_builder

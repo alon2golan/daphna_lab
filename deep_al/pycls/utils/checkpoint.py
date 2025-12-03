@@ -9,9 +9,9 @@
 
 import os
 
-# import pycls.core.distributed as dist
+# import deep_al.pycls.core.distributed as dist
 import torch
-from pycls.core.net import unwrap_model
+from deep_al.pycls.core.net import unwrap_model
 
 
 # Common prefix for checkpoint file names

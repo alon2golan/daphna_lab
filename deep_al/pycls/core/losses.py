@@ -2,7 +2,7 @@
 
 import torch.nn as nn
 
-from pycls.core.config import cfg
+from deep_al.pycls.core.config import cfg
 
 # Supported loss functions
 _loss_funs = {

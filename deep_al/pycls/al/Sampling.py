@@ -18,7 +18,7 @@ from tqdm import tqdm
 from scipy.spatial import distance_matrix
 import torch.nn as nn
 
-# import pycls.datasets.loader as imagenet_loader
+# import deep_al.pycls.datasets.loader as imagenet_loader
 from .vaal_util import train_vae_disc
 
 class EntropyLoss(nn.Module):

@@ -15,7 +15,7 @@ import threading
 import traceback
 
 import torch
-from pycls.core.config import cfg
+from deep_al.pycls.core.config import cfg
 
 
 # Make work w recent PyTorch versions (https://github.com/pytorch/pytorch/issues/37377)

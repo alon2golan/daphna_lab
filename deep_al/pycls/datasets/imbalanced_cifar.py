@@ -4,7 +4,7 @@ Source: https://github.com/KaihuaTang/Long-Tailed-Recognition.pytorch/
 """
 
 import numpy as np
-from pycls.datasets.custom_datasets import CIFAR10, CIFAR100
+from deep_al.pycls.datasets.custom_datasets import CIFAR10, CIFAR100
 
 class IMBALANCECIFAR10(CIFAR10):
     cls_num = 10

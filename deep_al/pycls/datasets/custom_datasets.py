@@ -2,7 +2,7 @@ import torch
 import torchvision
 from PIL import Image
 import numpy as np
-import pycls.datasets.utils as ds_utils
+import deep_al.pycls.datasets.utils as ds_utils
 from torchvision.datasets import VisionDataset
 
 

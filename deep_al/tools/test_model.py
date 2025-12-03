@@ -5,6 +5,11 @@ import argparse
 import numpy as np
 from tqdm import tqdm
 
+# Ensure repo root is in sys.path for clean imports
+_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
 import torch
 
 

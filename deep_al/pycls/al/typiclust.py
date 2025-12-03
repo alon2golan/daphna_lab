@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import faiss
 from sklearn.cluster import MiniBatchKMeans, KMeans
-import pycls.datasets.utils as ds_utils
+import deep_al.pycls.datasets.utils as ds_utils
 
 def get_nn(features, num_neighbors):
     # calculates nearest neighbors on GPU

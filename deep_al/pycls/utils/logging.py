@@ -14,7 +14,7 @@ import os
 import simplejson
 import sys
 
-# import pycls.utils.distributed as du
+# import deep_al.pycls.utils.distributed as du
 
 # Show filename and line number in logs
 _FORMAT = '[%(asctime)s %(filename)s: %(lineno)3d]: %(message)s'

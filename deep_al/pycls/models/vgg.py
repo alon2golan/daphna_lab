@@ -11,7 +11,7 @@ import torch.nn as nn
 from torch.utils.model_zoo import load_url as load_state_dict_from_url
 from typing import Union, List, Dict, Any, cast
 
-import pycls.utils.logging as lu
+import deep_al.pycls.utils.logging as lu
 logger = lu.get_logger(__name__)
 
 __all__ = [

@@ -4,31 +4,28 @@ from datetime import datetime
 import argparse
 import numpy as np
 
+# Ensure repo root is in sys.path for clean imports
+_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
 import torch
 from copy import deepcopy
 
-# local
-
-def add_path(path):
-    if path not in sys.path:
-        sys.path.insert(0, path)
-
-add_path(os.path.abspath('..'))
-
-from pycls.al.ActiveLearning import ActiveLearning
-import pycls.core.builders as model_builder
-from pycls.core.config import cfg, dump_cfg
-import pycls.core.losses as losses
-import pycls.core.optimizer as optim
-from pycls.datasets.data import Data
-import pycls.utils.checkpoint as cu
-import pycls.utils.logging as lu
-import pycls.utils.metrics as mu
-import pycls.utils.net as nu
-import pycls.utils.model_handler as mh
-from pycls.utils.meters import TestMeter
-from pycls.utils.meters import TrainMeter
-from pycls.utils.meters import ValMeter
+from deep_al.pycls.al.ActiveLearning import ActiveLearning
+import deep_al.pycls.core.builders as model_builder
+from deep_al.pycls.core.config import cfg, dump_cfg
+import deep_al.pycls.core.losses as losses
+import deep_al.pycls.core.optimizer as optim
+from deep_al.pycls.datasets.data import Data
+import deep_al.pycls.utils.checkpoint as cu
+import deep_al.pycls.utils.logging as lu
+import deep_al.pycls.utils.metrics as mu
+import deep_al.pycls.utils.net as nu
+import deep_al.pycls.utils.model_handler as mh
+from deep_al.pycls.utils.meters import TestMeter
+from deep_al.pycls.utils.meters import TrainMeter
+from deep_al.pycls.utils.meters import ValMeter
 
 logger = lu.get_logger(__name__)
 
@@ -379,7 +376,7 @@ def Dcom_delta_update(cfg, data_obj, checkpoint_file, lSet, train_data, uSet):
 
     if cfg.ACTIVE_LEARNING.SAMPLING_FN.lower() in ["dcom"]:
         print("======== Update the deltas dynamically ========\n")
-        from pycls.al.DCoM import DCoM
+        from deep_al.pycls.al.DCoM import DCoM
         al_algo = DCoM(cfg, lSet, uSet, budgetSize=cfg.ACTIVE_LEARNING.BUDGET_SIZE,
                        max_delta=cfg.ACTIVE_LEARNING.MAX_DELTA,
                        lSet_deltas=cfg.ACTIVE_LEARNING.DELTA_LST)

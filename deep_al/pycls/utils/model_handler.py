@@ -1,5 +1,5 @@
-import pycls.core.builders as model_builder
-import pycls.utils.checkpoint as cu
+import deep_al.pycls.core.builders as model_builder
+import deep_al.pycls.utils.checkpoint as cu
 
 def get_model(cfg, ckpt_file=None, model_init_state=None):
     model = model_builder.build_model(cfg)

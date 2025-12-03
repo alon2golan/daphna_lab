@@ -11,12 +11,12 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 from .randaugment import RandAugmentPolicy
 from .simclr_augment import get_simclr_ops
-import pycls.utils.logging as lu
-from pycls.datasets.custom_datasets import CIFAR10, CIFAR100, MNIST, SVHN, SCENARIO_A, HALF_MOON
-from pycls.datasets.imbalanced_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
-from pycls.datasets.sampler import IndexedSequentialSampler
-from pycls.datasets.tiny_imagenet import TinyImageNet
-from pycls.datasets.imagenet import ImageNet
+import deep_al.pycls.utils.logging as lu
+from deep_al.pycls.datasets.custom_datasets import CIFAR10, CIFAR100, MNIST, SVHN, SCENARIO_A, HALF_MOON
+from deep_al.pycls.datasets.imbalanced_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
+from deep_al.pycls.datasets.sampler import IndexedSequentialSampler
+from deep_al.pycls.datasets.tiny_imagenet import TinyImageNet
+from deep_al.pycls.datasets.imagenet import ImageNet
 
 logger = lu.get_logger(__name__)
 
