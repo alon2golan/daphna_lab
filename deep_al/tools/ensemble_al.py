@@ -7,27 +7,19 @@ import numpy as np
 import torch
 
 
-# local
-
-def add_path(path):
-    if path not in sys.path:
-        sys.path.insert(0, path)
-
-add_path(os.path.abspath('../..'))
-
-from pycls.al.ActiveLearning import ActiveLearning
-import pycls.core.builders as model_builder
-from pycls.core.config import cfg, dump_cfg
-import pycls.core.losses as losses
-import pycls.core.optimizer as optim
-from pycls.datasets.data import Data
-import pycls.utils.checkpoint as cu
-import pycls.utils.logging as lu
-import pycls.utils.metrics as mu
-import pycls.utils.net as nu
-from pycls.utils.meters import TestMeter
-from pycls.utils.meters import TrainMeter
-from pycls.utils.meters import ValMeter
+from deep_al.pycls.al.ActiveLearning import ActiveLearning
+import deep_al.pycls.core.builders as model_builder
+from deep_al.pycls.core.config import cfg, dump_cfg
+import deep_al.pycls.core.losses as losses
+import deep_al.pycls.core.optimizer as optim
+from deep_al.pycls.datasets.data import Data
+import deep_al.pycls.utils.checkpoint as cu
+import deep_al.pycls.utils.logging as lu
+import deep_al.pycls.utils.metrics as mu
+import deep_al.pycls.utils.net as nu
+from deep_al.pycls.utils.meters import TestMeter
+from deep_al.pycls.utils.meters import TrainMeter
+from deep_al.pycls.utils.meters import ValMeter
 
 logger = lu.get_logger(__name__)
 

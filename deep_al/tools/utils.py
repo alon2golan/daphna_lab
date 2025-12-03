@@ -8,13 +8,8 @@ import os
 # Get the repository base directory
 REPO_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def add_path(path):
-    if path not in sys.path:
-        sys.path.insert(0, path)
 
-add_path(os.path.abspath('..'))
-
-import pycls.datasets.utils as ds_utils
+import deep_al.pycls.datasets.utils as ds_utils
 
 
 def visualize_tsne(

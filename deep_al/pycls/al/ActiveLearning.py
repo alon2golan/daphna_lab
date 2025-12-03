@@ -3,7 +3,7 @@
 # ----------------------------------------------------------
 
 from .Sampling import Sampling, CoreSetMIPSampling, AdversarySampler
-import pycls.utils.logging as lu
+import deep_al.pycls.utils.logging as lu
 
 logger = lu.get_logger(__name__)
 

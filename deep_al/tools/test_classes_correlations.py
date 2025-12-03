@@ -1,12 +1,9 @@
-def add_path(path):
-    if path not in sys.path:
-        sys.path.insert(0, path)
 import os
 import sys
-add_path(os.path.abspath('..'))
+
 
 from tqdm import tqdm
-import pycls.datasets.utils as ds_utils
+import deep_al.pycls.datasets.utils as ds_utils
 import numpy as np
 import torch
 import seaborn as sns

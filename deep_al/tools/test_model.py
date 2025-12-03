@@ -8,21 +8,13 @@ from tqdm import tqdm
 import torch
 
 
-# local
-
-def add_path(path):
-    if path not in sys.path:
-        sys.path.insert(0, path)
-
-add_path(os.path.abspath('../..'))
-
-import pycls.core.builders as model_builder
-from pycls.core.config import cfg, dump_cfg
-from pycls.datasets.data import Data
-import pycls.utils.checkpoint as cu
-import pycls.utils.logging as lu
-import pycls.utils.metrics as mu
-from pycls.utils.meters import TestMeter
+import deep_al.pycls.core.builders as model_builder
+from deep_al.pycls.core.config import cfg, dump_cfg
+from deep_al.pycls.datasets.data import Data
+import deep_al.pycls.utils.checkpoint as cu
+import deep_al.pycls.utils.logging as lu
+import deep_al.pycls.utils.metrics as mu
+from deep_al.pycls.utils.meters import TestMeter
 
 logger = lu.get_logger(__name__)
 
