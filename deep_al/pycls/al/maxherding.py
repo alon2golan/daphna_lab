@@ -5,7 +5,7 @@ import time
 from tqdm import tqdm
 import torch.nn.functional as F
 import deep_al.pycls.datasets.utils as ds_utils
-from tools.utils import visualize_tsne
+from deep_al.tools.utils import visualize_tsne
 
 # from deep_al.pycls.utils.metrics import compute_coverage
 # from deep_al.pycls.utils.io import compute_cand_size

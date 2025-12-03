@@ -3,7 +3,7 @@ import pandas as pd
 import torch
 import gc
 import deep_al.pycls.datasets.utils as ds_utils
-from tools.utils import visualize_tsne
+from deep_al.tools.utils import visualize_tsne
 import time
 from torch.profiler import profile, record_function, ProfilerActivity
 import matplotlib.pyplot as plt

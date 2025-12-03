@@ -4,7 +4,7 @@ import torch
 import deep_al.pycls.datasets.utils as ds_utils
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
-from tools.utils import visualize_tsne
+from deep_al.tools.utils import visualize_tsne
 
 class ProbCover:
     def __init__(self, cfg, budgetSize, delta):
