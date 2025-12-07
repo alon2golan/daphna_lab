@@ -3,11 +3,9 @@ import sys
 from datetime import datetime
 import argparse
 import numpy as np
-
 import torch
 from copy import deepcopy
 
-# local
 
 def add_path(path):
     if path not in sys.path:
@@ -114,6 +112,8 @@ def argparser():
     parser.add_argument('--k_logistic', default=50, type=int)
     parser.add_argument('--a_logistic', default=0.8, type=float)
     parser.add_argument('--alpha', default=0.5, type=float)
+    parser.add_argument('--alpha_lower', default=0.001, type=float)
+    parser.add_argument('--alpha_upper', default=0.1, type=float)
     parser.add_argument('--soft_border_val', default=0.5, type=float)
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--high_budget', action='store_true')
@@ -196,22 +196,23 @@ def main(cfg):
     train_data, train_size = data_obj.getDataset(save_dir=cfg.DATASET.ROOT_DIR, isTrain=True, isDownload=True)
     test_data, test_size = data_obj.getDataset(save_dir=cfg.DATASET.ROOT_DIR, isTrain=False, isDownload=True)
 
-    if cfg.SPARSE_DS:
-        train_spare_inds = np.sort(np.load(f"/cs/labs/daphna/itai.david/py_repos/TypiClust/results/t-sne/{cfg['DATASET']['NAME']}_train_sparse_indices.npy"))
-        test_spare_inds = np.sort(np.load(f"/cs/labs/daphna/itai.david/py_repos/TypiClust/results/t-sne/{cfg['DATASET']['NAME']}_test_sparse_indices.npy"))
+    # if cfg.SPARSE_DS:
+    #     train_spare_inds = np.sort(np.load(f"/cs/labs/daphna/itai.david/py_repos/TypiClust/results/t-sne/{cfg['DATASET']['NAME']}_train_sparse_indices.npy"))
+    #     test_spare_inds = np.sort(np.load(f"/cs/labs/daphna/itai.david/py_repos/TypiClust/results/t-sne/{cfg['DATASET']['NAME']}_test_sparse_indices.npy"))
 
-        train_data.features = train_data.features[train_spare_inds.astype(int)]
-        train_data.targets = np.array(train_data.targets)[train_spare_inds].tolist()
-        train_data.data = train_data.data[train_spare_inds.astype(int)]
+    #     train_data.features = train_data.features[train_spare_inds.astype(int)]
+    #     train_data.targets = np.array(train_data.targets)[train_spare_inds].tolist()
+    #     train_data.data = train_data.data[train_spare_inds.astype(int)]
 
-        test_data.features = test_data.features[test_spare_inds]
-        test_data.targets = np.array(test_data.targets)[test_spare_inds].tolist()
-        test_data.data = test_data.data[test_spare_inds.astype(int)]
+    #     test_data.features = test_data.features[test_spare_inds]
+    #     test_data.targets = np.array(test_data.targets)[test_spare_inds].tolist()
+    #     test_data.data = test_data.data[test_spare_inds.astype(int)]
 
     cfg.ACTIVE_LEARNING.INIT_L_RATIO = args.initial_size / train_size
     print("\nDataset {} Loaded Sucessfully.\nTotal Train Size: {} and Total Test Size: {}\n".format(cfg.DATASET.NAME, train_size, test_size))
     logger.info("Dataset {} Loaded Sucessfully. Total Train Size: {} and Total Test Size: {}\n".format(cfg.DATASET.NAME, train_size, test_size))
 
+    # validation set is a fraction from the train set
     lSet_path, uSet_path, valSet_path = data_obj.makeLUVSets(train_split_ratio=cfg.ACTIVE_LEARNING.INIT_L_RATIO, \
         val_split_ratio=cfg.DATASET.VAL_RATIO, data=train_data, seed_id=cfg.RNG_SEED, save_dir=cfg.EXP_DIR)
 
@@ -233,7 +234,7 @@ def main(cfg):
         uSet = uSet[~lset_mask]
 
     train_labels = train_data.targets
-    al_obj = ActiveLearning(data_obj, cfg, train_labels, lSet)
+    al_obj = ActiveLearning(data_obj, cfg, train_labels, lSet, uSet)
     if len(lSet) == 0:
         if cfg.ACTIVE_LEARNING.SAMPLING_FN.lower() in ['dcom']:
             print('Labeled Set is Empty - Create and save the first delta values list')
@@ -258,7 +259,7 @@ def main(cfg):
     valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
     test_loader = data_obj.getTestLoader(data=test_data, test_batch_size=cfg.TRAIN.BATCH_SIZE, seed_id=cfg.RNG_SEED)
 
-    if valSet_loader is None:
+    if valSet_loader is None: # NOTE: Check if I have a valSet, and if not, what are the reprecusions of using valSet_loader = lSet_loader
         valSet_loader = lSet_loader
 
     # Initialize the model.  
@@ -326,6 +327,8 @@ def main(cfg):
 
         if checkpoint_file is not None:
             os.remove(checkpoint_file)
+    
+    print("Final lSet is: ", lSet) # Dvir added
 
 
 def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet_loader, train_data, uSet, valSet,
@@ -790,6 +793,8 @@ if __name__ == "__main__":
     else:
         cfg.RNG_SEED = args.seed
     cfg.ALPHA = args.alpha
+    cfg.ALPHA_LOWER = args.alpha_lower
+    cfg.ALPHA_UPPER = args.alpha_upper
     cfg.NORM_IMPORTANCE = args.norm_importance
     cfg.SPARSE_DS = args.sparse_ds
     # cfg.OWN_ALPHA_WEIGHTING = args.own_alpha_weighting
@@ -803,38 +808,3 @@ if __name__ == "__main__":
     define_eval_model_type(cfg, debug)
 
     main(cfg)
-
-
-# --cfg ../configs/cifar10/al/RESNET18.yaml --al probcover --exp-name auto --initial_size 0 --budget 10 --initial_delta 0.75
-# """
-# #!/bin/bash
-# #SBATCH --mem=20g ## amount of memory
-# #SBATCH -c 20 ## number of cpu
-# #SBATCH --time=40:00:00 ## time limit for the process
-# #SBATCH --gres=gpu:a10:1,vmem:20g ## gpu::<type of gpu>:<number of gpus>,vmem:<amount of memory on gpu (max 10gb/24gb/40gb)>
-# #SBATCH --array=0-2 ## array of jobs to run (job 0, job 1, job 2)
-# #SBATCH --output /cs/labs/daphna/maorni_cse/SupContrast/run_outputs/run_exp_%A_%a.txt
-# ## those are the type of the potential gpus : gpu:rtx2080:1, gpu:a10:1, gpu:g4:1 (can check in the university for more)
-# dir=/cs/labs/daphna/maorni_cse/SupContrast
-#
-# cd $dir
-#
-# source /cs/labs/daphna/maorni_cse/virs/reembedding/bin/activate
-#
-# python run_it.py --job_id ${SLURM_ARRAY_TASK_ID}
-# """
-
-###some utils functions should be copied to train_al.py instead of train.py
-
-### need to change it to save the metrics in the test function of the eval model, it is not saving by default
-
-## change in the sbatch to my paths instead of Maor
-
-## scancel <job_id> to cancel the job
-
-## sbatch <script_name> to run the job
-
-## sbatch <script_name> --killable to run the job with killable resources
-
-
-## change alpha values (on from features)

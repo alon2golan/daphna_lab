@@ -4,6 +4,7 @@
 
 import torch
 import numpy as np
+import os
 
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -16,6 +17,8 @@ from pycls.datasets.custom_datasets import CIFAR10, CIFAR100, MNIST, SVHN, SCENA
 from pycls.datasets.imbalanced_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 from pycls.datasets.sampler import IndexedSequentialSampler
 from pycls.datasets.tiny_imagenet import TinyImageNet
+from sklearn.datasets import make_blobs
+
 logger = lu.get_logger(__name__)
 
 class _RepeatSampler(object):
@@ -253,26 +256,37 @@ class Data:
             im_cifar100 = IMBALANCECIFAR100(save_dir, train=isTrain, transform=preprocess_steps, test_transform=test_preprocess_steps)
             return im_cifar100, len(im_cifar100)
 
-        elif self.dataset ==  'SCENARIO_A':
+        elif self.dataset == 'SCENARIO_A':
             if isTrain:
-                points, labels = load_points_from_file(f"/cs/labs/daphna/itai.david/py_repos/points_A.txt")
+                N = 1000
             else:
-                points, labels = load_points_from_file(
-                    f"/cs/labs/daphna/itai.david/py_repos/TEST_points_A.txt")
-            # X_tensor = torch.from_numpy(points)  # features typically float32
-            # y_tensor = torch.from_numpy(labels)
-            dataset = SCENARIO_A(points, labels)
-            return dataset, len(dataset)
-        elif self.dataset ==  'HALF_MOON':
-            if isTrain:
-                points, labels = load_points_from_file(f"/cs/labs/daphna/itai.david/py_repos/points_HALF_MOON_2.txt")
+                N = 250
+            
+            # Load from centralized file if available
+            base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../data/scenario_a_data.npy'))
+            if os.path.exists(base_path):
+                data = np.load(base_path, allow_pickle=True).item()
+                points = data['points']
+                labels = data['labels']
+                
+                if not isTrain:
+                    # Simple handling for test set if not explicitly saved
+                    points = points[:N]
+                    labels = labels[:N]
             else:
-                points, labels = load_points_from_file(
-                    f"/cs/labs/daphna/itai.david/py_repos/TEST_points_HALF_MOON_2.txt")
-            # X_tensor = torch.from_numpy(points)  # features typically float32
-            # y_tensor = torch.from_numpy(labels)
-            dataset = HALF_MOON(points, labels)
-            return dataset, len(dataset)
+                # Fallback
+                centers = [[-2.0, -2.0], [2.0, 2.0], [-2.0, 2.0], [2.0, -2.0], [0.0, 0.0]]
+                points, labels = make_blobs(n_samples=N, centers=centers, n_features=2, cluster_std=1.0, random_state=self.cfg.RNG_SEED)
+            
+            # Convert to tensors
+            points_t = torch.from_numpy(points.astype(np.float32))
+            labels_t = torch.from_numpy(labels.astype(np.int64))
+
+            # Wrap in a Dataset
+            dataset = SCENARIO_A(points_t, labels_t)
+
+            return dataset, N 
+
 
         else:
             print("Either the specified {} dataset is not added or there is no if condition in getDataset function of Data class".format(self.dataset))

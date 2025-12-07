@@ -12,11 +12,11 @@ class ActiveLearning:
     Implements standard active learning methods.
     """
 
-    def __init__(self, dataObj, cfg, train_labels=None, lset=None):
+    def __init__(self, dataObj, cfg, train_labels=None, lset=None, uSet=None):
         self.dataObj = dataObj
         self.sampler = Sampling(dataObj=dataObj,cfg=cfg)
         self.cfg = cfg
-        self.sampling_fn = self.choose_sampling_function(train_labels, lset)
+        self.sampling_fn = self.choose_sampling_function(train_labels, lset, uSet)
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
         """
@@ -153,7 +153,7 @@ class ActiveLearning:
         return activeSet, uSet
         
 
-    def choose_sampling_function(self, train_labels=None, lset=None):
+    def choose_sampling_function(self, train_labels=None, lset=None, uset=None):
         if self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower() in ["prob_cover", 'probcover']:
             from .prob_cover import ProbCover
             probcov = ProbCover(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
@@ -185,6 +185,6 @@ class ActiveLearning:
             from .BAYES_MISP import BAYES_MISP
 
             bayes_misp = BAYES_MISP(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                        train_labels= train_labels, delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA, lset=lset)
+                        train_labels= train_labels, delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA, lset=lset, uset=uset)
             return bayes_misp
 

@@ -10,21 +10,24 @@ import math
 # --- Global Settings ---
 NUMBER_OF_REPS = 1 # Number of times each unique config is run (for seeding)
 MAX_CMDS_PER_JOB = 1 # Fixed: One command executed per SLURM array job instance
-EXP_NAME = "fixed_bayes_misp_full_test_rbf_1011"
+EXP_NAME = "adaptive_prior_true"
 
 # --- Hyperparameter Space ---
-DATASETS = ["cifar10"]
+DATASETS = ["cifar10"]  # Options: "cifar10", "cifar100", "half_moon", "scenario_a"
 AL_METHODS = ["bayes_misp"]
 EVAL_MODELS = ["from_images"] # Use "from_images", "from_features", "NN1"
 
-ALPHA_VALUES = [0.01, 0.1, 0.5]
+# ALPHA_VALUES = [0.001, 0.01, 0.1, 0.2, 0.5]
+ALPHA_VALUES = [0.00001, 0.000001]
+alpha_pairs = [(0.00, 0.00)]
+# alpha_pairs = [(0.0001, 0.001),(0.0001, 0.005)]
 # DIFF_METHODS options: "full_weighted_max", "top2_weighted_max", "max", "weighted_sum"
-DIFF_METHODS = ["max"]
+DIFF_METHODS = ["full_weighted_max"]
 CONT_METHODS = ["positive"]
 
 # --- Kernel Settings ---
 KERNEL_TYPE = "rbf"
-RBF_DELTA = 1.0  # Initial delta/sigma value for RBF kernel
+RBF_DELTA = [0.75]  # Initial delta/sigma value for RBF kernel
 
 # --- Utility Maps ---
 EVAL_FLAG_MAP = {
@@ -33,13 +36,13 @@ EVAL_FLAG_MAP = {
     "NN1": "NN1"
 }
 
-MAX_ITER = 50
+MAX_ITER = 20
 
 BUDGET_MAP = {
     "cifar10": 20,
     "cifar100": 100,
     "half_moon": 2,
-    "scenario_a": 5,
+    "scenario_a": 10,
 }
 
 TEMPLATE = (
@@ -54,6 +57,8 @@ TEMPLATE = (
     "--kernel_type {kernel_type} "
     "--diff_method {diff_method} "
     "--alpha {alpha} "
+    "--alpha_lower {alpha_lower} "
+    "--alpha_upper {alpha_upper} "
     "--cont_method {cont_method} "
     "--seed {seed} "  # Seed is added dynamically in the execution logic
     "--max_iter {max_iter}"
@@ -67,10 +72,10 @@ unique_commands = []
 
 # Iteratively build the combination of parameters
 param_combinations = itertools.product(
-    DATASETS, EVAL_MODELS, AL_METHODS, ALPHA_VALUES, DIFF_METHODS, CONT_METHODS
+    DATASETS, EVAL_MODELS, AL_METHODS, ALPHA_VALUES, RBF_DELTA, alpha_pairs, DIFF_METHODS, CONT_METHODS
 )
 
-for dataset, eval_model, al_method, alpha, diff_method, cont in param_combinations:
+for dataset, eval_model, al_method, alpha, delta, (alpha_lower, alpha_upper), diff_method, cont in param_combinations:
 
     # --- Exclusion Logic (Rule 1) ---
     # Skip invalid combinations: top2/max difference method cannot be used with 
@@ -83,7 +88,6 @@ for dataset, eval_model, al_method, alpha, diff_method, cont in param_combinatio
     # --- Parameter Setting ---
     flag = EVAL_FLAG_MAP[eval_model]
     budget = BUDGET_MAP[dataset]
-    delta = RBF_DELTA if KERNEL_TYPE == 'rbf' else (0.65 if dataset == "cifar100" else 0.75)
 
 
     # --- Format and Save Command (without final seed) ---
@@ -95,6 +99,8 @@ for dataset, eval_model, al_method, alpha, diff_method, cont in param_combinatio
         initial_delta=delta,
         diff_method=diff_method,
         alpha=alpha,
+        alpha_lower=alpha_lower,
+        alpha_upper=alpha_upper,
         budget=budget,
         kernel_type=KERNEL_TYPE,
         cont_method=cont,

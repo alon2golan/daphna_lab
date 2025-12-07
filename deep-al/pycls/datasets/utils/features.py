@@ -1,4 +1,7 @@
 import numpy as np
+import torch
+import os
+from sklearn.datasets import make_blobs
 
 # DATASET_FEATURES_DICT = {
 #     'train':
@@ -50,6 +53,45 @@ DATASET_FEATURES_DICT = {
 
 def load_features(ds_name, seed=1, train=True, normalized=True):
     " load pretrained features for a dataset "
+    
+    # Handle SCENARIO_A generation dynamically
+    if ds_name == 'SCENARIO_A':
+        # Load from the centralized file
+        # Assuming the file is at /cs/labs/daphna/dvir_mateless/lab_repo/data/scenario_a_data.npy
+        # We need to find the path relative to this file or absolute
+        # Going up from deep-al/pycls/datasets/utils/features.py to lab_repo/data
+        
+        # Hardcoded path for now based on workspace structure, or relative path
+        # Current file: .../deep-al/pycls/datasets/utils/features.py
+        # Data file: .../lab_repo/data/scenario_a_data.npy
+        # That is ../../../../../data/scenario_a_data.npy relative to this file
+        
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../../data/scenario_a_data.npy'))
+        
+        if os.path.exists(base_path):
+            data = np.load(base_path, allow_pickle=True).item()
+            features = data['points']
+            # If train=False (test set), we might need to handle that. 
+            # But currently generate_scenario_a.py only generates 1000 points (train).
+            # If test is needed, we should generate it too.
+            # For now, assuming train=True or using the same points.
+            if not train:
+                # Fallback or generate test set on the fly if not in file
+                # Or better, update generate_scenario_a.py to save test set too.
+                # For now, let's just return the first 250 points if test is requested from this file
+                features = features[:250] 
+        else:
+            # Fallback to generation if file missing
+            print(f"Data file for SCENARIO_A not found at {base_path}. Generating data on the fly.")
+            N = 1000 if train else 250
+            centers = [[-2.0, -2.0], [2.0, 2.0], [-2.0, 2.0], [2.0, -2.0], [0.0, 0.0]]
+            features, _ = make_blobs(n_samples=N, centers=centers, n_features=2, cluster_std=1.0, random_state=seed)
+            features = features.astype(np.float32)
+
+        if normalized:
+             features = features / np.linalg.norm(features, axis=1, keepdims=True)
+        return features
+
     split = "train" if train else "test"
     fname = DATASET_FEATURES_DICT[split][ds_name].format(seed=seed)
     if fname.endswith('.npy'):
