@@ -200,6 +200,21 @@ class CoreSetMIPSampling():
             activeSet = uSet[greedy_indexes]
             remainSet = uSet[remainSet]
         return activeSet, remainSet
+    
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+        """
+        Unified interface for CoreSet MIP sampling.
+        Handles model state management and delegates to query method.
+        """
+        waslatent = clf_model.penultimate_active
+        wastrain = clf_model.training
+        clf_model.penultimate_active = True
+        clf_model.eval()
+        activeSet, new_uSet = self.query(lSet=lSet, uSet=uSet, clf_model=clf_model, dataset=trainDataset)
+        clf_model.penultimate_active = waslatent
+        clf_model.train(wastrain)
+        
+        return activeSet
 
 
 class Sampling:
@@ -606,6 +621,50 @@ class Sampling:
         uSetLoader.dataset.no_aug = False
         return activeSet, remainSet
 
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+        """
+        Unified interface for sampling from uSet using the appropriate method.
+        
+        This method routes the sampling request to the appropriate sampling method
+        based on the configuration.
+        """
+        sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
+        budget_size = self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
+        
+        if sampling_fn == "random":
+            activeSet, new_uSet = self.random(uSet=uSet, budgetSize=budget_size)
+        elif sampling_fn == "uncertainty":
+            oldmode = clf_model.training
+            clf_model.eval()
+            activeSet, new_uSet = self.uncertainty(budgetSize=budget_size, 
+                                                   lSet=lSet, uSet=uSet, model=clf_model, dataset=trainDataset)
+            clf_model.train(oldmode)
+        elif sampling_fn == "entropy":
+            oldmode = clf_model.training
+            clf_model.eval()
+            activeSet, new_uSet = self.entropy(budgetSize=budget_size,
+                                              lSet=lSet, uSet=uSet, model=clf_model, dataset=trainDataset)
+            clf_model.train(oldmode)
+        elif sampling_fn == "margin":
+            oldmode = clf_model.training
+            clf_model.eval()
+            activeSet, new_uSet = self.margin(budgetSize=budget_size,
+                                             lSet=lSet, uSet=uSet, model=clf_model, dataset=trainDataset)
+            clf_model.train(oldmode)
+        elif sampling_fn == "dbal":
+            activeSet, new_uSet = self.dbal(budgetSize=budget_size,
+                                           uSet=uSet, clf_model=clf_model, dataset=trainDataset)
+        elif sampling_fn == "bald":
+            activeSet, new_uSet = self.bald(budgetSize=budget_size,
+                                           uSet=uSet, clf_model=clf_model, dataset=trainDataset)
+        elif sampling_fn == "ensemble_var_r":
+            activeSet, new_uSet = self.ensemble_var_R(budgetSize=budget_size,
+                                                      uSet=uSet, clf_models=supportingModels, dataset=trainDataset)
+        else:
+            raise NotImplementedError(f"Unknown sampling method in Sampling class: {sampling_fn}")
+        
+        return activeSet
+
 
 class AdversarySampler:
 
@@ -906,3 +965,16 @@ class AdversarySampler:
         unlabeled_dataloader.dataset.no_aug = False
         return activeSet, remainSet
 
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+        """
+        Unified interface for VAAL sampling.
+        Trains VAE and discriminator, then samples for labeling.
+        """
+        # Train VAE and discriminator first
+        vae, disc, uSet_loader = self.vaal_perform_training(lSet=lSet, uSet=uSet, dataset=trainDataset)
+        
+        # Do active sampling
+        activeSet, new_uSet = self.sample_for_labeling(vae=vae, discriminator=disc,
+                                                        unlabeled_dataloader=uSet_loader, uSet=uSet)
+        
+        return activeSet

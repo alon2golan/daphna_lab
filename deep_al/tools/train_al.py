@@ -12,7 +12,7 @@ if _repo_root not in sys.path:
 import torch
 from copy import deepcopy
 
-from deep_al.pycls.al.ActiveLearning import ActiveLearning
+from deep_al.pycls.al.active_learning import ActiveLearning
 from deep_al.pycls.core.config import cfg, dump_cfg, setup_cfg
 import deep_al.pycls.core.losses as losses
 import deep_al.pycls.core.optimizer as optim
@@ -76,7 +76,6 @@ def prepare_datasets(cfg, args):
     Returns:
         Tuple of (data_obj, train_data, test_data, train_size, test_size)
     """
-    cfg.DATASET.ROOT_DIR = os.path.join(_repo_root, cfg.DATASET.ROOT_DIR)
     data_obj = Data(cfg)
     train_data, train_size = data_obj.getDataset(save_dir=cfg.DATASET.ROOT_DIR, isTrain=True, isDownload=True)
     test_data, test_size = data_obj.getDataset(save_dir=cfg.DATASET.ROOT_DIR, isTrain=False, isDownload=True)
@@ -105,8 +104,7 @@ def setup_experiment_directory(cfg):
     Returns:
         exp_dir: Path to the experiment directory
     """
-    # Get the output directory ready (default is "/output")
-    cfg.OUT_DIR = os.path.join(_repo_root, cfg.OUT_DIR)
+    # Get the output directory ready (paths are already normalized from config.py)
     if not os.path.exists(cfg.OUT_DIR):
         os.mkdir(cfg.OUT_DIR)
     
@@ -191,13 +189,11 @@ def main(cfg):
 
     train_labels = train_data.targets
     al_obj = ActiveLearning(data_obj, cfg, train_labels, lSet)
+    
+    # Initialize algorithm state if needed
+    al_obj.initialize_algorithm_state(plotting_manager)
+    
     if len(lSet) == 0:
-        if cfg.ACTIVE_LEARNING.SAMPLING_FN.lower() in ['dcom']:
-            print('Labeled Set is Empty - Create and save the first delta values list')
-            lSet_deltas = [str(cfg.ACTIVE_LEARNING.INITIAL_DELTA)] * cfg.ACTIVE_LEARNING.BUDGET_SIZE
-            cfg.ACTIVE_LEARNING.DELTA_LST = lSet_deltas
-            plotting_manager.add_delta_stats(cfg.ACTIVE_LEARNING.INITIAL_DELTA, 0.0)
-
         print('Labeled Set is Empty - Sampling an Initial Pool')
         activeSet, new_uSet = al_obj.sample_from_uSet(model, lSet, uSet, train_data)
         print(f'Initial Pool is {activeSet}')
@@ -253,22 +249,17 @@ def main(cfg):
             data_obj.saveSet(uSet, 'uSet', cfg.EPISODE_DIR)
             break
 
-        Dcom_delta_update(cfg, data_obj, checkpoint_file, lSet, train_data, uSet, plotting_manager)
+        # Update algorithm-specific state (DCoM deltas, etc.)
+        al_obj.update_algorithm_state(data_obj, checkpoint_file, lSet, train_data, uSet, plotting_manager)
 
         # Active Sample 
         lSet, lSet_loader, uSet, valSet_loader = active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet,
                                                                       lSet_loader, train_data, uSet, valSet,
                                                                       valSet_loader, al_obj)
 
-        # add avg delta to cfg.ACTIVE_LEARNING.DELTA_LST towards the next active sampling
-        if cfg.ACTIVE_LEARNING.SAMPLING_FN.lower() in ['dcom']:
-            delta_lst_float = [float(delta) for delta in cfg.ACTIVE_LEARNING.DELTA_LST]
-            next_initial_deltas = [str(round(np.average(delta_lst_float), 2))] * cfg.ACTIVE_LEARNING.BUDGET_SIZE
-            cfg.ACTIVE_LEARNING.DELTA_LST.extend(next_initial_deltas)
-            print("Current delta list: ", cfg.ACTIVE_LEARNING.DELTA_LST)
-            delta_avg, delta_std = plotting_manager.get_delta_stats()
-            print("Current delta avg list: ", delta_avg)
-            print("Current delta std list: ", delta_std)
+        # Prepare algorithm-specific state for next iteration
+        al_obj.prepare_next_iteration()
+        
         _, ep_y = plotting_manager.get_episode_data()
         print('Current accuracy values: ', ep_y)
 
@@ -324,32 +315,6 @@ def train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_l
     print("Test Accuracy: {}.\n".format(round(test_acc, 4)))
     logger.info("EPISODE {} Test Accuracy {}.\n".format(cur_episode, test_acc))
     return checkpoint_file
-
-
-def Dcom_delta_update(cfg, data_obj, checkpoint_file, lSet, train_data, uSet, plotting_manager):
-
-    if cfg.ACTIVE_LEARNING.SAMPLING_FN.lower() in ["dcom"]:
-        print("======== Update the deltas dynamically ========\n")
-        from deep_al.pycls.al.DCoM import DCoM
-        al_algo = DCoM(cfg, lSet, uSet, budgetSize=cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                       max_delta=cfg.ACTIVE_LEARNING.MAX_DELTA,
-                       lSet_deltas=cfg.ACTIVE_LEARNING.DELTA_LST)
-
-        lSet_labels = np.take(train_data.targets, np.asarray(lSet, dtype=np.int64))
-        all_images_idx = np.array(list(lSet) + list(uSet))
-        images_loader = data_obj.getSequentialDataLoader(indexes=all_images_idx,
-                                                         batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
-        all_labels = np.take(train_data.targets, np.asarray(all_images_idx, dtype=np.int64))
-
-        images_pseudo_labels = get_label_from_model(images_loader, checkpoint_file, cfg)
-        cfg.ACTIVE_LEARNING.DELTA_LST[
-        -1 * cfg.ACTIVE_LEARNING.BUDGET_SIZE:] = al_algo.new_centroids_deltas(lSet_labels,
-                                                                              all_labels=all_labels,
-                                                                              pseudo_labels=images_pseudo_labels,
-                                                                              budget=cfg.ACTIVE_LEARNING.BUDGET_SIZE)
-
-        delta_lst_float = [float(delta) for delta in cfg.ACTIVE_LEARNING.DELTA_LST]
-        plotting_manager.add_delta_stats(np.average(delta_lst_float), np.std(delta_lst_float))
 
 
 def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manager):

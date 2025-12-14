@@ -240,3 +240,27 @@ class MaxHerding:
         labeled_indices = np.array(self.lSet).astype(int)
         sampled_indices = np.array(self.activeSet).astype(int)
         visualize_tsne(labeled_indices, sampled_indices, algo_name='Max Herding')
+
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+        """
+        Standard interface for active learning sampling.
+        Adapts the algorithm to work with the unified AL interface.
+        """
+        assert self.budgetSize > 0, "Expected a positive budgetSize"
+        assert self.budgetSize < len(uSet), \
+            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.budgetSize}"
+        
+        # Update sets in the instance (in case they changed)
+        self.lSet = lSet
+        self.uSet = uSet
+        self.total_uSet = copy.deepcopy(uSet)
+        
+        # CRITICAL: Recompute derived state that depends on lSet/uSet
+        self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
+        if isinstance(self.all_features, torch.Tensor):
+            self.relevant_features = self.all_features[self.relevant_indices]
+        elif isinstance(self.all_features, np.ndarray):
+            self.relevant_features = torch.from_numpy(self.all_features[self.relevant_indices])
+        
+        activeSet, remainSet = self.select_samples()
+        return activeSet

@@ -457,6 +457,38 @@ def build_args_dict(args):
     return args_dict
 
 
+def normalize_cfg_paths(cfg):
+    """
+    Normalize configuration paths from relative to absolute paths from repo root.
+    
+    Converts relative paths to absolute paths using the repository root as the base.
+    This ensures paths work correctly regardless of the current working directory.
+    
+    Normalizes:
+    - DATASET.ROOT_DIR: Dataset root directory
+    - OUT_DIR: Output directory for experiments
+    
+    Args:
+        cfg: Configuration object to normalize
+    
+    Returns:
+        cfg: The configuration object with normalized paths
+    """
+    # Get repo root (parent of deep_al/pycls/core/)
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    
+    # Normalize DATASET.ROOT_DIR if set and relative
+    if cfg.DATASET.ROOT_DIR is not None:
+        if not os.path.isabs(cfg.DATASET.ROOT_DIR):
+            cfg.DATASET.ROOT_DIR = os.path.join(repo_root, cfg.DATASET.ROOT_DIR)
+    
+    # Normalize OUT_DIR (convert relative 'output' to absolute path)
+    if cfg.OUT_DIR and not os.path.isabs(cfg.OUT_DIR):
+        cfg.OUT_DIR = os.path.join(repo_root, cfg.OUT_DIR)
+    
+    return cfg
+
+
 def setup_cfg(args):
     """
     One-shot configuration setup from command-line arguments.
@@ -478,5 +510,9 @@ def setup_cfg(args):
     # Initialize config with unified function
     # Priority: argparse (highest) > cfg_file > config.py defaults (lowest)
     cfg_instance = initialize_cfg(args.cfg_file, args_dict)
+    
+    # Normalize paths from relative to absolute (based on repo root)
+    normalize_cfg_paths(cfg_instance)
+
     return cfg_instance
 

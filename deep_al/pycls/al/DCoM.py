@@ -289,6 +289,29 @@ class DCoM:
 
         return sorted_indices[:amount]
 
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+        """
+        Standard interface for active learning sampling.
+        Adapts the algorithm to work with the unified AL interface.
+        """
+        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
+        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
+            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
+        
+        # Update sets in the instance (in case they changed)
+        self.lSet = lSet
+        self.uSet = uSet
+        
+        # CRITICAL: Recompute derived state that depends on lSet/uSet
+        self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
+        self.rel_features = self.all_features[self.relevant_indices]
+        
+        # Recompute delta dictionary based on new lSet size
+        self.lSet_deltas_dict = dict(zip(np.arange(len(self.lSet)), self.lSet_deltas))
+        self.delta_avg = np.average(self.lSet_deltas)
+        
+        return self.select_samples(clf_model, trainDataset, supportingModels)
+
     @staticmethod
     def calculate_coverage(fully_df, lSet, lSet_deltas_dict, total_data_len):
         """
@@ -297,3 +320,4 @@ class DCoM:
         covered_samples = fully_df.y[np.isin(fully_df.x, np.arange(len(lSet))) & (
                 fully_df.d < fully_df.x.map(lSet_deltas_dict))].unique()  # lSet send arrow to them
         return len(covered_samples) / total_data_len
+

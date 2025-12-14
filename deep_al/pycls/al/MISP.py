@@ -161,6 +161,17 @@ class MISP:
         sampled_indices = np.array(self.activeSet).astype(int)
         visualize_tsne(labeled_indices, sampled_indices, algo_name='MISP')
 
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+        """
+        Standard interface for active learning sampling.
+        Adapts the algorithm to work with the unified AL interface.
+        """
+        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
+        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
+            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
+        
+        return self.select_samples(lSet, uSet)
+
 def batched_matmul(K, V, chunk_size=1024):
     D, N = K.shape
     result = torch.empty_like(V)

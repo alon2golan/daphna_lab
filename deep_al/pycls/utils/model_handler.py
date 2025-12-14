@@ -8,3 +8,4 @@ def get_model(cfg, ckpt_file=None, model_init_state=None):
     if model_init_state is not None and not cfg.MODEL.USE_1NN:
         model.load_state_dict(model_init_state)
     return model
+

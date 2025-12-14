@@ -143,3 +143,18 @@ class ProbCoverWeighted:
         print(f'Finished the selection of {len(activeSet)} samples.')
         print(f'Active set is {activeSet}')
         return activeSet, remainSet
+
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+        """
+        Standard interface for active learning sampling.
+        Adapts the algorithm to work with the unified AL interface.
+        """
+        assert self.budgetSize > 0, "Expected a positive budgetSize"
+        assert self.budgetSize < len(uSet), \
+            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.budgetSize}"
+        
+        # Update sets in the instance (in case they changed)
+        self.lSet = lSet
+        self.uSet = uSet
+        activeSet, remainSet = self.select_samples()
+        return activeSet
