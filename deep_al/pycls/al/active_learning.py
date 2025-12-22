@@ -25,34 +25,34 @@ class ActiveLearning:
     
     Uses a factory pattern to instantiate the appropriate algorithm based on config,
     then delegates sampling to that algorithm's sample_from_uSet() method.
+    Initializes algorithm-specific state (e.g., DCoM delta tracking) automatically.
     """
 
-    def __init__(self, dataObj, cfg, train_labels=None, lset=None):
-        self.dataObj = dataObj
+    def __init__(self, dataObj, cfg, train_labels=None, lset=None, plotting_manager=None):
         self.cfg = cfg
-        self.train_labels = train_labels
-        self.lset = lset
         
         # Create the appropriate algorithm instance using factory
-        self.al_algorithm = self._create_algorithm(train_labels, lset)
-        
-        # Initialize algorithm-specific instance if needed (for DCoM)
-        self.al_algorithm_instance = None
-        self.algorithm_state = {}  # Store algorithm-specific dynamic state
-        self._initialize_algorithm_instance(lset)
+        self.al_algorithm = self._create_algorithm(train_labels, lset, dataObj, plotting_manager)
 
-    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                        checkpoint_file=None):
         """
         Sample from uSet using the configured algorithm.
+        
+        Delegates to algorithm instance which has access to data_obj and plotting_manager
+        stored in its constructor.
 
         INPUT
         ------
         clf_model: Reference of task classifier model class [Typically VGG]
+        lSet, uSet: Labeled and unlabeled set indices
+        trainDataset: Training dataset object
         supportingModels: List of models which are used for sampling process.
+        checkpoint_file: Model checkpoint from training (for DCoM state updates only)
 
         OUTPUT
         -------
-        Returns activeSet, uSet
+        Returns activeSet, new_uSet
         """
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
@@ -61,8 +61,10 @@ class ActiveLearning:
         logger.info(f"Using {self.cfg.ACTIVE_LEARNING.SAMPLING_FN} sampling function for active learning.")
         
         # Delegate to the algorithm instance
+        # Algorithms have data_obj and plotting_manager stored in constructor
         activeSet = self.al_algorithm.sample_from_uSet(
-            clf_model, lSet, uSet, trainDataset, supportingModels=supportingModels
+            clf_model, lSet, uSet, trainDataset, supportingModels=supportingModels,
+            checkpoint_file=checkpoint_file
         )
         
         # Calculate remaining unlabeled set
@@ -71,10 +73,10 @@ class ActiveLearning:
         return activeSet, new_uSet
         
 
-    def _create_algorithm(self, train_labels=None, lset=None):
+    def _create_algorithm(self, train_labels=None, lset=None, dataObj=None, plotting_manager=None):
         """
         Factory method to create the appropriate AL algorithm instance.
-        Returns the algorithm object with sample_from_uSet() method.
+        Passes data_obj and plotting_manager to each algorithm.
         """
         sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
         
@@ -101,10 +103,11 @@ class ActiveLearning:
                             delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
         
         elif sampling_fn == "mispc":
-            return MISPC(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
+            return MISPC(self.cfg, lset if lset is not None else [], np.array([]),
+                        budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
                         delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
         
-        # Dynamic algorithms (directly instantiate with lSet and uSet at sampling time)
+        # Dynamic algorithms
         elif sampling_fn == "misp_plus":
             return MISP_PLUS(self.cfg, lset if lset is not None else [], uSet=np.array([]),
                             budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
@@ -126,108 +129,17 @@ class ActiveLearning:
             return DCoM(self.cfg, lset if lset is not None else [], [],
                        budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
                        max_delta=self.cfg.ACTIVE_LEARNING.MAX_DELTA,
-                       lSet_deltas=delta_lst)
+                       lSet_deltas=delta_lst,
+                       data_obj=dataObj, plotting_manager=plotting_manager)
         
         # Traditional sampling methods and special cases (from Sampling class)
         elif sampling_fn in ["random", "uncertainty", "entropy", "margin", "dbal", "bald", "ensemble_var_r"]:
-            return Sampling(dataObj=self.dataObj, cfg=self.cfg)
+            return Sampling(dataObj=dataObj, cfg=self.cfg)
         elif sampling_fn == "coreset":
-            return CoreSetMIPSampling(cfg=self.cfg, dataObj=self.dataObj)
+            return CoreSetMIPSampling(cfg=self.cfg, dataObj=dataObj)
         elif sampling_fn == "vaal":
-            return AdversarySampler(dataObj=self.dataObj, cfg=self.cfg)
+            return AdversarySampler(dataObj=dataObj, cfg=self.cfg)
         
         else:
             raise NotImplementedError(f"{sampling_fn} is either not implemented or there is some spelling mistake.")
-
-    def _initialize_algorithm_instance(self, lset):
-        """Initialize algorithm-specific instance (DCoM, etc.)."""
-        sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
-        
-        if sampling_fn == "dcom":
-            # Initialize delta list from config or create new
-            delta_lst = self.cfg.ACTIVE_LEARNING.DELTA_LST if hasattr(self.cfg.ACTIVE_LEARNING, 'DELTA_LST') else []
-            
-            self.al_algorithm_instance = DCoM(
-                self.cfg, lset if lset is not None else [], [],
-                budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                max_delta=self.cfg.ACTIVE_LEARNING.MAX_DELTA,
-                lSet_deltas=delta_lst
-            )
-            
-            # Store dynamic state in algorithm_state
-            if lset is not None and len(lset) == 0:
-                delta_lst = [str(self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)] * self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
-            
-            self.algorithm_state['delta_lst'] = delta_lst
-    
-    def initialize_algorithm_state(self, plotting_manager):
-        """Initialize algorithm-specific state on first iteration."""
-        if self.al_algorithm_instance is None:
-            return
-        
-        sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
-        
-        if sampling_fn == "dcom":
-            # Initialize delta stats for DCoM
-            plotting_manager.add_delta_stats(
-                self.cfg.ACTIVE_LEARNING.INITIAL_DELTA, 0.0
-            )
-    
-    def update_algorithm_state(self, data_obj, checkpoint_file, lSet, train_data, uSet, plotting_manager):
-        """Update algorithm-specific state after each episode (DCoM deltas, etc.)."""
-        if self.al_algorithm_instance is None:
-            return
-        
-        sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
-        
-        if sampling_fn == "dcom":
-            print("======== Update the deltas dynamically ========\n")
-            
-            from deep_al.pycls.utils.model_handler import get_label_from_model
-            
-            lSet_labels = np.take(train_data.targets, np.asarray(lSet, dtype=np.int64))
-            all_images_idx = np.array(list(lSet) + list(uSet))
-            images_loader = data_obj.getSequentialDataLoader(
-                indexes=all_images_idx,
-                batch_size=self.cfg.TRAIN.BATCH_SIZE,
-                data=train_data
-            )
-            all_labels = np.take(train_data.targets, np.asarray(all_images_idx, dtype=np.int64))
-            
-            images_pseudo_labels = get_label_from_model(images_loader, checkpoint_file, self.cfg)
-            
-            # Update deltas
-            new_deltas = self.al_algorithm_instance.new_centroids_deltas(
-                lSet_labels,
-                all_labels=all_labels,
-                pseudo_labels=images_pseudo_labels,
-                budget=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
-            )
-            
-            # Update dynamic state
-            delta_lst = self.algorithm_state['delta_lst']
-            delta_lst[-1 * self.cfg.ACTIVE_LEARNING.BUDGET_SIZE:] = new_deltas
-            self.algorithm_state['delta_lst'] = delta_lst
-            
-            delta_lst_float = [float(delta) for delta in delta_lst]
-            plotting_manager.add_delta_stats(np.average(delta_lst_float), np.std(delta_lst_float))
-    
-    def prepare_next_iteration(self):
-        """Prepare algorithm-specific state for next iteration."""
-        if self.al_algorithm_instance is None:
-            return
-        
-        sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
-        
-        if sampling_fn == "dcom":
-            delta_lst = self.algorithm_state['delta_lst']
-            delta_lst_float = [float(delta) for delta in delta_lst]
-            next_deltas = [str(round(np.average(delta_lst_float), 2))] * self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
-            delta_lst.extend(next_deltas)
-            self.algorithm_state['delta_lst'] = delta_lst
-            return delta_lst_float
-    
-    def has_algorithm_instance(self):
-        """Check if algorithm requires state management."""
-        return self.al_algorithm_instance is not None
 

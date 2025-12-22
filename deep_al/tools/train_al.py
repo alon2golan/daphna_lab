@@ -188,16 +188,13 @@ def main(cfg):
         uSet = uSet[~lset_mask]
 
     train_labels = train_data.targets
-    al_obj = ActiveLearning(data_obj, cfg, train_labels, lSet)
-    
-    # Initialize algorithm state if needed
-    al_obj.initialize_algorithm_state(plotting_manager)
+    al_obj = ActiveLearning(data_obj, cfg, train_labels, lSet, plotting_manager)
     
     if len(lSet) == 0:
         print('Labeled Set is Empty - Sampling an Initial Pool')
         activeSet, new_uSet = al_obj.sample_from_uSet(model, lSet, uSet, train_data)
         print(f'Initial Pool is {activeSet}')
-        # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode
+        # Add dcomactiveSet to lSet, save new_uSet as uSet and update dataloader for the next episode
         lSet = np.append(lSet, activeSet)
         uSet = new_uSet
 
@@ -249,16 +246,10 @@ def main(cfg):
             data_obj.saveSet(uSet, 'uSet', cfg.EPISODE_DIR)
             break
 
-        # Update algorithm-specific state (DCoM deltas, etc.)
-        al_obj.update_algorithm_state(data_obj, checkpoint_file, lSet, train_data, uSet, plotting_manager)
-
         # Active Sample 
         lSet, lSet_loader, uSet, valSet_loader = active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet,
                                                                       lSet_loader, train_data, uSet, valSet,
                                                                       valSet_loader, al_obj)
-
-        # Prepare algorithm-specific state for next iteration
-        al_obj.prepare_next_iteration()
         
         _, ep_y = plotting_manager.get_episode_data()
         print('Current accuracy values: ', ep_y)
@@ -279,7 +270,12 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
     print("======== ACTIVE SAMPLING ========\n")
     logger.info("======== ACTIVE SAMPLING ========\n")
     clf_model = mh.get_model(cfg, checkpoint_file)
-    activeSet, new_uSet = al_obj.sample_from_uSet(clf_model, lSet, uSet, train_data)
+    # Algorithms have access to data_obj and plotting_manager from their constructors
+    # Only pass checkpoint_file for state updates (DCoM specific)
+    activeSet, new_uSet = al_obj.sample_from_uSet(
+        clf_model, lSet, uSet, train_data, 
+        checkpoint_file=checkpoint_file
+    )
     # Save current lSet, new_uSet and activeSet in the episode directory
     data_obj.saveSets(lSet, uSet, activeSet, cfg.EPISODE_DIR)
     # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode

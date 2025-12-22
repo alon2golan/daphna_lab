@@ -11,7 +11,7 @@ class DCoM:
     using minimum margin.
     """
 
-    def __init__(self, cfg, lSet, uSet, budgetSize, lSet_deltas, max_delta):
+    def __init__(self, cfg, lSet, uSet, budgetSize, lSet_deltas, max_delta, data_obj=None, plotting_manager=None):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
@@ -20,12 +20,20 @@ class DCoM:
         self.uSet = uSet
         self.budgetSize = budgetSize
         self.max_delta = max_delta
+        self.data_obj = data_obj
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)  # indices of lSet and then uSet in all_features
         # self.relevant_indices = np.arange(self.lSet.size +self.uSet.size).astype(int)  # indices of lSet and then uSet in all_features
         self.rel_features = self.all_features[self.relevant_indices]  # features of lSet and then uSet
         self.lSet_deltas = [float(delta) for delta in lSet_deltas]
         self.lSet_deltas_dict = dict(zip(np.arange(len(self.lSet)), self.lSet_deltas))
         self.delta_avg = np.average(self.lSet_deltas)
+        
+        self.plotting_manager = plotting_manager
+        # Initialize algorithm state if plotting_manager is provided
+        if plotting_manager is not None:
+            self.plotting_manager.add_delta_stats(
+                self.cfg.ACTIVE_LEARNING.INITIAL_DELTA, 0.0
+            )
 
     def construct_graph_excluding_lSet(self, delta=None, batch_size=700):
         """
@@ -289,10 +297,15 @@ class DCoM:
 
         return sorted_indices[:amount]
 
-    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                        checkpoint_file=None):
         """
-        Standard interface for active learning sampling.
-        Adapts the algorithm to work with the unified AL interface.
+        Complete DCoM iteration: update state → sample → prepare next.
+        
+        Handles all state management internally:
+        1. Update deltas from checkpoint if available
+        2. Perform sampling
+        3. Prepare deltas for next iteration if applicable
         """
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
@@ -306,11 +319,74 @@ class DCoM:
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
         self.rel_features = self.all_features[self.relevant_indices]
         
-        # Recompute delta dictionary based on new lSet size
+        # Stage 1: Update state from previous episode (if checkpoint provided)
+        if checkpoint_file is not None and self.data_obj is not None and self.plotting_manager is not None:
+            self._update_state_from_checkpoint(checkpoint_file, lSet, trainDataset)
+        
+        # Stage 2: Perform sampling
+        activeSet = self.select_samples(clf_model, trainDataset, self.data_obj)
+        
+        # Stage 3: Prepare state for next iteration (if we have the context)
+        if checkpoint_file is not None and self.plotting_manager is not None:
+            self._prepare_state_for_next_iteration()
+        
+        return activeSet
+
+    def _update_state_from_checkpoint(self, checkpoint_file, lSet, train_data):
+        """
+        Update algorithm state based on trained model checkpoint.
+        
+        Computes and updates delta values dynamically based on model predictions.
+        """
+        print("======== Update the deltas dynamically ========\n")
+        
+        from deep_al.pycls.utils.model_handler import get_label_from_model
+        
+        # Prepare labels and data loaders
+        lSet_labels = np.take(train_data.targets, np.asarray(lSet, dtype=np.int64))
+        all_images_idx = np.array(list(lSet) + list(self.uSet))
+        images_loader = self.data_obj.getSequentialDataLoader(
+            indexes=all_images_idx,
+            batch_size=self.cfg.TRAIN.BATCH_SIZE,
+            data=train_data
+        )
+        all_labels = np.take(train_data.targets, np.asarray(all_images_idx, dtype=np.int64))
+        
+        # Get pseudo-labels from the trained model
+        images_pseudo_labels = get_label_from_model(images_loader, checkpoint_file, self.cfg)
+        
+        # Update deltas based on model performance
+        new_deltas = self.new_centroids_deltas(
+            lSet_labels,
+            all_labels=all_labels,
+            pseudo_labels=images_pseudo_labels,
+            budget=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
+        )
+        
+        # Update delta history and values
+        self.lSet_deltas = [float(delta) for delta in new_deltas]
         self.lSet_deltas_dict = dict(zip(np.arange(len(self.lSet)), self.lSet_deltas))
         self.delta_avg = np.average(self.lSet_deltas)
         
-        return self.select_samples(clf_model, trainDataset, supportingModels)
+        # Track statistics for visualization
+        delta_lst_float = [float(delta) for delta in new_deltas]
+        self.plotting_manager.add_delta_stats(np.average(delta_lst_float), np.std(delta_lst_float))
+
+    def _prepare_state_for_next_iteration(self):
+        """
+        Prepare algorithm state for the next iteration.
+        
+        Computes the average of current deltas and initializes deltas for
+        the next batch of points to be selected.
+        """
+        delta_lst_float = [float(delta) for delta in self.lSet_deltas]
+        next_deltas = [str(round(np.average(delta_lst_float), 2))] * self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
+        
+        # Extend the deltas list for next iteration (for potential tracking)
+        if not hasattr(self, 'delta_lst'):
+            self.delta_lst = []
+        
+        self.delta_lst = self.lSet_deltas + next_deltas
 
     @staticmethod
     def calculate_coverage(fully_df, lSet, lSet_deltas_dict, total_data_len):
@@ -320,4 +396,5 @@ class DCoM:
         covered_samples = fully_df.y[np.isin(fully_df.x, np.arange(len(lSet))) & (
                 fully_df.d < fully_df.x.map(lSet_deltas_dict))].unique()  # lSet send arrow to them
         return len(covered_samples) / total_data_len
+
 

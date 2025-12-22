@@ -161,10 +161,13 @@ class MISP:
         sampled_indices = np.array(self.activeSet).astype(int)
         visualize_tsne(labeled_indices, sampled_indices, algo_name='MISP')
 
-    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                        checkpoint_file=None):
         """
         Standard interface for active learning sampling.
         Adapts the algorithm to work with the unified AL interface.
+        
+        Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \

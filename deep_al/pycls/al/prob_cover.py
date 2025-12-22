@@ -107,10 +107,13 @@ class ProbCover:
         print(f'Active set is {activeSet}')
         return activeSet, remainSet
 
-    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                        checkpoint_file=None):
         """
         Standard interface for active learning sampling.
         Adapts the algorithm to work with the unified AL interface.
+        
+        Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \

@@ -201,7 +201,7 @@ class CoreSetMIPSampling():
             remainSet = uSet[remainSet]
         return activeSet, remainSet
     
-    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None):
         """
         Unified interface for CoreSet MIP sampling.
         Handles model state management and delegates to query method.
@@ -270,7 +270,7 @@ class Sampling:
         return preds
 
 
-    def random(self, uSet, budgetSize):
+    def random(self, uSet, budgetSize, current_iteration=None, batch_idx=None):
         """
         Chooses <budgetSize> number of data points randomly from uSet.
         
@@ -282,6 +282,10 @@ class Sampling:
         uSet: np.ndarray, It describes the index set of unlabelled set.
 
         budgetSize: int, The number of active data points to be chosen for active learning.
+        
+        current_iteration: int, optional - current iteration number
+        
+        batch_idx: int, optional - current batch index
 
         OUTPUT
         -------
@@ -304,7 +308,7 @@ class Sampling:
         return activeSet, uSet
 
 
-    def bald(self, budgetSize, uSet, clf_model, dataset):
+    def bald(self, budgetSize, uSet, clf_model, dataset, current_iteration=None, batch_idx=None):
         "Implements BALD acquisition function where we maximize information gain."
 
         clf_model.cuda(self.cuda_id)
@@ -364,7 +368,7 @@ class Sampling:
         return activeSet, remainSet
 
 
-    def dbal(self, budgetSize, uSet, clf_model, dataset):
+    def dbal(self, budgetSize, uSet, clf_model, dataset, current_iteration=None, batch_idx=None):
         """
         Implements deep bayesian active learning where uncertainty is measured by 
         maximizing entropy of predictions. This uncertainty method is choosen following
@@ -430,7 +434,7 @@ class Sampling:
         return activeSet, remainSet
 
 
-    def ensemble_var_R(self, budgetSize, uSet, clf_models, dataset):
+    def ensemble_var_R(self, budgetSize, uSet, clf_models, dataset, current_iteration=None, batch_idx=None):
         """
         Implements ensemble variance_ratio measured as the number of disagreement in committee 
         with respect to the predicted class. 
@@ -487,7 +491,7 @@ class Sampling:
         uSetLoader.dataset.no_aug = False
         return activeSet, remainSet
 
-    def uncertainty(self, budgetSize, lSet, uSet, model, dataset):
+    def uncertainty(self, budgetSize, lSet, uSet, model, dataset, current_iteration=None, batch_idx=None):
 
         """
         Implements the uncertainty principle as a acquisition function.
@@ -532,7 +536,7 @@ class Sampling:
         return activeSet, remainSet
 
 
-    def entropy(self, budgetSize, lSet, uSet, model, dataset):
+    def entropy(self, budgetSize, lSet, uSet, model, dataset, current_iteration=None, batch_idx=None):
 
         """
         Implements the uncertainty principle as a acquisition function.
@@ -576,7 +580,7 @@ class Sampling:
         return activeSet, remainSet
 
 
-    def margin(self, budgetSize, lSet, uSet, model, dataset):
+    def margin(self, budgetSize, lSet, uSet, model, dataset, current_iteration=None, batch_idx=None):
 
         """
         Implements the uncertainty principle as a acquisition function.
@@ -621,7 +625,7 @@ class Sampling:
         uSetLoader.dataset.no_aug = False
         return activeSet, remainSet
 
-    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None):
         """
         Unified interface for sampling from uSet using the appropriate method.
         
@@ -965,7 +969,7 @@ class AdversarySampler:
         unlabeled_dataloader.dataset.no_aug = False
         return activeSet, remainSet
 
-    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None):
         """
         Unified interface for VAAL sampling.
         Trains VAE and discriminator, then samples for labeling.
