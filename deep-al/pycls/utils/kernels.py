@@ -55,7 +55,7 @@ class RBFKernel(Kernel):
     def compute_gram(self, X, comp_device='cuda', sigma=1.0, batch_size=8192, final_type=torch.float16):
         return self.compute_sub_gram(X, X, comp_device=comp_device, sigma=sigma, batch_size=batch_size, final_type=final_type)
     
-    def compute_sparse_gram(self, X, comp_device='cuda', sigma=1.0, final_type=torch.float16, k=1000):
+    def compute_sparse_gram_knn(self, X, comp_device='cuda', sigma=1.0, final_type=torch.float16, k=1000):
         """
         Computes a sparse gram matrix using Faiss for NN search. (GPU)
         """
@@ -97,6 +97,34 @@ class RBFKernel(Kernel):
         
         return K_sparse
         
+    def compute_sparse_gram(self, X, comp_device='cuda', sigma=1.0, final_type=torch.float16, sparsity_percent=0.9998):
+        """
+        Computes a sparse gram matrix using hard thresholding.
+        - Compute full gram matrix and then clip to desired sparsity.
+        sparsity_percent: float between 0 and 1 indicating the fraction of values to be zeroed out.
+        0.9998 means keep only 0.02% of the values (99.98% sparsity)
+        
+        Returns a torch sparse tensor in CSR format.
+        # TODO: Could be optimized further. This is post-processing after full gram computation.
+        """
+        computed_gram = self.compute_gram(X, comp_device=comp_device, sigma=sigma, final_type=final_type) # Dense matrix on CPU
+        N = computed_gram.shape[0]
+        
+        k = int(N * N * (1 - sparsity_percent))
+        if k < 1:
+            raise ValueError("sparsity_percent too high, resulting in zero non-zero elements.")
+
+        # Get the threshold value for top-k
+        kth = max(1, computed_gram.numel() - k + 1)
+        threshold_value = torch.kthvalue(computed_gram.flatten(), kth).values
+        
+        mask = computed_gram >= threshold_value
+        computed_gram.mul_(mask)
+        
+        sparse_gram = computed_gram.to_sparse_csr()
+        del computed_gram, mask
+        return sparse_gram
+
         
     def compute_sub_gram(self, x1, x2, comp_device='cuda', sigma=1.0, batch_size=8192, final_type=torch.float16):
         n1 = x1.shape[0]
