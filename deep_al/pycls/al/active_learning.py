@@ -123,13 +123,12 @@ class ActiveLearning:
             return MaxHerding(self.cfg, lset if lset is not None else [], np.array([]),
                             self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, delta=delta)
         
-        # DCoM (handled separately for state management)
+        # DCoM (handles its own delta initialization internally)
         elif sampling_fn == "dcom":
-            delta_lst = self.cfg.ACTIVE_LEARNING.DELTA_LST if hasattr(self.cfg.ACTIVE_LEARNING, 'DELTA_LST') else []
             return DCoM(self.cfg, lset if lset is not None else [], [],
                        budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
                        max_delta=self.cfg.ACTIVE_LEARNING.MAX_DELTA,
-                       lSet_deltas=delta_lst,
+                       lSet_deltas=[],  # DCoM will initialize if empty
                        data_obj=dataObj, plotting_manager=plotting_manager)
         
         # Traditional sampling methods and special cases (from Sampling class)

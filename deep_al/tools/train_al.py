@@ -246,7 +246,7 @@ def main(cfg):
             data_obj.saveSet(uSet, 'uSet', cfg.EPISODE_DIR)
             break
 
-        # Active Sample 
+        # Active Sample (algorithms handle their own state updates internally)
         lSet, lSet_loader, uSet, valSet_loader = active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet,
                                                                       lSet_loader, train_data, uSet, valSet,
                                                                       valSet_loader, al_obj)
@@ -270,11 +270,9 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
     print("======== ACTIVE SAMPLING ========\n")
     logger.info("======== ACTIVE SAMPLING ========\n")
     clf_model = mh.get_model(cfg, checkpoint_file)
-    # Algorithms have access to data_obj and plotting_manager from their constructors
-    # Only pass checkpoint_file for state updates (DCoM specific)
+    # Pass checkpoint_file to let algorithm handle its own state updates internally
     activeSet, new_uSet = al_obj.sample_from_uSet(
-        clf_model, lSet, uSet, train_data, 
-        checkpoint_file=checkpoint_file
+        clf_model, lSet, uSet, train_data, checkpoint_file=checkpoint_file
     )
     # Save current lSet, new_uSet and activeSet in the episode directory
     data_obj.saveSets(lSet, uSet, activeSet, cfg.EPISODE_DIR)
@@ -480,17 +478,6 @@ def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch
     return loss, clf_iter_count
 
 
-def get_label_from_model(images_loader, checkpoint_file, cfg, model=None):
-    """
-    returns the labels of the images according to the checkpoint file model
-    """
-    get_label_meter = TestMeter(len(images_loader))
-    if model is None:
-        model = mh.get_model(cfg, checkpoint_file)
-
-    pred = get_label_epoch(images_loader, model, get_label_meter)
-    return pred
-
 @torch.no_grad()
 def test_epoch(test_loader, model, test_meter, cur_epoch):
     """Evaluates the model on the test set."""
@@ -525,27 +512,6 @@ def test_epoch(test_loader, model, test_meter, cur_epoch):
     test_meter.reset()
 
     return misclassifications/totalSamples
-
-@torch.no_grad()
-def get_label_epoch(images_loader, model, get_label_meter):
-    """get labels according to the model."""
-    if torch.cuda.is_available():
-        model.cuda()
-
-    model.eval()
-    get_label_meter.iter_tic()
-
-    all_preds = []
-    for cur_iter, (inputs, _) in enumerate(images_loader):
-        with torch.no_grad():
-            inputs = inputs.cuda().type(torch.cuda.FloatTensor)
-            preds = model(inputs)
-            all_preds += preds
-
-    final_preds = [torch.argmax(p).item() for p in all_preds]
-    model.train()
-
-    return final_preds
 
 
 

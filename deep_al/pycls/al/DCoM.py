@@ -24,9 +24,16 @@ class DCoM:
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)  # indices of lSet and then uSet in all_features
         # self.relevant_indices = np.arange(self.lSet.size +self.uSet.size).astype(int)  # indices of lSet and then uSet in all_features
         self.rel_features = self.all_features[self.relevant_indices]  # features of lSet and then uSet
-        self.lSet_deltas = [float(delta) for delta in lSet_deltas]
+        
+        # Initialize delta list - if empty (first iteration), create initial deltas
+        if len(lSet_deltas) == 0:
+            print('DCoM: Initializing delta list with initial_delta for first budget')
+            self.lSet_deltas = [float(self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)] * budgetSize
+        else:
+            self.lSet_deltas = [float(delta) for delta in lSet_deltas]
+        
         self.lSet_deltas_dict = dict(zip(np.arange(len(self.lSet)), self.lSet_deltas))
-        self.delta_avg = np.average(self.lSet_deltas)
+        self.delta_avg = np.average(self.lSet_deltas) if self.lSet_deltas else self.cfg.ACTIVE_LEARNING.INITIAL_DELTA
         
         self.plotting_manager = plotting_manager
         # Initialize algorithm state if plotting_manager is provided
@@ -305,7 +312,7 @@ class DCoM:
         Handles all state management internally:
         1. Update deltas from checkpoint if available
         2. Perform sampling
-        3. Prepare deltas for next iteration if applicable
+        3. Prepare deltas for next iteration and update cfg.ACTIVE_LEARNING.DELTA_LST
         """
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
@@ -320,14 +327,14 @@ class DCoM:
         self.rel_features = self.all_features[self.relevant_indices]
         
         # Stage 1: Update state from previous episode (if checkpoint provided)
-        if checkpoint_file is not None and self.data_obj is not None and self.plotting_manager is not None:
+        if checkpoint_file is not None and self.data_obj is not None:
             self._update_state_from_checkpoint(checkpoint_file, lSet, trainDataset)
         
         # Stage 2: Perform sampling
         activeSet = self.select_samples(clf_model, trainDataset, self.data_obj)
         
-        # Stage 3: Prepare state for next iteration (if we have the context)
-        if checkpoint_file is not None and self.plotting_manager is not None:
+        # Stage 3: Prepare state for next iteration and update global delta list
+        if checkpoint_file is not None:
             self._prepare_state_for_next_iteration()
         
         return activeSet
@@ -368,9 +375,12 @@ class DCoM:
         self.lSet_deltas_dict = dict(zip(np.arange(len(self.lSet)), self.lSet_deltas))
         self.delta_avg = np.average(self.lSet_deltas)
         
-        # Track statistics for visualization
+        # Track statistics for visualization (if plotting_manager available)
         delta_lst_float = [float(delta) for delta in new_deltas]
-        self.plotting_manager.add_delta_stats(np.average(delta_lst_float), np.std(delta_lst_float))
+        self.last_delta_avg = np.average(delta_lst_float)
+        self.last_delta_std = np.std(delta_lst_float)
+        if self.plotting_manager is not None:
+            self.plotting_manager.add_delta_stats(self.last_delta_avg, self.last_delta_std)
 
     def _prepare_state_for_next_iteration(self):
         """
@@ -380,13 +390,16 @@ class DCoM:
         the next batch of points to be selected.
         """
         delta_lst_float = [float(delta) for delta in self.lSet_deltas]
-        next_deltas = [str(round(np.average(delta_lst_float), 2))] * self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
+        avg_delta = np.average(delta_lst_float)
+        next_deltas = [avg_delta] * self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
         
-        # Extend the deltas list for next iteration (for potential tracking)
-        if not hasattr(self, 'delta_lst'):
-            self.delta_lst = []
+        # Extend the delta list for next iteration
+        self.lSet_deltas = self.lSet_deltas + next_deltas
         
-        self.delta_lst = self.lSet_deltas + next_deltas
+        print(f"Current delta list length: {len(self.lSet_deltas)}")
+        if hasattr(self, 'last_delta_avg'):
+            print("Current delta avg: ", self.last_delta_avg)
+            print("Current delta std: ", self.last_delta_std)
 
     @staticmethod
     def calculate_coverage(fully_df, lSet, lSet_deltas_dict, total_data_len):
