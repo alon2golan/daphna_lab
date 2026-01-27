@@ -199,6 +199,19 @@ _C.ACTIVE_LEARNING.DELTA_RESOLUTION = 0.05 # Delta resolution for the binary sea
 _C.ACTIVE_LEARNING.FINE_TUNE = True # continue after AL from existing model or from scratch
 
 # ---------------------------------------------------------------------------- #
+# Annotators options
+# ---------------------------------------------------------------------------- #
+_C.ANNOTATORS = CN()
+_C.ANNOTATORS.ENABLED = False  # Whether to use noisy annotators
+_C.ANNOTATORS.MODE = 'oracle'  # Options: 'oracle', 'single', 'multiple'
+_C.ANNOTATORS.NUM_ANNOTATORS = 1
+_C.ANNOTATORS.NOISE_TYPE = 'sym'  # 'sym' for symmetric, 'asym' for asymmetric
+_C.ANNOTATORS.NOISE_RATES = [0.0]  # List of noise rates for each annotator
+_C.ANNOTATORS.COSTS = [1.0]  # List of costs for each annotator
+_C.ANNOTATORS.SELECTION_STRATEGY = 'random'  # 'random', 'most_accurate', 'least_cost', 'cost_accuracy_ratio'
+_C.ANNOTATORS.INITIAL_SET_ANNOTATOR = 'oracle'  # How initial lSet is labeled: 'oracle' or 'random' or specific id
+
+# ---------------------------------------------------------------------------- #
 # Common train/test data loader options
 # ---------------------------------------------------------------------------- #
 _C.DATA_LOADER = CN()

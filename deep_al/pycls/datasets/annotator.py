@@ -4,35 +4,27 @@ Adds label noise to any dataset while preserving the original clean labels.
 """
 import numpy as np
 from torch.utils.data import Dataset
+from typing import Optional
 
 
-class NoisyDataset(Dataset):
-    """
-    A wrapper that adds label noise to any dataset.
-    
-    Args:
-        dataset: Base dataset instance (CIFAR10, CIFAR100, ImageNet, etc.)
-        noise_type: Type of noise - 'sym' (symmetric), 'asym' (asymmetric), or 'clean'
-        noise_rate: Noise rate between 0.0 and 1.0
-        num_classes: Number of classes in the dataset
-        seed: Random seed for reproducibility
-        noise_transition_matrix: Optional custom transition matrix for asymmetric noise
-        save_dir: Optional directory to save/load noisy labels
-    """
+class Annotator:
+    """A Annotator wrapper that adds label noise to any dataset."""
     
     def __init__(
         self,
         dataset: Dataset,
         noise_type: str = "clean",
         noise_rate: float = 0.0,
-        num_classes: int = None,
+        cost: float = 0.0,
+        num_classes: Optional[int] = None,
         seed: int = 0,
-        noise_transition_matrix: np.ndarray = None,
-        save_dir: str = None,
+        noise_transition_matrix: Optional[np.ndarray] = None,
+        save_dir: Optional[str] = None,
     ):
         self.dataset = dataset
         self.noise_type = noise_type
         self.noise_rate = noise_rate
+        self.cost = cost
         self.seed = seed
         self.save_dir = save_dir
         
@@ -109,15 +101,12 @@ class NoisyDataset(Dataset):
     def __len__(self):
         return len(self.dataset)
     
-    def __getitem__(self, index):
+    def get_annotation(self, index):
         """Get item with noisy label."""
         sample, _ = self.dataset[index]
         noisy_label = self.noisy_labels[index]
-        return sample, noisy_label
-    
-    def get_clean_label(self, index):
-        """Get the clean label for an index."""
-        return self.clean_labels[index]
+        clean_label = self.clean_labels[index]
+        return sample, noisy_label, clean_label
     
     def get_noisy_info(self, index):
         """Get information about label noise for an index."""
@@ -137,3 +126,19 @@ class NoisyDataset(Dataset):
             'num_noisy_samples': np.sum(self.is_noisy),
             'total_samples': len(self.clean_labels)
         }
+    
+    def get_label(self, index):
+        """Get the noisy label for a given sample index.
+        
+        Args:
+            index: int, Index of the sample in the dataset
+            
+        Returns:
+            int, The noisy label for the sample
+        """
+        return int(self.noisy_labels[index])
+    
+    @property
+    def accuracy(self):
+        """Get the accuracy of this annotator (1 - noise_rate)."""
+        return 1.0 - self.noise_rate

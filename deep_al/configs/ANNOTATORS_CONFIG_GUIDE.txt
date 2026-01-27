@@ -1,0 +1,107 @@
+# Example configuration for using noisy annotators in active learning
+
+# To use this configuration, create a YAML file based on this template
+
+# ============================================================================ #
+# ANNOTATORS Configuration
+# ============================================================================ #
+
+# Example 1: Oracle Mode (Clean labels, default behavior)
+ANNOTATORS:
+  ENABLED: False  # Disabled = Oracle mode
+  MODE: 'oracle'
+  
+# Example 2: Single Noisy Annotator
+ANNOTATORS:
+  ENABLED: True
+  MODE: 'single'
+  NUM_ANNOTATORS: 1
+  NOISE_TYPE: 'sym'  # 'sym' for symmetric noise, 'asym' for asymmetric
+  NOISE_RATES: [0.2]  # 20% noise rate
+  COSTS: [1.0]
+  SELECTION_STRATEGY: 'random'  # Not relevant for single annotator
+  INITIAL_SET_ANNOTATOR: 'oracle'  # Initial set uses clean labels
+
+# Example 3: Multiple Noisy Annotators with Different Accuracies and Costs
+ANNOTATORS:
+  ENABLED: True
+  MODE: 'multiple'
+  NUM_ANNOTATORS: 3
+  NOISE_TYPE: 'sym'
+  NOISE_RATES: [0.05, 0.15, 0.30]  # High accuracy (95%), medium (85%), low (70%)
+  COSTS: [10.0, 5.0, 1.0]  # Expensive, medium, cheap
+  SELECTION_STRATEGY: 'most_accurate'  # Options: 'random', 'most_accurate', 'least_cost', 'cost_accuracy_ratio'
+  INITIAL_SET_ANNOTATOR: 'oracle'  # Initial labeled set uses oracle
+
+# Example 4: Budget-Aware Multiple Annotators
+ANNOTATORS:
+  ENABLED: True
+  MODE: 'multiple'
+  NUM_ANNOTATORS: 2
+  NOISE_TYPE: 'sym'
+  NOISE_RATES: [0.1, 0.2]  # Annotator 1: 90% accuracy, Annotator 2: 80% accuracy
+  COSTS: [2.0, 0.5]  # Annotator 1: 2x cost, Annotator 2: 0.5x cost
+  SELECTION_STRATEGY: 'random'
+  INITIAL_SET_ANNOTATOR: 'random'  # Initial set also goes through annotator selection
+
+# ============================================================================ #
+# ACTIVE_LEARNING Budget Configuration
+# ============================================================================ #
+ACTIVE_LEARNING:
+  BUDGET_SIZE: 100  # Budget per episode (if using cost-based annotators, this is cost budget)
+  MAX_ITER: 10  # Number of active learning episodes
+
+# ============================================================================ #
+# Notes on Annotator Selection Strategies
+# ============================================================================ #
+
+# 'random': Randomly select among all annotators
+#   - Good for exploring different annotators
+#   - No optimization
+
+# 'most_accurate': Always select the annotator with highest accuracy (1 - noise_rate)
+#   - Prioritizes quality over cost
+#   - May exhaust budget quickly with expensive annotators
+
+# 'least_cost': Always select the cheapest annotator
+#   - Prioritizes quantity over quality
+#   - May result in many noisy labels
+
+# 'cost_accuracy_ratio': Select annotator with best accuracy/cost ratio
+#   - Balances quality and cost
+#   - Good general-purpose strategy
+
+# ============================================================================ #
+# Budget Behavior
+# ============================================================================ #
+
+# When ANNOTATORS are enabled with costs:
+# - ACTIVE_LEARNING.BUDGET_SIZE is interpreted as a COST budget (not sample count)
+# - The system will annotate samples until the budget is exhausted
+# - If a sample would exceed the budget, it is skipped
+# - The actual number of samples labeled may vary based on annotator costs
+
+# Example:
+# - BUDGET_SIZE = 100
+# - Annotator 1: cost=10, Annotator 2: cost=1
+# - If 'most_accurate' strategy selects Annotator 1, you get 10 samples
+# - If 'least_cost' strategy selects Annotator 2, you get 100 samples
+
+# ============================================================================ #
+# Data Tracking
+# ============================================================================ #
+
+# For each episode, the following files are saved in the episode directory:
+# - annotator_assignments.json: Maps sample_idx -> annotator_id
+# - noisy_labels.json: Maps sample_idx -> noisy_label
+# - cumulative_cost.txt: Total cost spent so far
+#
+# Special annotator ID: -1 indicates oracle/clean labels
+
+# ============================================================================ #
+# Validation and Testing
+# ============================================================================ #
+
+# - Validation set (valSet) ALWAYS uses clean/oracle labels
+# - Test set ALWAYS uses clean/oracle labels
+# - Only training set (lSet) uses potentially noisy labels from annotators

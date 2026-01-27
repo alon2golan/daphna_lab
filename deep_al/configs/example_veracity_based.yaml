@@ -1,0 +1,150 @@
+# Example Configuration: Kernel-Based Veracity Annotator Selection
+
+# This example demonstrates the kernel-based veracity greedy selection strategy where:
+# - Annotator 0 is an oracle (perfect accuracy, cost=1)
+# - Annotators 1-2 are noisy with cheaper costs
+# - Veracity is computed using kernel similarity: v_j = max_i[(1 - noise_rate(a_i)) * K_ij]
+
+ANNOTATORS:
+  ENABLED: True
+  MODE: 'multiple'
+  NUM_ANNOTATORS: 3
+  NOISE_TYPE: 'sym'  # symmetric noise
+  
+  # Annotator 0: Oracle (must be first!)
+  # Annotator 1: High-quality noisy (90% acc, cost=0.5)
+  # Annotator 2: Low-cost noisy (70% acc, cost=0.1)
+  NOISE_RATES: [0.0, 0.1, 0.3]
+  COSTS: [1.0, 0.5, 0.1]
+  
+  # Use kernel-based veracity greedy selection
+  SELECTION_STRATEGY: 'veracity_based'
+  
+  # Kernel configuration:
+  # - 'rbf': RBF kernel (MaxHerding style) K_ij = exp(-||x_i - x_j||^2 / (2*sigma^2))
+  # - 'delta_ball': Delta-ball kernel (ProbCover style) K_ij = 1 if ||x_i - x_j|| < delta, else 0
+  KERNEL_TYPE: 'rbf'
+  KERNEL_PARAM: 1.0  # sigma for rbf, delta (radius) for delta_ball
+  
+  # Initial labeled set uses oracle
+  INITIAL_SET_ANNOTATOR: 'oracle'
+
+ACTIVE_LEARNING:
+  # Budget per episode (interpreted as cost budget when using multiple annotators)
+  BUDGET_SIZE: 100
+  
+  # With budget=100 and veracity_based strategy, the algorithm will:
+  # - At each iteration, compare:
+  #   * Take 1 sample from oracle (cost=1)
+  #   * Take 2 samples from annotator 1 (cost=1)
+  #   * Take 10 samples from annotator 2 (cost=1)
+  # - Select the option that maximizes veracity increase
+  # - Repeat until budget exhausted
+  
+  MAX_ITER: 10  # Number of active learning episodes
+
+# =============================================================================
+# Kernel-Based Veracity Definition
+# =============================================================================
+
+# For each unlabeled sample j, veracity is computed as:
+#   v_j = max_{i ∈ L} [(1 - noise_rate(a_i)) * K_ij]
+#
+# Where:
+#   - L = labeled set (all samples annotated so far)
+#   - a_i = annotator who labeled sample i
+#   - noise_rate(a_i) = noise rate of annotator a_i
+#   - K_ij = kernel similarity between samples i and j
+#
+# Interpretation:
+#   - High veracity: sample j is similar to a labeled sample annotated by a high-accuracy annotator
+#   - Low veracity: sample j is far from all labeled samples, or only close to noisily-labeled samples
+
+# Kernel Options:
+#   1. RBF Kernel (MaxHerding style):
+#      K_ij = exp(-||x_i - x_j||^2 / (2*sigma^2))
+#      - Smooth similarity decay
+#      - sigma controls width (larger = broader influence)
+#
+#   2. Delta-ball Kernel (ProbCover style):
+#      K_ij = 1  if ||x_i - x_j|| < delta
+#             0  otherwise
+#      - Hard threshold
+#      - delta is the ball radius
+
+# =============================================================================
+# How Kernel-Based Veracity Selection Works
+# =============================================================================
+
+# 1. INITIALIZATION:
+#    - Extract features for all samples (must be pre-computed)
+#    - Initialize labeled set L with oracle-labeled samples
+#    - Compute initial veracity for unlabeled set U
+
+# 2. AT EACH ITERATION (budget remaining):
+#    For each annotator i:
+#      n_i = floor(iteration_budget / cost_i)  # How many samples affordable
+#      samples_i = select n_i samples with lowest veracity
+#      
+#      # Compute expected veracity increase across ALL unlabeled samples
+#      For each unlabeled sample j in U:
+#        new_contribution = max over selected samples [accuracy_i * K(selected, j)]
+#        veracity_increase_j = max(0, new_contribution - current_v_j)
+#      
+#      total_veracity_increase_i = sum(veracity_increase_j for all j in U)
+#    
+#    Select annotator with maximum total_veracity_increase
+#    Annotate selected samples
+#    Update labeled set L and recompute veracity for U
+
+# 3. KEY INSIGHT:
+#    - Oracle labels near a cluster -> High veracity for entire cluster
+#    - Cheap annotator labels spread across space -> Broader but lower veracity coverage
+#    - Algorithm balances: concentrated high-quality vs distributed low-quality
+
+# =============================================================================
+# Example Scenario with RBF Kernel (sigma=1.0, Budget=10)
+# =============================================================================
+
+# Initial State:
+#   - L = 10 oracle-labeled samples
+#   - U = 990 unlabeled samples
+#   - Veracity computed based on distance to initial L
+
+# Iteration 1:
+#   Options:
+#   - Oracle: 1 sample in dense cluster -> High veracity increase for nearby points
+#   - Annotator 1 (cost=0.5): 2 samples spread apart -> Moderate veracity for 2 regions
+#   - Annotator 2 (cost=0.1): 10 samples scattered -> Broad but weak veracity coverage
+#   
+#   If U has many low-veracity regions -> Annotator 2 wins (quantity, exploration)
+#   If U has a critical dense cluster -> Oracle wins (quality, exploitation)
+
+# Iteration 2:
+#   After labeling 10 samples with Annotator 2:
+#   - Veracity increased in 10 regions
+#   - Remaining low-veracity points may benefit more from high-quality oracle
+#   -> Oracle might be selected
+
+# Natural Behavior:
+#   - Early: Cheap annotators for broad exploration
+#   - Middle: Mix based on veracity distribution
+#   - Late: Oracle for critical uncertain regions
+
+# =============================================================================
+# Expected Output Files (per episode)
+# =============================================================================
+
+# episode_X/
+#   ├── annotator_assignments.json  # Maps sample_idx -> annotator_id
+#   ├── noisy_labels.json           # Maps sample_idx -> noisy_label
+#   ├── cumulative_cost.txt         # Total cost spent
+#   ├── lSet.npy                    # Labeled set indices
+#   ├── uSet.npy                    # Unlabeled set indices
+#   └── activeSet.npy               # Newly labeled indices
+
+# Console output includes:
+# - Veracity statistics (mean, min, max, median)
+# - Per-iteration annotator selection decisions
+# - Cost tracking and budget utilization
+# - Annotator usage counts

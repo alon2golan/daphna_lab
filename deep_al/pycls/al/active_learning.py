@@ -26,8 +26,9 @@ class ActiveLearning:
     Initializes algorithm-specific state (e.g., DCoM delta tracking) automatically.
     """
 
-    def __init__(self, dataObj, cfg, train_labels=None, lset=None, plotting_manager=None):
+    def __init__(self, dataObj, cfg, train_labels=None, lset=None, plotting_manager=None, annotator_manager=None):
         self.cfg = cfg
+        self.annotator_manager = annotator_manager
         # Create the appropriate algorithm instance using factory
         self.al_algorithm = self._create_algorithm(train_labels, lset, dataObj, plotting_manager)
 
@@ -59,15 +60,15 @@ class ActiveLearning:
         
         # Delegate to the algorithm instance
         # Algorithms have data_obj and plotting_manager stored in constructor
-        activeSet, new_uSet = self.al_algorithm.sample_from_uSet(
+        activeSet, remain_set = self.al_algorithm.sample_from_uSet(
             clf_model, lSet, uSet, trainDataset, supportingModels=supportingModels,
             checkpoint_file=checkpoint_file
         )
         
         # Calculate remaining unlabeled set
-        new_uSet = np.array(sorted(list(set(uSet) - set(activeSet))))
+        # new_uSet = np.array(sorted(list(set(uSet) - set(activeSet))))
         
-        return activeSet, new_uSet
+        return activeSet, remain_set
         
 
     def _create_algorithm(self, train_labels=None, lset=None, dataObj=None, plotting_manager=None):

@@ -2,6 +2,8 @@
 # GitHub: https://github.com/PrateekMunjal
 # ----------------------------------------------------------
 
+import os
+import glob
 import torch
 import numpy as np
 
@@ -17,6 +19,7 @@ from deep_al.pycls.datasets.imbalanced_cifar import IMBALANCECIFAR10, IMBALANCEC
 from deep_al.pycls.datasets.sampler import IndexedSequentialSampler
 from deep_al.pycls.datasets.tiny_imagenet import TinyImageNet
 from deep_al.pycls.datasets.imagenet import ImageNet
+from deep_al.pycls.datasets.annotator import Annotator
 
 logger = lu.get_logger(__name__)
 
@@ -177,7 +180,6 @@ class Data:
             print("Either the specified {} dataset is not added or there is no if condition in getDataset function of Data class".format(self.dataset))
             logger.info("Either the specified {} dataset is not added or there is no if condition in getDataset function of Data class".format(self.dataset))
             raise NotImplementedError
-
 
     def getDataset(self, save_dir, isTrain=True, isDownload=False):
         """
