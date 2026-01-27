@@ -11,3 +11,7 @@ torch==2.4.1
 torchvision==0.19.1
 tqdm
 faiss-gpu-cu12==1.8.0.0
+pandas
+scikit-learn
+scipy
+seaborn

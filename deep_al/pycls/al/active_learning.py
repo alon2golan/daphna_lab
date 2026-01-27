@@ -62,7 +62,7 @@ class ActiveLearning:
         
         # Delegate to the algorithm instance
         # Algorithms have data_obj and plotting_manager stored in constructor
-        activeSet = self.al_algorithm.sample_from_uSet(
+        activeSet, new_uSet = self.al_algorithm.sample_from_uSet(
             clf_model, lSet, uSet, trainDataset, supportingModels=supportingModels,
             checkpoint_file=checkpoint_file
         )
