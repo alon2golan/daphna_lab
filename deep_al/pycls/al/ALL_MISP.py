@@ -343,7 +343,7 @@ class ALL_MISP:
             f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.budgetSize}"
         
         activeSet, remainSet = self.select_samples(lSet, uSet)
-        return activeSet
+        return activeSet, remainSet
 
 def batched_diffs(K, C, chunk_size=1024, diff_method="abs_diff", U=None):
     D, N = K.shape

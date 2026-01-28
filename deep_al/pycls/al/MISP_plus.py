@@ -191,7 +191,7 @@ class MISP_PLUS:
         self.K.fill_diagonal_(0)
         
         activeSet, remainSet = self.select_samples()
-        return activeSet
+        return activeSet, remainSet
 
 def batched_matmul(K, V, chunk_size=1024):
     D, N = K.shape

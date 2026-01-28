@@ -162,4 +162,4 @@ class MISPC:
         self.K_point_wise = self.K.cpu().sum(dim=1).to(self.K.device)
         
         activeSet, remainSet = self.select_samples()
-        return activeSet
+        return activeSet, remainSet

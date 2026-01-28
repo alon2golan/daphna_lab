@@ -210,11 +210,11 @@ class CoreSetMIPSampling():
         wastrain = clf_model.training
         clf_model.penultimate_active = True
         clf_model.eval()
-        activeSet, new_uSet = self.query(lSet=lSet, uSet=uSet, clf_model=clf_model, dataset=trainDataset)
+        activeSet, remainSet = self.query(lSet=lSet, uSet=uSet, clf_model=clf_model, dataset=trainDataset)
         clf_model.penultimate_active = waslatent
         clf_model.train(wastrain)
         
-        return activeSet
+        return activeSet, remainSet
 
 
 class Sampling:
@@ -636,38 +636,38 @@ class Sampling:
         budget_size = self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
         
         if sampling_fn == "random":
-            activeSet, new_uSet = self.random(uSet=uSet, budgetSize=budget_size)
+            activeSet, remainSet = self.random(uSet=uSet, budgetSize=budget_size)
         elif sampling_fn == "uncertainty":
             oldmode = clf_model.training
             clf_model.eval()
-            activeSet, new_uSet = self.uncertainty(budgetSize=budget_size, 
+            activeSet, remainSet = self.uncertainty(budgetSize=budget_size, 
                                                    lSet=lSet, uSet=uSet, model=clf_model, dataset=trainDataset)
             clf_model.train(oldmode)
         elif sampling_fn == "entropy":
             oldmode = clf_model.training
             clf_model.eval()
-            activeSet, new_uSet = self.entropy(budgetSize=budget_size,
+            activeSet, remainSet = self.entropy(budgetSize=budget_size,
                                               lSet=lSet, uSet=uSet, model=clf_model, dataset=trainDataset)
             clf_model.train(oldmode)
         elif sampling_fn == "margin":
             oldmode = clf_model.training
             clf_model.eval()
-            activeSet, new_uSet = self.margin(budgetSize=budget_size,
+            activeSet, remainSet = self.margin(budgetSize=budget_size,
                                              lSet=lSet, uSet=uSet, model=clf_model, dataset=trainDataset)
             clf_model.train(oldmode)
         elif sampling_fn == "dbal":
-            activeSet, new_uSet = self.dbal(budgetSize=budget_size,
+            activeSet, remainSet = self.dbal(budgetSize=budget_size,
                                            uSet=uSet, clf_model=clf_model, dataset=trainDataset)
         elif sampling_fn == "bald":
-            activeSet, new_uSet = self.bald(budgetSize=budget_size,
+            activeSet, remainSet = self.bald(budgetSize=budget_size,
                                            uSet=uSet, clf_model=clf_model, dataset=trainDataset)
         elif sampling_fn == "ensemble_var_r":
-            activeSet, new_uSet = self.ensemble_var_R(budgetSize=budget_size,
+            activeSet, remainSet = self.ensemble_var_R(budgetSize=budget_size,
                                                       uSet=uSet, clf_models=supportingModels, dataset=trainDataset)
         else:
             raise NotImplementedError(f"Unknown sampling method in Sampling class: {sampling_fn}")
         
-        return activeSet
+        return activeSet, remainSet
 
 
 class AdversarySampler:
@@ -978,7 +978,7 @@ class AdversarySampler:
         vae, disc, uSet_loader = self.vaal_perform_training(lSet=lSet, uSet=uSet, dataset=trainDataset)
         
         # Do active sampling
-        activeSet, new_uSet = self.sample_for_labeling(vae=vae, discriminator=disc,
+        activeSet, remainSet = self.sample_for_labeling(vae=vae, discriminator=disc,
                                                         unlabeled_dataloader=uSet_loader, uSet=uSet)
         
-        return activeSet
+        return activeSet, remainSet

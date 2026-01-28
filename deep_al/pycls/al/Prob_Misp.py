@@ -312,7 +312,7 @@ class ALL_MISP:
         self.lSet = lSet
         self.uSet = uSet
         activeSet, remainSet = self.select_samples(lSet, uSet)
-        return activeSet
+        return activeSet, remainSet
 
 def batched_diffs(K, C, chunk_size=1024, diff_method="abs_diff", U=None):
     D, N = K.shape

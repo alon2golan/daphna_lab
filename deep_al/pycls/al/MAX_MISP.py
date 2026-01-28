@@ -182,7 +182,7 @@ class MAX_MISP:
             self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices])
         
         activeSet, remainSet = self.select_samples(lSet, uSet)
-        return activeSet
+        return activeSet, remainSet
 
 def batched_diffs(K, C, chunk_size=1024, diff_method="abs_diff"):
     D, N = K.shape

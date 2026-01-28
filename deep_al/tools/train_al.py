@@ -194,7 +194,7 @@ def main(cfg):
         print('Labeled Set is Empty - Sampling an Initial Pool')
         activeSet, new_uSet = al_obj.sample_from_uSet(model, lSet, uSet, train_data)
         print(f'Initial Pool is {activeSet}')
-        # Add dcomactiveSet to lSet, save new_uSet as uSet and update dataloader for the next episode
+        # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode
         lSet = np.append(lSet, activeSet)
         uSet = new_uSet
 

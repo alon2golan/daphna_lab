@@ -221,7 +221,7 @@ class BAYES_MISP:
         
         # Update sets in the instance (in case they changed)
         activeSet, remainSet = self.select_samples(lSet, uSet)
-        return activeSet
+        return activeSet, remainSet
 
 # @torch.compile(backend="inductor")
 def batched_diffs_efficient_weighted(K: torch.Tensor, C: torch.Tensor, chunk_size: int = 1024, diff_method: str = "abs_diff", cont_method: str = "positive", class_corr=None):

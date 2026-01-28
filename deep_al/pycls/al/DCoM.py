@@ -331,13 +331,13 @@ class DCoM:
             self._update_state_from_checkpoint(checkpoint_file, lSet, trainDataset)
         
         # Stage 2: Perform sampling
-        activeSet = self.select_samples(clf_model, trainDataset, self.data_obj)
+        activeSet, remainSet = self.select_samples(clf_model, trainDataset, self.data_obj)
         
         # Stage 3: Prepare state for next iteration and update global delta list
         if checkpoint_file is not None:
             self._prepare_state_for_next_iteration()
         
-        return activeSet
+        return activeSet, remainSet
 
     def _update_state_from_checkpoint(self, checkpoint_file, lSet, train_data):
         """

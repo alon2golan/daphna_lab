@@ -135,6 +135,10 @@ class MaxHerding:
 
         self.kernel_fn = self.construct_kernel_fn(kernel_name=kernel)
         self.activeSet = []
+        
+        # Kernel matrices (computed on demand, freed after each sampling round)
+        self.kernel_all = None
+        self.kernel_la = None
 
 
     def construct_kernel_fn(self, kernel_name):
@@ -234,7 +238,17 @@ class MaxHerding:
         print(f'Active set is {activeSet}')
         print(f'Time: {np.round(time.time() - start_time, 4)}sec')
 
+        self._free_kernel_memory()
+
         return activeSet, remainSet
+
+    def _free_kernel_memory(self):
+        """Free GPU memory used by kernel matrices."""
+        del self.kernel_all
+        del self.kernel_la
+        self.kernel_all = None
+        self.kernel_la = None
+        torch.cuda.empty_cache()
 
     def plot_tsne(self):
         labeled_indices = np.array(self.lSet).astype(int)
@@ -266,4 +280,4 @@ class MaxHerding:
             self.relevant_features = torch.from_numpy(self.all_features[self.relevant_indices])
         
         activeSet, remainSet = self.select_samples()
-        return activeSet
+        return activeSet, remainSet

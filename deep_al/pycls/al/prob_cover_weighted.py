@@ -154,4 +154,4 @@ class ProbCoverWeighted:
         self.lSet = lSet
         self.uSet = uSet
         activeSet, remainSet = self.select_samples()
-        return activeSet
+        return activeSet, remainSet
