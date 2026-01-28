@@ -25,6 +25,7 @@ import deep_al.pycls.utils.net as nu
 from deep_al.pycls.utils.meters import TestMeter
 from deep_al.pycls.utils.meters import TrainMeter
 from deep_al.pycls.utils.meters import ValMeter
+from deep_al.pycls.utils.plotting_state import PlottingManager
 
 logger = lu.get_logger(__name__)
 
@@ -261,13 +262,15 @@ def main(cfg):
         # Active Sample 
         print("======== ENSEMBLE ACTIVE SAMPLING ========\n")
         logger.info("======== ENSEMBLE ACTIVE SAMPLING ========\n")
-        al_obj = ActiveLearning(data_obj, cfg)
+        # Create a PlottingManager for state initialization (not actively used in ensemble, but required by API)
+        plotting_manager = PlottingManager()
+        al_obj = ActiveLearning(data_obj, cfg, plotting_manager=plotting_manager)
         clf_models = []
         for i in range(num_ensembles):
             temp = model_builder.build_model(cfg)
             clf_models.append(cu.load_checkpoint(best_model_paths[i], temp))
         
-        activeSet, new_uSet = al_obj.sample_from_uSet(None, lSet, uSet, train_data, supportingModels=clf_models)
+        activeSet, new_uSet = al_obj.sample_from_uSet(None, lSet, uSet, train_data, supportingModels=clf_models, checkpoint_file=None)
 
         # Save current lSet, new_uSet and activeSet in the episode directory
         data_obj.saveSets(lSet, uSet, activeSet, cfg.EPISODE_DIR)

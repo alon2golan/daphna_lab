@@ -158,6 +158,32 @@ class MAX_MISP:
         sampled_indices = np.array(self.activeSet).astype(int)
         visualize_tsne(labeled_indices, sampled_indices, algo_name='MISP')
 
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                        checkpoint_file=None):
+        """
+        Standard interface for active learning sampling.
+        Adapts the algorithm to work with the unified AL interface.
+        
+        Note: checkpoint_file is ignored for non-DCoM algorithms.
+        """
+        assert self.budgetSize > 0, "Expected a positive budgetSize"
+        assert self.budgetSize < len(uSet), \
+            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.budgetSize}"
+        
+        # Update sets in the instance (in case they changed)
+        self.lSet = lSet
+        self.uSet = uSet
+        
+        # CRITICAL: Recompute derived state that depends on lSet/uSet
+        self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
+        if isinstance(self.all_features, torch.Tensor):
+            self.rel_features = self.all_features[self.relevant_indices]
+        elif isinstance(self.all_features, np.ndarray):
+            self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices])
+        
+        activeSet, remainSet = self.select_samples(lSet, uSet)
+        return activeSet, remainSet
+
 def batched_diffs(K, C, chunk_size=1024, diff_method="abs_diff"):
     D, N = K.shape
     result = torch.empty_like(C)

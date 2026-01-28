@@ -200,6 +200,21 @@ class CoreSetMIPSampling():
             activeSet = uSet[greedy_indexes]
             remainSet = uSet[remainSet]
         return activeSet, remainSet
+    
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None):
+        """
+        Unified interface for CoreSet MIP sampling.
+        Handles model state management and delegates to query method.
+        """
+        waslatent = clf_model.penultimate_active
+        wastrain = clf_model.training
+        clf_model.penultimate_active = True
+        clf_model.eval()
+        activeSet, remainSet = self.query(lSet=lSet, uSet=uSet, clf_model=clf_model, dataset=trainDataset)
+        clf_model.penultimate_active = waslatent
+        clf_model.train(wastrain)
+        
+        return activeSet, remainSet
 
 
 class Sampling:
@@ -255,7 +270,7 @@ class Sampling:
         return preds
 
 
-    def random(self, uSet, budgetSize):
+    def random(self, uSet, budgetSize, current_iteration=None, batch_idx=None):
         """
         Chooses <budgetSize> number of data points randomly from uSet.
         
@@ -267,6 +282,10 @@ class Sampling:
         uSet: np.ndarray, It describes the index set of unlabelled set.
 
         budgetSize: int, The number of active data points to be chosen for active learning.
+        
+        current_iteration: int, optional - current iteration number
+        
+        batch_idx: int, optional - current batch index
 
         OUTPUT
         -------
@@ -289,7 +308,7 @@ class Sampling:
         return activeSet, uSet
 
 
-    def bald(self, budgetSize, uSet, clf_model, dataset):
+    def bald(self, budgetSize, uSet, clf_model, dataset, current_iteration=None, batch_idx=None):
         "Implements BALD acquisition function where we maximize information gain."
 
         clf_model.cuda(self.cuda_id)
@@ -349,7 +368,7 @@ class Sampling:
         return activeSet, remainSet
 
 
-    def dbal(self, budgetSize, uSet, clf_model, dataset):
+    def dbal(self, budgetSize, uSet, clf_model, dataset, current_iteration=None, batch_idx=None):
         """
         Implements deep bayesian active learning where uncertainty is measured by 
         maximizing entropy of predictions. This uncertainty method is choosen following
@@ -415,7 +434,7 @@ class Sampling:
         return activeSet, remainSet
 
 
-    def ensemble_var_R(self, budgetSize, uSet, clf_models, dataset):
+    def ensemble_var_R(self, budgetSize, uSet, clf_models, dataset, current_iteration=None, batch_idx=None):
         """
         Implements ensemble variance_ratio measured as the number of disagreement in committee 
         with respect to the predicted class. 
@@ -472,7 +491,7 @@ class Sampling:
         uSetLoader.dataset.no_aug = False
         return activeSet, remainSet
 
-    def uncertainty(self, budgetSize, lSet, uSet, model, dataset):
+    def uncertainty(self, budgetSize, lSet, uSet, model, dataset, current_iteration=None, batch_idx=None):
 
         """
         Implements the uncertainty principle as a acquisition function.
@@ -517,7 +536,7 @@ class Sampling:
         return activeSet, remainSet
 
 
-    def entropy(self, budgetSize, lSet, uSet, model, dataset):
+    def entropy(self, budgetSize, lSet, uSet, model, dataset, current_iteration=None, batch_idx=None):
 
         """
         Implements the uncertainty principle as a acquisition function.
@@ -561,7 +580,7 @@ class Sampling:
         return activeSet, remainSet
 
 
-    def margin(self, budgetSize, lSet, uSet, model, dataset):
+    def margin(self, budgetSize, lSet, uSet, model, dataset, current_iteration=None, batch_idx=None):
 
         """
         Implements the uncertainty principle as a acquisition function.
@@ -604,6 +623,50 @@ class Sampling:
         activeSet = uSet[activeSet]
         remainSet = uSet[sorted_idx[budgetSize:]]
         uSetLoader.dataset.no_aug = False
+        return activeSet, remainSet
+
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None):
+        """
+        Unified interface for sampling from uSet using the appropriate method.
+        
+        This method routes the sampling request to the appropriate sampling method
+        based on the configuration.
+        """
+        sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
+        budget_size = self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
+        
+        if sampling_fn == "random":
+            activeSet, remainSet = self.random(uSet=uSet, budgetSize=budget_size)
+        elif sampling_fn == "uncertainty":
+            oldmode = clf_model.training
+            clf_model.eval()
+            activeSet, remainSet = self.uncertainty(budgetSize=budget_size, 
+                                                   lSet=lSet, uSet=uSet, model=clf_model, dataset=trainDataset)
+            clf_model.train(oldmode)
+        elif sampling_fn == "entropy":
+            oldmode = clf_model.training
+            clf_model.eval()
+            activeSet, remainSet = self.entropy(budgetSize=budget_size,
+                                              lSet=lSet, uSet=uSet, model=clf_model, dataset=trainDataset)
+            clf_model.train(oldmode)
+        elif sampling_fn == "margin":
+            oldmode = clf_model.training
+            clf_model.eval()
+            activeSet, remainSet = self.margin(budgetSize=budget_size,
+                                             lSet=lSet, uSet=uSet, model=clf_model, dataset=trainDataset)
+            clf_model.train(oldmode)
+        elif sampling_fn == "dbal":
+            activeSet, remainSet = self.dbal(budgetSize=budget_size,
+                                           uSet=uSet, clf_model=clf_model, dataset=trainDataset)
+        elif sampling_fn == "bald":
+            activeSet, remainSet = self.bald(budgetSize=budget_size,
+                                           uSet=uSet, clf_model=clf_model, dataset=trainDataset)
+        elif sampling_fn == "ensemble_var_r":
+            activeSet, remainSet = self.ensemble_var_R(budgetSize=budget_size,
+                                                      uSet=uSet, clf_models=supportingModels, dataset=trainDataset)
+        else:
+            raise NotImplementedError(f"Unknown sampling method in Sampling class: {sampling_fn}")
+        
         return activeSet, remainSet
 
 
@@ -906,3 +969,16 @@ class AdversarySampler:
         unlabeled_dataloader.dataset.no_aug = False
         return activeSet, remainSet
 
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None):
+        """
+        Unified interface for VAAL sampling.
+        Trains VAE and discriminator, then samples for labeling.
+        """
+        # Train VAE and discriminator first
+        vae, disc, uSet_loader = self.vaal_perform_training(lSet=lSet, uSet=uSet, dataset=trainDataset)
+        
+        # Do active sampling
+        activeSet, remainSet = self.sample_for_labeling(vae=vae, discriminator=disc,
+                                                        unlabeled_dataloader=uSet_loader, uSet=uSet)
+        
+        return activeSet, remainSet

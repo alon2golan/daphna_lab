@@ -55,12 +55,13 @@ class TypiClust:
         self.lSet = lSet
         self.uSet = uSet
         self.budgetSize = budgetSize
-        self.init_features_and_clusters(is_scan)
+        self.is_scan = is_scan
+        self.init_features_and_clusters()
 
-    def init_features_and_clusters(self, is_scan):
+    def init_features_and_clusters(self):
         num_clusters = min(len(self.lSet) + self.budgetSize, self.MAX_NUM_CLUSTERS)
-        print(f'Clustering into {num_clusters} clustering. Scan clustering: {is_scan}')
-        if is_scan:
+        print(f'Clustering into {num_clusters} clustering. Scan clustering: {self.is_scan}')
+        if self.is_scan:
             fname_dict = {'CIFAR10': f'../../scan/results/cifar-10/scan/features_seed{self.seed}_clusters{num_clusters}.npy',
                           'CIFAR100': f'../../scan/results/cifar-100/scan/features_seed{self.seed}_clusters{num_clusters}.npy',
                           'TINYIMAGENET': f'../../scan/results/tiny-imagenet/scan/features_seed{self.seed}_clusters{num_clusters}.npy',
@@ -111,3 +112,22 @@ class TypiClust:
         print(f'Finished the selection of {len(activeSet)} samples.')
         print(f'Active set is {activeSet}')
         return activeSet, remainSet
+
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                        checkpoint_file=None):
+        """
+        Standard interface for active learning sampling.
+        Adapts the algorithm to work with the unified AL interface.
+        
+        Note: checkpoint_file is ignored for non-DCoM algorithms.
+        """
+        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
+        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
+            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
+        
+        # Update sets in the instance (in case they changed)
+        self.lSet = lSet
+        self.uSet = uSet
+        self.init_features_and_clusters()
+        return self.select_samples()
+

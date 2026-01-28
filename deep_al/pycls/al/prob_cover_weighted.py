@@ -41,12 +41,6 @@ class ProbCoverWeighted:
         self.budgetSize = budgetSize
         self.delta = delta
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
-        if isinstance(self.all_features, torch.Tensor):
-            self.rel_features = self.all_features[self.relevant_indices]
-        elif isinstance(self.all_features, np.ndarray):
-            self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices])
-        else:
-            raise NotImplementedError('Unknown type of features')
         # self.graph_df = self.construct_graph()
 
         print(f'ProbCoverWeighted | Start constructing similarity matrix using delta={self.delta}')
@@ -142,4 +136,22 @@ class ProbCoverWeighted:
 
         print(f'Finished the selection of {len(activeSet)} samples.')
         print(f'Active set is {activeSet}')
+        return activeSet, remainSet
+
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                        checkpoint_file=None):
+        """
+        Standard interface for active learning sampling.
+        Adapts the algorithm to work with the unified AL interface.
+        
+        Note: checkpoint_file is ignored for non-DCoM algorithms.
+        """
+        assert self.budgetSize > 0, "Expected a positive budgetSize"
+        assert self.budgetSize < len(uSet), \
+            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.budgetSize}"
+        
+        # Update sets in the instance (in case they changed)
+        self.lSet = lSet
+        self.uSet = uSet
+        activeSet, remainSet = self.select_samples()
         return activeSet, remainSet

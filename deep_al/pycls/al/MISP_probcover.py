@@ -122,3 +122,44 @@ class MISPC:
         labeled_indices = np.array(self.lSet).astype(int)
         sampled_indices = np.array(self.activeSet).astype(int)
         visualize_tsne(labeled_indices, sampled_indices, algo_name='MISP')
+
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                        checkpoint_file=None):
+        """
+        Standard interface for active learning sampling.
+        Adapts the algorithm to work with the unified AL interface.
+        
+        Note: checkpoint_file is ignored for non-DCoM algorithms.
+        """
+        assert self.budgetSize > 0, "Expected a positive budgetSize"
+        assert self.budgetSize < len(uSet), \
+            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.budgetSize}"
+        
+        # Update sets in the instance (in case they changed)
+        self.lSet = lSet
+        self.uSet = uSet
+        
+        # CRITICAL: Recompute derived state that depends on lSet/uSet
+        self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
+        if isinstance(self.all_features, torch.Tensor):
+            self.rel_features = self.all_features[self.relevant_indices]
+        elif isinstance(self.all_features, np.ndarray):
+            self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices])
+        
+        # Recompute kernel matrix (expensive but necessary)
+        self.kernel_fn = TopHatKernel('cuda')
+        self.K = self.kernel_fn.compute_kernel(
+            self.rel_features, self.rel_features, self.delta,
+            batch_size=1024).to('cuda')
+        
+        # Recompute masks based on new lSet size
+        self.labeled_mask = torch.ones(self.K.shape[0], dtype=torch.bool)
+        self.labeled_mask[np.arange(self.lSet.size).astype(int)] = False
+        covered_mask = torch.nonzero(self.K[~self.labeled_mask, :], as_tuple=False).flatten()
+        self.labeled_mask[covered_mask] = False
+        mask_matrix = torch.outer(self.labeled_mask, self.labeled_mask)
+        self.K *= mask_matrix.to('cuda')
+        self.K_point_wise = self.K.cpu().sum(dim=1).to(self.K.device)
+        
+        activeSet, remainSet = self.select_samples()
+        return activeSet, remainSet

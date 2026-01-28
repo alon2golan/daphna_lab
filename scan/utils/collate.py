@@ -4,8 +4,8 @@ Licensed under the CC BY-NC 4.0 license (https://creativecommons.org/licenses/by
 """
 import torch
 import numpy as np
-import collections
-from torch._six import string_classes
+import collections.abc as collections
+string_classes = (str, bytes)
 
 
 """ Custom collate function """

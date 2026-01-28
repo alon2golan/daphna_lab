@@ -135,6 +135,10 @@ class MaxHerding:
 
         self.kernel_fn = self.construct_kernel_fn(kernel_name=kernel)
         self.activeSet = []
+        
+        # Kernel matrices (computed on demand, freed after each sampling round)
+        self.kernel_all = None
+        self.kernel_la = None
 
 
     def construct_kernel_fn(self, kernel_name):
@@ -234,9 +238,46 @@ class MaxHerding:
         print(f'Active set is {activeSet}')
         print(f'Time: {np.round(time.time() - start_time, 4)}sec')
 
+        self._free_kernel_memory()
+
         return activeSet, remainSet
+
+    def _free_kernel_memory(self):
+        """Free GPU memory used by kernel matrices."""
+        del self.kernel_all
+        del self.kernel_la
+        self.kernel_all = None
+        self.kernel_la = None
+        torch.cuda.empty_cache()
 
     def plot_tsne(self):
         labeled_indices = np.array(self.lSet).astype(int)
         sampled_indices = np.array(self.activeSet).astype(int)
         visualize_tsne(labeled_indices, sampled_indices, algo_name='Max Herding')
+
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                        checkpoint_file=None):
+        """
+        Standard interface for active learning sampling.
+        Adapts the algorithm to work with the unified AL interface.
+        
+        Note: checkpoint_file is ignored for non-DCoM algorithms.
+        """
+        assert self.budgetSize > 0, "Expected a positive budgetSize"
+        assert self.budgetSize < len(uSet), \
+            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.budgetSize}"
+        
+        # Update sets in the instance (in case they changed)
+        self.lSet = lSet
+        self.uSet = uSet
+        self.total_uSet = copy.deepcopy(uSet)
+        
+        # CRITICAL: Recompute derived state that depends on lSet/uSet
+        self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
+        if isinstance(self.all_features, torch.Tensor):
+            self.relevant_features = self.all_features[self.relevant_indices]
+        elif isinstance(self.all_features, np.ndarray):
+            self.relevant_features = torch.from_numpy(self.all_features[self.relevant_indices])
+        
+        activeSet, remainSet = self.select_samples()
+        return activeSet, remainSet
