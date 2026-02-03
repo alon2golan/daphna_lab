@@ -55,6 +55,7 @@ def argparser():
     parser.add_argument('--sparse_ds', action='store_true')
     parser.add_argument('--decrease_alpha', action='store_true')
     parser.add_argument('--max_iter', default=32, type=int)
+    parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
     return parser
 
 
