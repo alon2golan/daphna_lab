@@ -446,6 +446,10 @@ def build_args_dict(args):
         'MATRIX_DTYPE': args.matrix_dtype,
     }
     
+    # Add max_epoch if provided
+    if args.max_epoch is not None:
+        args_dict['OPTIM.MAX_EPOCH'] = args.max_epoch
+    
     # Get config aliases
     aliases = get_config_aliases()
     

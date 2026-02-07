@@ -58,6 +58,7 @@ def argparser():
     parser.add_argument('--initial_sigma', default=1.0, type=float)
     parser.add_argument('--sparse_K', action='store_true')
     parser.add_argument('--matrix_dtype', type=str, default=None, choices=['float32', 'float16'], help="Choose torch dtype: float32 or float16")
+    parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
     return parser
 
 

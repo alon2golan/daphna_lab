@@ -104,7 +104,18 @@ activenv
 Now you can check that everything installed and works fine. Run an example:
 ```
 cd /cs/labs/daphna/<user>/projects/daphna_lab/deep-al/tools/
-python train_al.py --cfg ../configs/cifar10/al/RESNET18.yaml --al typiclust_rp --exp-name auto --initial_size 0 --budget 100
+python train_al.py --cfg ../configs/cifar10/al/RESNET18.yaml --al typiclust_rp --exp-name auto --initial_size 0 --budget 100 --eval_model_type from_images
+```
+
+### Run probcover and max herding in the new way
+old way
+```
+cd /cs/labs/daphna/<user>/projects/daphna_lab/deep-al/tools/
+python train_al.py   --cfg ../configs/cifar100/al/RESNET18.yaml   --exp-name "maxherding"   --al "maxherding"   --budget 10  --max_iter 3 --seed 0   --eval_model_type from_images 
+```
+new way
+```
+python train_al.py   --cfg ../configs/cifar100/al/RESNET18.yaml   --exp-name "max_misp_maxherding"   --al "max_misp" --kernel_type rbf --max_iter 3 --initial_delta 0.6 --seed 0   --eval_model_type from_images
 ```
 
 ## VSCode Setup
