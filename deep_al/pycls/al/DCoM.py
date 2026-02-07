@@ -1,3 +1,4 @@
+import time
 import pandas as pd
 import numpy as np
 import torch
@@ -25,6 +26,23 @@ class DCoM:
         # self.relevant_indices = np.arange(self.lSet.size +self.uSet.size).astype(int)  # indices of lSet and then uSet in all_features
         self.rel_features = self.all_features[self.relevant_indices]  # features of lSet and then uSet
         
+        if self.cfg.ACTIVE_LEARNING.INITIAL_DELTA < 0:
+            print("Delta not specified. Starting automated selection process...")
+    
+            # Track time for performance monitoring
+            start_time = time.time()
+
+            print("Running Delta selection algorithm...")
+
+            self.cfg.ACTIVE_LEARNING.INITIAL_DELTA = ds_utils.select_delta(
+                features=self.all_features,
+                num_classes=self.cfg.MODEL.NUM_CLASSES,
+                seed=self.seed
+            )
+
+            elapsed = time.time() - start_time
+            print(f"Delta selection complete | Value: {self.cfg.ACTIVE_LEARNING.INITIAL_DELTA:.4f} | Time: {elapsed:.2f}s")
+
         # Initialize delta list - if empty (first iteration), create initial deltas
         if len(lSet_deltas) == 0:
             print('DCoM: Initializing delta list with initial_delta for first budget')

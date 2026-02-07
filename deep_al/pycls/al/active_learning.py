@@ -2,19 +2,17 @@
 # GitHub: https://github.com/PrateekMunjal
 # ----------------------------------------------------------
 
+import time
 import numpy as np
 from .Sampling import Sampling, CoreSetMIPSampling, AdversarySampler
-from .MISP import MISP
-from .MAX_MISP import MAX_MISP
-from .ALL_MISP import ALL_MISP
-from .BAYES_MISP import BAYES_MISP
+
 from .prob_cover import ProbCover
-from .MISP_probcover import MISPC
-from .MISP_plus import MISP_PLUS
 from .typiclust import TypiClust
 from .maxherding import MaxHerding
 from .DCoM import DCoM
+from .coverage_matrix_methods import CoverageMatrixMethod
 import deep_al.pycls.utils.logging as lu
+import deep_al.pycls.datasets.utils as ds_utils
 
 logger = lu.get_logger(__name__)
 
@@ -30,7 +28,6 @@ class ActiveLearning:
 
     def __init__(self, dataObj, cfg, train_labels=None, lset=None, plotting_manager=None):
         self.cfg = cfg
-        
         # Create the appropriate algorithm instance using factory
         self.al_algorithm = self._create_algorithm(train_labels, lset, dataObj, plotting_manager)
 
@@ -80,49 +77,40 @@ class ActiveLearning:
         """
         sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
         
-        # MISP variants
-        if sampling_fn == "misp":
-            return MISP(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                       delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
-        
-        elif sampling_fn == "max_misp":
-            return MAX_MISP(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                           delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
-        
-        elif sampling_fn == "all_misp":
-            return ALL_MISP(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                           train_labels=train_labels, delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA, lset=lset)
-        
-        elif sampling_fn == "bayes_misp":
-            return BAYES_MISP(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                             train_labels=train_labels, delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA, lset=lset)
-        
-        # ProbCover variants
-        elif sampling_fn in ["prob_cover", "probcover"]:
+        if sampling_fn in ["prob_cover_orig", "probcover_orig"]:
             return ProbCover(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
                             delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
         
-        elif sampling_fn == "mispc":
-            return MISPC(self.cfg, lset if lset is not None else [], np.array([]),
-                        budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                        delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
-        
-        # Dynamic algorithms
-        elif sampling_fn == "misp_plus":
-            return MISP_PLUS(self.cfg, lset if lset is not None else [], uSet=np.array([]),
-                            budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                            train_data=None, delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
-        
+        elif sampling_fn in ["prob_cover", "probcover"]:
+            if getattr(self.cfg, 'KERNEL_TYPE', None) != 'tophat':
+                logger.info('Warning!! for ProbCover the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+                print('Warning!! for ProbCover the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+
+                logger.info('Warning!! Running ProbCover as Sparse. Changing K_sparse to True')
+                print('Warning!! Running ProbCover as Sparse. Changing K_sparse to True')
+
+                self.cfg['KERNEL_TYPE'] = 'tophat'
+                self.cfg['K_SPARSE'] = True
+            cmm = CoverageMatrixMethod(self.cfg, train_labels=train_labels)
+            return cmm
+                
         elif sampling_fn.startswith("typiclust"):
             is_scan = sampling_fn.endswith('dc')
             return TypiClust(self.cfg, lset if lset is not None else [], np.array([]),
                             budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, is_scan=is_scan)
-        
-        elif sampling_fn in ["maxherding", "max_herding"]:
+        elif sampling_fn in ["maxherding_orig", "max_herding_orig"]:
             delta = self.cfg.ACTIVE_LEARNING.INITIAL_DELTA
             return MaxHerding(self.cfg, lset if lset is not None else [], np.array([]),
                             self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, delta=delta)
         
+        elif sampling_fn in ["maxherding", "max_herding"]:
+            if getattr(self.cfg, 'KERNEL_TYPE', None) != 'rbf':
+                logger.info('Warning!! for MaxHerding the Kernel must be RBF. Changing KERNEL_TYPE to rbf')
+                print('Warning!! for MaxHerding the Kernel must be TopHat. Changing KERNEL_TYPE to rbf')
+                self.cfg['KERNEL_TYPE'] = 'rbf'
+            cmm = CoverageMatrixMethod(self.cfg, train_labels=train_labels)
+            return cmm
+
         # DCoM (handles its own delta initialization internally)
         elif sampling_fn == "dcom":
             return DCoM(self.cfg, lset if lset is not None else [], [],

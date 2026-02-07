@@ -1,6 +1,8 @@
+import time
 import numpy as np
 import pandas as pd
 import torch
+from tqdm import tqdm
 import deep_al.pycls.datasets.utils as ds_utils
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
@@ -13,6 +15,24 @@ class ProbCover:
         self.seed = self.cfg['RNG_SEED']
         self.all_features = ds_utils.load_features(self.ds_name, self.seed)
         self.budgetSize = budgetSize
+
+        if delta < 0:
+            print("Delta not specified. Starting automated selection process...")
+    
+            # Track time for performance monitoring
+            start_time = time.time()
+
+            print("Running Delta selection algorithm...")
+
+            delta = ds_utils.select_delta(
+                features=self.all_features,
+                num_classes=self.cfg.MODEL.NUM_CLASSES,
+                seed=self.seed
+            )
+
+            elapsed = time.time() - start_time
+            print(f"Delta selection complete | Value: {delta:.4f} | Time: {elapsed:.2f}s")
+
         self.delta = delta
         # self.lSet = lSet
         # self.uSet = uSet
@@ -82,7 +102,7 @@ class ProbCover:
         edge_from_seen = np.isin(self.graph_df.x, np.arange(len(self.lSet)))
         covered_samples = self.graph_df.y[edge_from_seen].unique()
         cur_df = self.graph_df[(~np.isin(self.graph_df.y, covered_samples))]
-        for i in range(self.budgetSize):
+        for i in tqdm(range(self.budgetSize)):
             coverage = len(covered_samples) / len(self.relevant_indices)
             # selecting the sample with the highest degree
             degrees = np.bincount(cur_df.x, minlength=len(self.relevant_indices))

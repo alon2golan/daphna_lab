@@ -40,7 +40,7 @@ def argparser():
     parser.add_argument('--seed', help='Random seed', default=1, type=int)
     parser.add_argument('--finetune', help='Whether to continue with existing model between rounds', action='store_true') # train the eval model from last ckpt and not from scratch (between iters)
     parser.add_argument('--eval_model_type', help='eval_model_type', type=str) # train the eval model from features not images
-    parser.add_argument('--initial_delta', help='Relevant only for ProbCover and DCoM', default=0.6, type=float)
+    parser.add_argument('--initial_delta', help='Relevant only for ProbCover and DCoM', default=-1, type=float)
     parser.add_argument('--kernel_type', default='rbf', type=str)
     parser.add_argument('--diff_method', default='abs_diff', type=str)
     parser.add_argument('--confidence_method', default='margin', type=str)
@@ -55,6 +55,9 @@ def argparser():
     parser.add_argument('--sparse_ds', action='store_true')
     parser.add_argument('--decrease_alpha', action='store_true')
     parser.add_argument('--max_iter', default=32, type=int)
+    parser.add_argument('--initial_sigma', default=1.0, type=float)
+    parser.add_argument('--sparse_K', action='store_true')
+    parser.add_argument('--matrix_dtype', type=str, default=None, choices=['float32', 'float16'], help="Choose torch dtype: float32 or float16")
     parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
     return parser
 

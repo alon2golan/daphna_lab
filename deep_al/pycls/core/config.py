@@ -425,6 +425,7 @@ def build_args_dict(args):
         'ACTIVE_LEARNING.SAMPLING_FN': args.al,
         'ACTIVE_LEARNING.BUDGET_SIZE': args.budget,
         'ACTIVE_LEARNING.INITIAL_DELTA': args.initial_delta,
+        'ACTIVE_LEARNING.INITIAL_SIGMA': args.initial_sigma,
         'KERNEL_TYPE': args.kernel_type,
         'SOFT_BORDER_VAL': args.soft_border_val,
         'DIFF_METHOD': args.diff_method,
@@ -441,6 +442,8 @@ def build_args_dict(args):
         'ACTIVE_LEARNING.K_LOGISTIC': args.k_logistic,
         'EVAL_MODEL_TYPE': args.eval_model_type,
         'ACTIVE_LEARNING.MAX_ITER': args.max_iter,
+        'SPARSE_K': args.sparse_K,
+        'MATRIX_DTYPE': args.matrix_dtype,
     }
     
     # Add max_epoch if provided
