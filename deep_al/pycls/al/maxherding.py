@@ -102,7 +102,7 @@ class RationalQuadKernel(object):
 
 class MaxHerding:
     def __init__(self, cfg, lSet, uSet, budgetSize,
-                 delta=1, kernel="rbf", device="cuda", batch_size=1024):
+                 delta=1, kernel="rbf", device="cpu", batch_size=1024):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
@@ -186,9 +186,9 @@ class MaxHerding:
         inner_uSet = fixed_inner_uSet[inner_uSet_bool].to(self.device)
 
         if inner_lSet.shape[0] > 0:
-            max_embedding = self.kernel_la.max(dim=0, keepdim=True).values # 1 x N
+            max_embedding = self.kernel_la.max(dim=0, keepdim=True).values.to(self.device) # 1 x N
         else:
-            max_embedding = torch.zeros(1, len(inner_lSet) + len(fixed_inner_uSet)).cpu() # 1 x N
+            max_embedding = torch.zeros(1, len(inner_lSet) + len(fixed_inner_uSet)).to(self.device) # 1 x N
             # max_embedding = torch.zeros(1, len(inner_lSet) + len(fixed_inner_uSet)).to(self.device) # 1 x N
 
         selected = []
@@ -196,34 +196,34 @@ class MaxHerding:
             num_lSet = len(inner_lSet)
             num_uSet = len(inner_uSet)
 
-            updated_max_embedding = (self.kernel_all.cpu() - max_embedding.cpu()) # N x N
+            updated_max_embedding = (self.kernel_all - max_embedding) # N x N
             updated_max_embedding[updated_max_embedding < 0] = 0.
 
             # mean_max_embedding = (uncertainties * updated_max_embedding).mean(dim=-1) # N
             mean_max_embedding = updated_max_embedding.mean(dim=-1)  # N
 
             # select a point from u
-            mean_max_embedding[inner_lSet.cpu()] = -np.inf
+            mean_max_embedding[inner_lSet] = -np.inf
             selected_index = torch.argmax(mean_max_embedding)
 
             # update lSet and uSet
-            inner_lSet = torch.cat((inner_lSet.cpu(), selected_index.view(-1)))
+            inner_lSet = torch.cat((inner_lSet, selected_index.view(-1)))
             inner_uSet_bool[selected_index - len(self.lSet)] = False
             inner_uSet = fixed_inner_uSet[inner_uSet_bool]
 
-            max_embedding = updated_max_embedding[selected_index].unsqueeze(0) + max_embedding.cpu()
+            max_embedding += updated_max_embedding[selected_index].unsqueeze(0)
 
-            if len(set(inner_lSet.cpu().numpy())) != num_lSet + 1:
-                print(f'inner_lSet: {len(set(inner_lSet.numpy()))} is not equal to {num_lSet+1}')
-                import IPython; IPython.embed()
-            if len(set(inner_uSet.cpu().numpy())) != num_uSet - 1:
-                print(f'inner_lSet: {len(set(inner_uSet.numpy()))} is not equal to {num_uSet+1}')
-                import IPython; IPython.embed()
-            assert len(np.intersect1d(inner_lSet.cpu().numpy(), inner_uSet.cpu().numpy())) == 0
+            # if len(set(inner_lSet.cpu().numpy())) != num_lSet + 1:
+            #     print(f'inner_lSet: {len(set(inner_lSet.numpy()))} is not equal to {num_lSet+1}')
+            #     import IPython; IPython.embed()
+            # if len(set(inner_uSet.cpu().numpy())) != num_uSet - 1:
+            #     print(f'inner_lSet: {len(set(inner_uSet.numpy()))} is not equal to {num_uSet+1}')
+            #     import IPython; IPython.embed()
+            # assert len(np.intersect1d(inner_lSet.cpu().numpy(), inner_uSet.cpu().numpy())) == 0
 
             del updated_max_embedding, mean_max_embedding
 
-        selected = inner_lSet[len(self.lSet):].cpu()
+        selected = inner_lSet[len(self.lSet):]
 
         # total_inner_lSet = torch.cat((torch.arange(len(self.lSet)), selected))
         # total_lSet_features = self.relevant_features[total_inner_lSet].to(self.device)
