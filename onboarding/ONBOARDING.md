@@ -126,6 +126,88 @@ python train_al.py   --cfg ../configs/cifar100/al/RESNET18.yaml   --exp-name "ma
 - Your username and hostname/IP of the remote server
 - Optional: SSH key setup (recommended for passwordless login)
 
+<details> <summary>Expand for SSH key setup guide (connecting to servers with no password)</summary>
+Setting up SSH keys allows you to log in to remote machines without typing your password every time. This is highly recommended.
+
+### Step 1: Generate an SSH key pair (on your local machine):
+```bash
+ssh-keygen -t ed25519 -C <your-email>@mail.huji.ac.il
+```
+- `ed25519` is the encryption method.
+- The `-C` is just a comment to help you identify the key later if needed.
+
+    ##### You'll get the following prompts:
+1. > Enter file in which to save the key:
+
+    Press Enter to use the default location (~/.ssh/id_ed25519).
+2. >Enter passphrase:
+
+    Enter a password of your choice, make sure you remember it for the rest of the setup.
+
+### Step 2: Move the public key to the remote machine:
+
+On Mac / Linux:
+```bash
+ssh-copy-id <cse-username>@phoenix.cs.huji.ac.il
+```
+On Windows (manual transfer, works for any OS):
+1. Open the file `~/.ssh/id_ed25519.pub` (or `C:\Users\You\.ssh\id_ed25519.pub`) in a text editor (on your local machine).
+
+2. Copy the entire line (starts with ssh-ed25519).
+
+3. ssh into the remote machine normally (using your password or passphrase).
+
+4. Run: `nano ~/.ssh/authorized_keys` (or create the folder/file if it doesn't exist).
+
+5. Paste your key on a new line.
+
+6. Save (Ctrl+O, Enter) and Exit (Ctrl+X).
+
+### Step 3: Configure your local SSH config for passwordless access
+This step saves your key configuration so you don't have to specify the key file or type your passphrase every time.
+
+1. Open your local SSH config file:
+    ```bash
+    nano ~/.ssh/config
+    ```
+
+2. The configuration for each host should look something like this:
+    ```bash
+    Host phoenix  # Or any other host
+        HostName phoenix.cs.huji.ac.il
+        User <cse-username>
+        IdentityFile ~/.ssh/id_ed25519 # This tells ssh to use the key you just created 
+        AddKeysToAgent yes # Remembers your passphrase in the system agent.
+        UseKeychain yes # [MAC ONLY] Saves the passphrase permanently in your Mac's keychain.
+    ```
+    Importent: Make sure you remove the line `UseKeychain yes` if you are not on a Mac.
+
+3. [**WINDOWS ONLY**] To avoid typing your passphrase every time on Windows, you need to enable the OpenSSH Authentication Agent service. This service runs in the background and securely holds your keys:
+
+    a. Open PowerShell as Administrator
+
+    b. Run the following commands:
+    ```powershell
+    # Set the service to run automatically on startup.
+    Set-Service -Name ssh-agent -StartupType Automatic
+
+    # Start the service for current session.
+    Start-Service ssh-agent
+
+    # Load your private key into the SSH authentication agent.
+    ssh-add $env:USERPROFILE\.ssh\id_ed25519
+    ```
+    Type your passphrase when prompted (This should be the last time you are ever asked to do it).
+
+### Step 4: Verify the configuration
+Run:
+```bash
+ssh phoenix # Or any other host you configured
+```
+You should connect immediately without being asked for a password.
+
+</details>
+
 ### 2. Install the Remote - SSH Extension
 1. Open VS Code
 2. Go to the Extensions sidebar (Ctrl+Shift+X or Cmd+Shift+X)
