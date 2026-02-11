@@ -18,7 +18,7 @@ class ActiveLearning:
         self.cfg = cfg
         self.sampling_fn = self.choose_sampling_function(train_labels, lset)
 
-    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, episode_dir=None):
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None):
         """
         Sample from uSet using cfg.ACTIVE_LEARNING.SAMPLING_FN.
 
@@ -27,8 +27,6 @@ class ActiveLearning:
         clf_model: Reference of task classifier model class [Typically VGG]
 
         supportingModels: List of models which are used for sampling process.
-
-        episode_dir: Directory to save intermediate results like kernel matrices
 
         OUTPUT
         -------
@@ -40,13 +38,7 @@ class ActiveLearning:
 
         if self.sampling_fn is not None:
             logger.info(f"Using {self.cfg.ACTIVE_LEARNING.SAMPLING_FN} sampling function for active learning.")
-            # Check if select_samples accepts episode_dir parameter (for MISP-like methods)
-            import inspect
-            sig = inspect.signature(self.sampling_fn.select_samples)
-            if 'episode_dir' in sig.parameters:
-                return self.sampling_fn.select_samples(lSet, uSet, episode_dir=episode_dir)
-            else:
-                return self.sampling_fn.select_samples(lSet, uSet)
+            return self.sampling_fn.select_samples(lSet, uSet)
 
 
         if self.cfg.ACTIVE_LEARNING.SAMPLING_FN == "random":
