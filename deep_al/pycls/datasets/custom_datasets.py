@@ -12,7 +12,8 @@ class CIFAR10(torchvision.datasets.CIFAR10):
         self.test_transform = test_transform
         self.no_aug = False
         self.only_features = only_features
-        self.features = ds_utils.load_features("CIFAR10", train=train, normalized=False)
+        # Keep feature normalization consistent with active selection (coverage methods)
+        self.features = ds_utils.load_features("CIFAR10", train=train, normalized=True)
 
 
     def __getitem__(self, index: int):
@@ -48,7 +49,8 @@ class CIFAR100(torchvision.datasets.CIFAR100):
         self.test_transform = test_transform
         self.no_aug = False
         self.only_features = only_features
-        self.features = ds_utils.load_features("CIFAR100", train=train, normalized=False)
+        # Keep feature normalization consistent with active selection (coverage methods)
+        self.features = ds_utils.load_features("CIFAR100", train=train, normalized=True)
 
     def __getitem__(self, index: int):
         """
