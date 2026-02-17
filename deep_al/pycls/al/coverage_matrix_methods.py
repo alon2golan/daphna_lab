@@ -107,7 +107,7 @@ class   CoverageMatrixMethod:
     def set_rel_features(self, lset, uset):
         self.lSet = lset
         self.uSet = uset
-        print(lset)
+        # print(lset)
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
         if isinstance(self.all_features, torch.Tensor):
             self.rel_features = self.all_features[self.relevant_indices]
@@ -162,7 +162,6 @@ class   CoverageMatrixMethod:
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
         self.activeSet = activeSet
         print(f'Finished the selection of {len(activeSet)} samples.')
-        print(f'Active set is {activeSet}')
 
         del self.K
         del self.C

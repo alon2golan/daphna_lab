@@ -50,7 +50,7 @@ class ProbCover:
     def set_rel_features(self, lset, uset):
         self.lSet = lset
         self.uSet = uset
-        print(lset)
+        # print(lset)
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
         self.rel_features = self.all_features[self.relevant_indices]
 
@@ -124,7 +124,6 @@ class ProbCover:
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
         self.activeSet = activeSet
         print(f'Finished the selection of {len(activeSet)} samples.')
-        print(f'Active set is {activeSet}')
         return activeSet, remainSet
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,

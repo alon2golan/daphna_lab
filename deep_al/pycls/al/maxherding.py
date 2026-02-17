@@ -235,7 +235,6 @@ class MaxHerding:
         remainSet = np.array(sorted(list(set(self.total_uSet) - set(activeSet))))
         self.activeSet = activeSet
         print(f'Finished the selection of {len(activeSet)} samples.')
-        print(f'Active set is {activeSet}')
         print(f'Time: {np.round(time.time() - start_time, 4)}sec')
 
         self._free_kernel_memory()
