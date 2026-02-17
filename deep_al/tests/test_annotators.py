@@ -21,9 +21,9 @@ _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
-from deep_al.pycls.datasets.annotator import Annotator
-from deep_al.pycls.datasets.annotator_manager import AnnotatorManager
-from deep_al.pycls.datasets.noisy_label_wrapper import NoisyLabelDatasetWrapper
+from deep_al.pycls.noise.annotator import Annotator
+from deep_al.pycls.noise.annotator_manager import AnnotatorManager
+from deep_al.pycls.noise.noisy_label_wrapper import NoisyLabelDatasetWrapper
 
 
 class AttrDict(dict):

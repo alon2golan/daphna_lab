@@ -19,7 +19,6 @@ from deep_al.pycls.datasets.imbalanced_cifar import IMBALANCECIFAR10, IMBALANCEC
 from deep_al.pycls.datasets.sampler import IndexedSequentialSampler
 from deep_al.pycls.datasets.tiny_imagenet import TinyImageNet
 from deep_al.pycls.datasets.imagenet import ImageNet
-from deep_al.pycls.datasets.annotator import Annotator
 
 logger = lu.get_logger(__name__)
 

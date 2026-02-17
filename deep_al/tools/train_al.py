@@ -14,6 +14,7 @@ import torch
 from copy import deepcopy
 
 from deep_al.pycls.al.active_learning import ActiveLearning
+from deep_al.pycls.noise.nu_prime_utils import load_nu_prime
 from deep_al.pycls.core.config import cfg, dump_cfg, setup_cfg
 import deep_al.pycls.core.losses as losses
 import deep_al.pycls.core.optimizer as optim
@@ -27,9 +28,9 @@ from deep_al.pycls.utils.meters import TestMeter
 from deep_al.pycls.utils.meters import TrainMeter
 from deep_al.pycls.utils.meters import ValMeter
 from deep_al.pycls.utils.plotting_state import PlottingManager
-from deep_al.pycls.datasets.annotator import Annotator
-from deep_al.pycls.datasets.annotator_manager import AnnotatorManager
-from deep_al.pycls.datasets.noisy_label_wrapper import NoisyLabelDatasetWrapper
+from deep_al.pycls.noise.annotator import Annotator
+from deep_al.pycls.noise.annotator_manager import AnnotatorManager
+from deep_al.pycls.noise.noisy_label_wrapper import NoisyLabelDatasetWrapper
 
 logger = lu.get_logger(__name__)
 
@@ -63,6 +64,8 @@ def argparser():
     parser.add_argument('--sparse_K', action='store_true')
     parser.add_argument('--matrix_dtype', type=str, default=None, choices=['float32', 'float16'], help="Choose torch dtype: float32 or float16")
     parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
+    # Equilibrium noise rate strategy (for 2-annotator setup: oracle + noisy)
+    parser.add_argument('--nu_prime_file', type=str, default='', help='Path to pre-calculated ν\' file for oracle/noisy annotator selection')
     return parser
 
 
@@ -152,6 +155,149 @@ def get_annotators(cfg, args, train_data):
         print("Initialized Oracle Annotator (clean labels, cost=0)")
     
     return annotators
+
+def apply_nu_prime_strategy(cfg, args, annotators, annotator_manager):
+    """Apply equilibrium noise rate (ν') strategy for 2-annotator setup.
+    
+    This function is designed for the special case where there are exactly 2 annotators:
+    - One oracle annotator (noise_rate = 0.0)
+    - One noisy annotator (noise_rate > 0.0)
+    
+    It loads a pre-calculated ν' (equilibrium noise rate) and compares it with the
+    noisy annotator's noise rate. Based on the comparison, it configures the
+    AnnotatorManager to always select the appropriate annotator:
+    - If noisy_noise_rate > ν': Always use oracle
+    - If noisy_noise_rate ≤ ν': Always use noisy annotator
+    
+    Args:
+        cfg: Configuration object
+        args: Command line arguments
+        annotators: List of annotator objects
+        annotator_manager: AnnotatorManager instance
+        
+    Returns:
+        Updated annotator_manager with appropriate selection strategy
+    """
+    # Only apply if ν' file is provided and annotators are enabled
+    if not (args.nu_prime_file and cfg.ANNOTATORS.ENABLED and annotators is not None):
+        return annotator_manager
+    
+    print("\n" + "=" * 60)
+    print("  Equilibrium Noise Rate (ν') Strategy")
+    print("=" * 60)
+    
+    try:
+        # Verify we have exactly 2 annotators
+        if len(annotators) != 2:
+            print(f"\n⚠️  Warning: ν' strategy requires exactly 2 annotators (oracle + noisy)")
+            print(f"    Found {len(annotators)} annotators. Skipping ν' strategy.\n")
+            print("=" * 60 + "\n")
+            return annotator_manager
+        
+        # Identify oracle and noisy annotators
+        oracle_idx = None
+        noisy_idx = None
+        noisy_rate = None
+        
+        for idx, ann in enumerate(annotators):
+            if ann.noise_rate == 0.0:
+                oracle_idx = idx
+            else:
+                noisy_idx = idx
+                noisy_rate = ann.noise_rate
+        
+        # Verify we have one of each
+        if oracle_idx is None or noisy_idx is None:
+            print(f"\n⚠️  Warning: ν' strategy requires 1 oracle (noise=0) and 1 noisy annotator")
+            print(f"    Setup not compatible. Skipping ν' strategy.\n")
+            print("=" * 60 + "\n")
+            return annotator_manager
+        
+        # Load pre-calculated ν' from file
+        nu_prime, metadata = load_nu_prime(args.nu_prime_file)
+        
+        print(f"\nAnnotator Setup:")
+        print(f"  - Annotator {oracle_idx}: Oracle (noise_rate=0.0, cost={annotators[oracle_idx].cost})")
+        print(f"  - Annotator {noisy_idx}: Noisy (noise_rate={noisy_rate:.4f}, cost={annotators[noisy_idx].cost})")
+        print(f"\nEquilibrium Threshold:")
+        print(f"  - ν' = {nu_prime:.4f}")
+        
+        # Validate budget and cost parameters
+        warnings = []
+        if metadata:
+            print(f"\nν' Estimation Parameters (from {args.nu_prime_file}):")
+            if 'budget' in metadata:
+                print(f"  - Budget: {metadata['budget']}")
+                # Compare with training budget per round
+                if abs(metadata['budget'] - args.budget) > 0.01:
+                    warnings.append(f"Budget mismatch: ν' estimated with budget={metadata['budget']}, but training uses budget per round={args.budget}")
+            
+            if 'oracle_cost' in metadata:
+                print(f"  - Oracle cost: {metadata['oracle_cost']}")
+                if abs(metadata['oracle_cost'] - annotators[oracle_idx].cost) > 0.01:
+                    warnings.append(f"Oracle cost mismatch: ν' estimated with cost={metadata['oracle_cost']}, but annotator has cost={annotators[oracle_idx].cost}")
+            
+            if 'noisy_cost' in metadata:
+                print(f"  - Noisy cost: {metadata['noisy_cost']}")
+                if abs(metadata['noisy_cost'] - annotators[noisy_idx].cost) > 0.01:
+                    warnings.append(f"Noisy cost mismatch: ν' estimated with cost={metadata['noisy_cost']}, but annotator has cost={annotators[noisy_idx].cost}")
+            
+            # Check cost ratio (most important!)
+            if 'oracle_cost' in metadata and 'noisy_cost' in metadata:
+                estimated_ratio = metadata['oracle_cost'] / metadata['noisy_cost']
+                actual_ratio = annotators[oracle_idx].cost / annotators[noisy_idx].cost
+                print(f"  - Cost ratio (oracle/noisy): {estimated_ratio:.2f}")
+                if abs(estimated_ratio - actual_ratio) > 0.1:
+                    warnings.append(f"Cost ratio mismatch: ν' estimated with ratio={estimated_ratio:.2f}, but actual ratio={actual_ratio:.2f}")
+            
+            if 'oracle_samples' in metadata and 'noisy_samples' in metadata:
+                print(f"  - Oracle samples used: {metadata['oracle_samples']}")
+                print(f"  - Noisy samples used: {metadata['noisy_samples']}")
+        
+        # Display warnings if any
+        if warnings:
+            print(f"\n⚠️  WARNING: Parameter Mismatches Detected!")
+            for i, warning in enumerate(warnings, 1):
+                print(f"  {i}. {warning}")
+            print(f"\n  The ν' threshold may not be valid for your current configuration.")
+            print(f"  Consider re-running deep_al/noise/estimate_nu_prime.py with matching parameters:\n")
+            print(f"    python deep_al/noise/estimate_nu_prime.py \\")
+            print(f"      --cfg <your_config> \\")
+            print(f"      --output <output_file> \\")
+            print(f"      --budget {args.budget} \\")
+            print(f"      --oracle_cost {annotators[oracle_idx].cost} \\")
+            print(f"      --noisy_cost {annotators[noisy_idx].cost}\n")
+        
+        # Decision: compare noisy annotator's noise rate vs ν'
+        if noisy_rate > nu_prime:
+            print(f"\n⚠️  Noisy annotator noise ({noisy_rate:.4f}) > ν' ({nu_prime:.4f})")
+            print("    Noise level exceeds equilibrium threshold!")
+            print(f"📋  Selection Strategy: Always use Oracle (Annotator {oracle_idx})\n")
+            
+            # Update selection strategy to always pick oracle
+            annotator_manager.best_annotator_id = oracle_idx
+            annotator_manager.selection_strategy = 'most_accurate'  # Forces oracle selection
+            
+            logger.info(f"ν' strategy: Using oracle (noise={noisy_rate} > nu_prime={nu_prime})")
+        else:
+            print(f"\n✅  Noisy annotator noise ({noisy_rate:.4f}) ≤ ν' ({nu_prime:.4f})")
+            print("    Noise level is within acceptable range")
+            print(f"📋  Selection Strategy: Always use Noisy Annotator (Annotator {noisy_idx})\n")
+            
+            # Update selection strategy to always pick noisy annotator
+            annotator_manager.best_annotator_id = noisy_idx
+            annotator_manager.selection_strategy = 'least_cost'  # Use any fixed strategy
+            
+            logger.info(f"ν' strategy: Using noisy annotator (noise={noisy_rate} <= nu_prime={nu_prime})")
+    
+    except Exception as e:
+        print(f"\n⚠️  Warning: Failed to apply ν' strategy: {e}")
+        print("    Continuing with original annotator configuration\n")
+        logger.warning(f"ν' strategy failed: {e}")
+    
+    print("=" * 60 + "\n")
+    return annotator_manager
+
 
 def setup_experiment_directory(cfg):
     """Setup experiment directory structure and configuration.
@@ -256,6 +402,9 @@ def main(cfg, args):
                 # Annotate initial set with selected annotator(s)
                 result = annotator_manager.annotate_samples(lSet, budget=None)
                 print(f"Initial labeled set ({len(lSet)} samples) annotated. Cost: {result['cost_spent']}")
+    
+        # Apply equilibrium noise rate (ν') strategy if configured
+        annotator_manager = apply_nu_prime_strategy(cfg, args, annotators, annotator_manager)
 
     model = mh.get_model(cfg)
     if cfg.HIGH_BUDGET:
