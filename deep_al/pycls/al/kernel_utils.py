@@ -112,6 +112,75 @@ def compute_local_sigmas(
     return sigmas.cpu()
 
 
+def _compute_kernel_block(
+        dist_block,
+        *,
+        kernel_type,
+        delta,
+        sigma,
+        local_sigma_i=None,
+        local_sigma_j=None,
+        dtype=torch.float32,
+):
+    """
+    Compute a kernel block from a precomputed distance block.
+
+    Args:
+        dist_block (torch.Tensor): Pairwise distances (B x B').
+        kernel_type (str): 'rbf' or 'tophat'.
+        delta (float): Distance cutoff (used by tophat, and for local-sigma tophat).
+        sigma (float): Global sigma for RBF when local sigma is not used.
+        local_sigma_i (torch.Tensor, optional): Local sigma for rows (B x 1).
+        local_sigma_j (torch.Tensor, optional): Local sigma for cols (1 x B').
+        dtype (torch.dtype): Output dtype.
+
+    Returns:
+        torch.Tensor: Kernel block (B x B') with values in [0,1] for tophat or (0,1] for RBF.
+    """
+    if local_sigma_i is not None and local_sigma_j is not None:
+        denom = torch.clamp(local_sigma_i * local_sigma_j, min=1e-12)
+        if kernel_type == 'tophat':
+            norm_dist = (dist_block ** 2) / denom
+            return (norm_dist < (delta ** 2)).to(dtype=dtype)
+        if kernel_type == 'rbf':
+            return torch.exp(-1.0 * (dist_block ** 2) / denom).to(dtype=dtype)
+        raise ValueError(f"Unsupported kernel type: {kernel_type}")
+
+    if kernel_type == 'tophat':
+        return (dist_block < delta).to(dtype=dtype)
+    if kernel_type == 'rbf':
+        return torch.exp(-1.0 * (dist_block / sigma) ** 2).to(dtype=dtype)
+    raise ValueError(f"Unsupported kernel type: {kernel_type}")
+
+
+def _compute_keep_mask(
+        dist_block,
+        kernel_block,
+        *,
+        kernel_type,
+        threshold,
+        threshold_is_distance,
+):
+    """
+    Compute the sparsity mask for a kernel block.
+
+    Args:
+        dist_block (torch.Tensor): Pairwise distances (B x B').
+        kernel_block (torch.Tensor): Kernel values (B x B').
+        kernel_type (str): 'rbf' or 'tophat'.
+        threshold (float): Threshold value (kernel-value threshold or distance cutoff).
+        threshold_is_distance (bool): If True and kernel_type=='rbf', threshold is a distance cutoff.
+
+    Returns:
+        torch.Tensor: Boolean mask for entries to keep.
+    """
+    if kernel_type == 'rbf' and threshold_is_distance:
+        return dist_block < threshold
+    if kernel_type == 'rbf':
+        return kernel_block > threshold
+    return kernel_block > 0
+
+
 def build_sparse_kernel_matrix(
         features,
         threshold,
@@ -210,31 +279,27 @@ def build_sparse_kernel_matrix(
                 if local_sigma_tensor is not None:
                     sigma_i = local_sigma_tensor[start_i:end_i].unsqueeze(1)
                     sigma_j = local_sigma_tensor[start_j:end_j].unsqueeze(0)
-                    denom = torch.clamp(sigma_i * sigma_j, min=1e-12)
-
-                    if kernel_type == 'tophat':
-                        # Normalized distance thresholding for local sigma
-                        norm_dist = (dist_block ** 2) / denom
-                        kernel_block = (norm_dist < (thresh_val ** 2)).to(dtype=dtype)
-                    elif kernel_type == 'rbf':
-                        kernel_block = torch.exp(-1.0 * (dist_block ** 2) / denom)
-                    else:
-                        raise ValueError(f"Unsupported kernel type: {kernel_type}")
                 else:
-                    if kernel_type == 'tophat':
-                        kernel_block = (dist_block < thresh_val).to(dtype=dtype)
-                    elif kernel_type == 'rbf':
-                        kernel_block = torch.exp(-1.0 * (dist_block / kernel_param_val) ** 2)
-                    else:
-                        raise ValueError(f"Unsupported kernel type: {kernel_type}")
+                    sigma_i = None
+                    sigma_j = None
 
-                if kernel_type == 'rbf' and threshold_is_distance:
-                    mask = dist_block < thresh_val
-                else:
-                    if kernel_type == 'rbf':
-                        mask = kernel_block > thresh_val
-                    else:
-                        mask = kernel_block > 0
+                kernel_block = _compute_kernel_block(
+                    dist_block,
+                    kernel_type=kernel_type,
+                    delta=thresh_val,
+                    sigma=kernel_param_val if kernel_type == 'rbf' else 1.0,
+                    local_sigma_i=sigma_i,
+                    local_sigma_j=sigma_j,
+                    dtype=dtype,
+                )
+
+                mask = _compute_keep_mask(
+                    dist_block,
+                    kernel_block,
+                    kernel_type=kernel_type,
+                    threshold=thresh_val,
+                    threshold_is_distance=threshold_is_distance,
+                )
 
                 nz_rows, nz_cols = torch.nonzero(mask, as_tuple=True)
                 if nz_rows.numel() == 0:
@@ -258,11 +323,10 @@ def build_sparse_kernel_matrix(
                 if not capture_zero_contrib:
                     continue
 
-                if kernel_type == 'rbf':
-                    if threshold_is_distance:
-                        prev_keep_mask = dist_block < prev_thresh_val
-                    else:
-                        prev_keep_mask = kernel_block > prev_thresh_val
+                if kernel_type == 'rbf' and threshold_is_distance:
+                    prev_keep_mask = dist_block < prev_thresh_val
+                elif kernel_type == 'rbf':
+                    prev_keep_mask = kernel_block > prev_thresh_val
                 else:
                     prev_keep_mask = dist_block < prev_thresh_val
 
@@ -442,27 +506,31 @@ def build_K_general_matrix(
             local_sigma_tensor = local_sigma.to(norm_matrix.device, dtype=torch.float32)
         else:
             local_sigma_tensor = torch.as_tensor(local_sigma, device=norm_matrix.device, dtype=torch.float32)
-        denom = torch.clamp(local_sigma_tensor[:, None] * local_sigma_tensor[None, :], min=1e-12)
-
-        if kernel_type == 'tophat':
-            norm_dist = (norm_matrix ** 2) / denom
-            dense_K = (norm_dist < (thresh_val ** 2)).to(dtype=matrices_type)
-        else:
-            dense_K = torch.exp(-1.0 * (norm_matrix ** 2) / denom).to(dtype=matrices_type)
-            if thresh_val > 0:
-                if threshold_is_distance:
-                    dense_K = torch.where(norm_matrix < thresh_val, dense_K, torch.zeros_like(dense_K))
-                else:
-                    dense_K = torch.where(dense_K > thresh_val, dense_K, torch.zeros_like(dense_K))
+        sigma_i = local_sigma_tensor[:, None]
+        sigma_j = local_sigma_tensor[None, :]
     else:
-        if kernel_type == 'tophat':
-            dense_K = kernel_fn.compute_kernel_from_norm(
-                norm_matrix, thresh_val, matrices_type=matrices_type)
-        else:
-            dense_K = kernel_fn.compute_kernel_from_norm(
-                norm_matrix, sigma, matrices_type=matrices_type)
-            if thresh_val > 0:
-                dense_K = torch.where(dense_K > thresh_val, dense_K, torch.zeros_like(dense_K))
+        sigma_i = None
+        sigma_j = None
+
+    dense_K = _compute_kernel_block(
+        norm_matrix,
+        kernel_type=kernel_type,
+        delta=thresh_val,
+        sigma=sigma,
+        local_sigma_i=sigma_i,
+        local_sigma_j=sigma_j,
+        dtype=matrices_type,
+    )
+
+    if kernel_type == 'rbf' and thresh_val > 0:
+        keep_mask = _compute_keep_mask(
+            norm_matrix,
+            dense_K,
+            kernel_type=kernel_type,
+            threshold=thresh_val,
+            threshold_is_distance=threshold_is_distance,
+        )
+        dense_K = torch.where(keep_mask, dense_K, torch.zeros_like(dense_K))
 
     if zero_indices is not None and len(zero_indices) > 0:
         zero_idx = torch.as_tensor(np.asarray(zero_indices, dtype=np.int64))
