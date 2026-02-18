@@ -447,6 +447,8 @@ def build_args_dict(args):
         'SPARSE_K': args.sparse_K,
         'MATRIX_DTYPE': args.matrix_dtype,
         'DATASET.FEATURES_TAG': args.features_tag,
+        'LOCAL_SIGMA': args.local_sigma,
+        'LOCAL_SIGMA_K': args.local_sigma_k,
     }
     
     # Add max_epoch if provided
@@ -525,4 +527,3 @@ def setup_cfg(args):
     normalize_cfg_paths(cfg_instance)
 
     return cfg_instance
-

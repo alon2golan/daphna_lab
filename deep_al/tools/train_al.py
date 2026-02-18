@@ -51,6 +51,10 @@ def argparser():
     parser.add_argument('--a_logistic', default=0.8, type=float)
     parser.add_argument('--alpha', default=0.5, type=float)
     parser.add_argument('--soft_border_val', default=0.5, type=float)
+    parser.add_argument('--local_sigma', action='store_true',
+                        help='Use local sigma (self-tuning) for kernel distances')
+    parser.add_argument('--local_sigma_k', default=7, type=int,
+                        help='K for local sigma: distance to the K-th nearest neighbor')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--high_budget', action='store_true')
     parser.add_argument('--norm_importance', action='store_true')

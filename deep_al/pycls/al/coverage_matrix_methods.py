@@ -4,7 +4,7 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 import deep_al.pycls.datasets.utils as ds_utils
-from deep_al.pycls.al.kernel_utils import build_K_general_matrix, RBFKernel, TopHatKernel
+from deep_al.pycls.al.kernel_utils import build_K_general_matrix, RBFKernel, TopHatKernel, compute_local_sigmas
 
 torch.cuda.empty_cache()
 
@@ -56,12 +56,33 @@ class   CoverageMatrixMethod:
         self.kernel_build_batch_size = getattr(self.cfg, 'KERNEL_BUILD_BATCH_SIZE', 1024)
 
         self.kernel_type = self.cfg.KERNEL_TYPE if 'KERNEL_TYPE' in self.cfg else 'rbf'
+        self.use_local_sigma = bool(getattr(self.cfg, 'LOCAL_SIGMA', False))
+        self.local_sigma_k = int(getattr(self.cfg, 'LOCAL_SIGMA_K', 7))
+
+        self.local_sigma = None
+        if self.use_local_sigma:
+            print(f"Computing local sigma with K={self.local_sigma_k} (self-tuning kernel)")
+            self.local_sigma = compute_local_sigmas(
+                self.all_features,
+                k=self.local_sigma_k,
+                batch_size=self.kernel_build_batch_size,
+                device=self.device,
+                dtype=torch.float32,
+            )
+
         if self.kernel_type == 'tophat':
             self.kernel_fn = TopHatKernel('cuda')
             initial_threshold = self.delta
         else:
             self.kernel_fn = RBFKernel('cuda')
-            initial_threshold = np.exp(-1.0 * (self.delta / self.sigma) ** 2) if self.use_sparse else 0.0
+            if self.use_sparse:
+                if self.use_local_sigma:
+                    # Keep the same distance-based sparsity rule: keep edges with d < delta
+                    initial_threshold = self.delta
+                else:
+                    initial_threshold = np.exp(-1.0 * (self.delta / self.sigma) ** 2)
+            else:
+                initial_threshold = 0.0
 
         self.K_general = build_K_general_matrix(
             self.all_features,
@@ -74,6 +95,8 @@ class   CoverageMatrixMethod:
             matrices_type=self.matrices_type,
             kernel_fn=self.kernel_fn,
             zero_indices=None,
+            local_sigma=self.local_sigma,
+            threshold_is_distance=(self.use_local_sigma and self.kernel_type == 'rbf'),
         )
 
         self.C_general = torch.full((self.all_features.shape[0], unique_labels.size), self.alpha, device=self.device,
