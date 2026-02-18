@@ -364,17 +364,30 @@ def train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_l
 def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manager):
 
     if cfg.MODEL.USE_1NN:  # TODO move to train_model function
+        # Fit 1-NN on the full labeled set (not just the first batch)
+        def _collect_full(loader):
+            xs, ys = [], []
+            for xb, yb in loader:
+                # DataLoader may return numpy arrays or torch tensors
+                if hasattr(xb, "detach"):
+                    xb = xb.detach().cpu().numpy()
+                if hasattr(yb, "detach"):
+                    yb = yb.detach().cpu().numpy()
+                xs.append(xb)
+                ys.append(yb)
+            return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
 
-        train_data, train_labels = list(iter(train_loader))[0]
+        train_data, train_labels = _collect_full(train_loader)
+        print(f"1NN fit: train_data={train_data.shape} labels={train_labels.shape}")
         model.fit(train_data, train_labels)
 
-        val_data, val_labels = list(iter(val_loader))[0]
+        val_data, val_labels = _collect_full(val_loader)
+        print(f"1NN eval: val_data={val_data.shape} labels={val_labels.shape}")
         preds = model.predict(val_data)
         test_acc = 100. * (preds == np.array(val_labels)).mean()
-        
+
         # For 1NN, train_acc is assumed to be perfect
         train_acc = 100.0
-
         return test_acc, 0, train_acc, None, model, []
 
     start_epoch = 0
