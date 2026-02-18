@@ -16,7 +16,8 @@ class DCoM:
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
-        self.all_features = ds_utils.load_features(self.ds_name, self.seed)
+        features_tag = self.cfg['DATASET'].get('FEATURES_TAG', None)
+        self.all_features = ds_utils.load_features(self.ds_name, self.seed, features_tag=features_tag)
         self.lSet = lSet
         self.uSet = uSet
         self.budgetSize = budgetSize
@@ -185,7 +186,6 @@ class DCoM:
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
         assert len(np.intersect1d(self.lSet, activeSet)) == 0, 'all samples should be new'
         print(f'Finished the selection of {len(activeSet)} samples.')
-        print(f'Active set is {activeSet}')
         return activeSet, remainSet
 
     def new_centroids_deltas(self, lSet_labels, pseudo_labels, budget, batch_size=500, all_labels=[]):

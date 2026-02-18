@@ -264,8 +264,9 @@ def main() -> None:
 
     DATASET = "CIFAR100"
     CLASSES = 100
+    features_tag=None
 
-    features = np.asarray(load_features(DATASET))
+    features = np.asarray(load_features(DATASET, features_tag=features_tag))
     selected_delta = select_delta(features, CLASSES, debug=True)
     print(f"Selected delta: {selected_delta:.6f}")
 

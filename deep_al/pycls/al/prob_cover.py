@@ -13,7 +13,8 @@ class ProbCover:
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
-        self.all_features = ds_utils.load_features(self.ds_name, self.seed)
+        features_tag = self.cfg['DATASET'].get('FEATURES_TAG', None)
+        self.all_features = ds_utils.load_features(self.ds_name, self.seed, features_tag=features_tag)
         self.budgetSize = budgetSize
 
         if delta < 0:
@@ -50,7 +51,7 @@ class ProbCover:
     def set_rel_features(self, lset, uset):
         self.lSet = lset
         self.uSet = uset
-        print(lset)
+        # print(lset)
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
         self.rel_features = self.all_features[self.relevant_indices]
 
@@ -124,7 +125,6 @@ class ProbCover:
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
         self.activeSet = activeSet
         print(f'Finished the selection of {len(activeSet)} samples.')
-        print(f'Active set is {activeSet}')
         return activeSet, remainSet
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
