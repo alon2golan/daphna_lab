@@ -4,6 +4,7 @@ venv
 *tmp*
 *temp*
 
+
 # Python
 __pycache__/
 *.py[cod]
@@ -25,7 +26,11 @@ pycls/datasets/data/
 logs/
 scratch*
 *.out
+*.pyc
 
 output/
 *.ipynb_checkpoints/
 data/
+results/
+/datasets/
+/scan/datasets/
