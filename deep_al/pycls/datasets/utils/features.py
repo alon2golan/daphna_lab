@@ -27,6 +27,8 @@ DATASET_FEATURES_DICT = {
         {
             'CIFAR10':'/cs/labs/daphna/itai.david/representations_bank/cifar-10_simclr/pretext/features_seed1.npy',
             'CIFAR100': '/cs/labs/daphna/itai.david/representations_bank/cifar-100_simclr/cifar100_simclr_train.npy',
+            'CIFAR100_TypiclustRepo': '/cs/labs/daphna/alongol/data/embeddings/cifar-100/downloaded_from_typiclust/features_seed1.npy',
+            'CIFAR100_alon': '/cs/labs/daphna/alongol/data/embeddings/cifar-100/alon_20260217/features_seed1.npy',
             'TINYIMAGENET': '/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext/features_seed1.npy',
             'IMAGENET50': '/cs/labs/daphna/itai.david/representations_bank/imagenet_dinov2/train_features.npy',
             'IMAGENET100': '/cs/labs/daphna/itai.david/representations_bank/imagenet_dinov2/train_features.npy',
@@ -39,6 +41,8 @@ DATASET_FEATURES_DICT = {
         {
             'CIFAR10': '/cs/labs/daphna/itai.david/representations_bank/cifar-10_simclr/pretext/test_features_seed1.npy',
             'CIFAR100': '/cs/labs/daphna/itai.david/representations_bank/cifar-100_simclr/cifar100_simclr_test.npy',
+            'CIFAR100_TypiclustRepo  ': '/cs/labs/daphna/alongol/data/embeddings/cifar-100/downloaded_from_typiclust/features_seed1.npy',
+            'CIFAR100_alon': '/cs/labs/daphna/alongol/data/embeddings/cifar-100/alon_20260217/test_features_seed1.npy',
             'TINYIMAGENET': '/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext/test_features_seed1.npy',
             'IMAGENET50': '/cs/labs/daphna/itai.david/representations_bank/imagenet_dinov2/val_features.npy',
             'IMAGENET100': '/cs/labs/daphna/itai.david/representations_bank/imagenet_dinov2/val_features.npy',
