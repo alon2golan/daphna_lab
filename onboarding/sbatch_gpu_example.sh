@@ -10,5 +10,5 @@
 dir=/cs/labs/daphna/$USER/projects/daphna_lab/
 cd $dir
 source $dir/venv/bin/activate
-cd $dir/deep-al/tools
+cd $dir/deep_al/tools
 python train_al.py --cfg ../configs/cifar10/al/RESNET18.yaml --al typiclust_rp --exp-name auto --initial_size 0 --budget 100 

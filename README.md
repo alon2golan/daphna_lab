@@ -21,7 +21,7 @@ TypiClust is a novel active learning method implemented in this repository. For 
 
 ## Repository Structure
 
-- `deep-al/` - Deep active learning implementations and tools
+- `deep_al/` - Deep active learning implementations and tools
 - `scan/` - Self-supervised clustering code
 - `onboarding/` - Lab onboarding materials and scripts
 - `stats_parquets/` - Experiment results and statistics

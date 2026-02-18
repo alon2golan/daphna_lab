@@ -53,7 +53,7 @@ and locate the files here:`./results/cifar-10/pretext/features_seed1.npy`.
 ## TypiClust - K-Means variant
 To select samples according to TypiClust (K-Means) where the `initial_size=0` and the `budget=100` please run 
 ```
-cd deep-al/tools
+cd deep_al/tools
 python train_al.py --cfg ../configs/cifar10/al/RESNET18.yaml --al typiclust_rp --exp-name auto --initial_size 0 --budget 100
 cd ../../
 ```
@@ -69,10 +69,10 @@ cd scan
 python scan.py --config_env configs/env.yml --config_exp configs/scan/scan_cifar10.yml --num_clusters k
 cd .. 
 ```
-You can use other representations and change the path in the file `deep-al/pycls/datasets/utils/features.py`.
+You can use other representations and change the path in the file `deep_al/pycls/datasets/utils/features.py`.
 Then, you can run the active learning experiment by running
 ```
-cd deep-al/tools
+cd deep_al/tools
 python train_al.py --cfg ../configs/cifar10/al/RESNET18.yaml --al typiclust_dc --exp-name auto --initial_size 0 --budget 10
 cd ../../
 ```
@@ -80,7 +80,7 @@ cd ../../
 ## ProbCover
 Example ProbCover script
 ```
-cd deep-al/tools
+cd deep_al/tools
 python train_al.py --cfg ../configs/cifar10/al/RESNET18.yaml --al probcover --exp-name auto --initial_size 0 --budget 10 --delta 0.75
 cd ../../
 ```
@@ -88,7 +88,7 @@ cd ../../
 ## DCoM
 Example DCoM script:
 ```
-cd deep-al/tools
+cd deep_al/tools
 python train_al.py --cfg ../configs/cifar10/al/RESNET18.yaml --al dcom --exp-name auto --initial_size 0 --budget 10 --initial_delta 0.75
 cd ../../
 ```

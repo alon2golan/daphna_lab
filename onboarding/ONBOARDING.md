@@ -70,7 +70,7 @@ Now you have to install the requirements inside the virtual env:
 ```
 cd /cs/labs/daphna/<user>/projects/daphna_lab/
 source venv/bin/activate
-pip install -r deep-al/requirements.txt
+pip install -r deep_al/requirements.txt
 ```
 
 ### Create an Alias (Optional)
@@ -103,14 +103,14 @@ activenv
 ### Run an Example
 Now you can check that everything installed and works fine. Run an example:
 ```
-cd /cs/labs/daphna/<user>/projects/daphna_lab/deep-al/tools/
+cd /cs/labs/daphna/<user>/projects/daphna_lab/deep_al/tools/
 python train_al.py --cfg ../configs/cifar10/al/RESNET18.yaml --al typiclust_rp --exp-name auto --initial_size 0 --budget 100 --eval_model_type from_images
 ```
 
 ### Run probcover and max herding in the new way
 old way
 ```
-cd /cs/labs/daphna/<user>/projects/daphna_lab/deep-al/tools/
+cd /cs/labs/daphna/<user>/projects/daphna_lab/deep_al/tools/
 python train_al.py   --cfg ../configs/cifar100/al/RESNET18.yaml   --exp-name "maxherding"   --al "maxherding"   --budget 10  --max_iter 3 --seed 0   --eval_model_type from_images 
 ```
 new way
