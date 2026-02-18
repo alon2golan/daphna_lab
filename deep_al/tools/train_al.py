@@ -3,6 +3,7 @@ import sys
 from datetime import datetime
 import argparse
 import numpy as np
+import time
 
 # Ensure repo root is in sys.path for clean imports
 _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -40,6 +41,7 @@ def argparser():
     parser.add_argument('--seed', help='Random seed', default=1, type=int)
     parser.add_argument('--finetune', help='Whether to continue with existing model between rounds', action='store_true') # train the eval model from last ckpt and not from scratch (between iters)
     parser.add_argument('--eval_model_type', help='eval_model_type', type=str) # train the eval model from features not images
+    parser.add_argument('--features_tag', help='Tag to specify which feature representation to use (e.g., "alon", "itai")', type=str, default=None)
     parser.add_argument('--initial_delta', help='Relevant only for ProbCover and DCoM', default=-1, type=float)
     parser.add_argument('--kernel_type', default='rbf', type=str)
     parser.add_argument('--diff_method', default='abs_diff', type=str)
@@ -197,7 +199,6 @@ def main(cfg):
     if len(lSet) == 0:
         print('Labeled Set is Empty - Sampling an Initial Pool')
         activeSet, new_uSet = al_obj.sample_from_uSet(model, lSet, uSet, train_data)
-        print(f'Initial Pool is {activeSet}')
         # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode
         lSet = np.append(lSet, activeSet)
         uSet = new_uSet
@@ -223,11 +224,21 @@ def main(cfg):
     opt_init_state = deepcopy(optimizer.state_dict()) if not cfg.MODEL.USE_1NN else None
     model_init_state = deepcopy(model.state_dict().copy()) if not cfg.MODEL.USE_1NN else None
 
-    print("optimizer: {}\n".format(optimizer))
-    logger.info("optimizer: {}\n".format(optimizer))
+    # print("optimizer: {}\n".format(optimizer))
+    # logger.info("optimizer: {}\n".format(optimizer))
 
     print("AL Query Method: {}\nMax AL Episodes: {}\n".format(cfg.ACTIVE_LEARNING.SAMPLING_FN, cfg.ACTIVE_LEARNING.MAX_ITER))
     logger.info("AL Query Method: {}\nMax AL Episodes: {}\n".format(cfg.ACTIVE_LEARNING.SAMPLING_FN, cfg.ACTIVE_LEARNING.MAX_ITER))
+
+    # Initialize timing trackers
+    all_epoch_times = []  # All epoch times across all episodes
+    episode_training_times = []  # Total training time per episode
+    episode_al_times = []  # AL sampling time per episode
+    
+    # Initialize accuracy trackers for final episode
+    final_train_acc = 0.0
+    final_val_acc = 0.0
+    final_test_acc = 0.0
 
     for cur_episode in range(0, cfg.ACTIVE_LEARNING.MAX_ITER+1):
 
@@ -240,8 +251,15 @@ def main(cfg):
             os.mkdir(episode_dir)
         cfg.EPISODE_DIR = episode_dir
 
-        checkpoint_file = train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader,
+        checkpoint_file, episode_train_time, epoch_times, best_train_acc, best_val_acc, test_acc = train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader,
                                                valSet_loader, plotting_manager)
+        episode_training_times.append(episode_train_time)
+        all_epoch_times.extend(epoch_times)
+        
+        # Store accuracies from current episode (will keep the last one)
+        final_train_acc = best_train_acc
+        final_val_acc = best_val_acc
+        final_test_acc = test_acc
 
         # No need to perform active sampling in the last episode iteration
         if cur_episode == cfg.ACTIVE_LEARNING.MAX_ITER:
@@ -251,9 +269,12 @@ def main(cfg):
             break
 
         # Active Sample (algorithms handle their own state updates internally)
+        al_start_time = time.time()
         lSet, lSet_loader, uSet, valSet_loader = active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet,
                                                                       lSet_loader, train_data, uSet, valSet,
                                                                       valSet_loader, al_obj)
+        al_time = time.time() - al_start_time
+        episode_al_times.append(al_time)
         
         _, ep_y = plotting_manager.get_episode_data()
         print('Current accuracy values: ', ep_y)
@@ -267,6 +288,28 @@ def main(cfg):
 
         if checkpoint_file is not None:
             os.remove(checkpoint_file)
+
+    # Display final summary with timing and training metrics
+    print("\n" + "="*60)
+    print("FINAL SUMMARY")
+    print("="*60)
+    print("Command: python {}".format(" ".join(sys.argv)))
+    print("\n--- Training Metrics ---")
+    print("Final Train Accuracy:        {:.2f}%".format(final_train_acc))
+    print("Final Validation Accuracy:   {:.2f}%".format(final_val_acc))
+    print("Final Test Accuracy:         {:.2f}%".format(final_test_acc))
+    print("Final Labeled Set Size:      {}".format(len(lSet)))
+    print("\n--- Timing Statistics ---")
+    print("Total Episodes:              {}".format(cfg.ACTIVE_LEARNING.MAX_ITER + 1))
+    print("Total Epochs (all):          {}".format(len(all_epoch_times)))
+    if episode_training_times and episode_al_times:
+        avg_episode_time = np.mean(episode_training_times) + np.mean(episode_al_times)
+        print("Average Episode Time:        {:.2f}s ({:.2f} min)".format(avg_episode_time, avg_episode_time/60))
+        print("  - Avg Train Time:          {:.2f}s ({:.2f} min)".format(np.mean(episode_training_times), np.mean(episode_training_times)/60))
+        print("  - Avg AL Sampling Time:    {:.2f}s ({:.2f} min)".format(np.mean(episode_al_times), np.mean(episode_al_times)/60))
+    total_time = sum(episode_training_times) + sum(episode_al_times)
+    print("Total Experiment Time:       {:.2f}s ({:.2f} min)".format(total_time, total_time/60))
+    print("="*60 + "\n")
 
 
 def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet_loader, train_data, uSet, valSet,
@@ -300,9 +343,11 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
 
 def train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader, valSet_loader, plotting_manager):
     # Train model
+    train_start_time = time.time()
     print("======== TRAINING ========")
     logger.info("======== TRAINING ========")
-    best_val_acc, best_val_epoch, checkpoint_file, model = train_model(lSet_loader, valSet_loader, model, optimizer, cfg, plotting_manager)
+    best_val_acc, best_val_epoch, best_train_acc, checkpoint_file, model, epoch_times = train_model(lSet_loader, valSet_loader, model, optimizer, cfg, plotting_manager)
+    train_time = time.time() - train_start_time
     print("Best Validation Accuracy: {}\nBest Epoch: {}\n".format(round(best_val_acc, 4), best_val_epoch))
     logger.info("EPISODE {} Best Validation Accuracy: {}\tBest Epoch: {}\n".format(cur_episode, round(best_val_acc, 4),
                                                                                    best_val_epoch))
@@ -312,7 +357,8 @@ def train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_l
     test_acc = test_model(test_loader, checkpoint_file, cfg, cur_episode, model, plotting_manager)
     print("Test Accuracy: {}.\n".format(round(test_acc, 4)))
     logger.info("EPISODE {} Test Accuracy {}.\n".format(cur_episode, test_acc))
-    return checkpoint_file
+    
+    return checkpoint_file, train_time, epoch_times, best_train_acc, best_val_acc, test_acc
 
 
 def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manager):
@@ -325,8 +371,11 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
         val_data, val_labels = list(iter(val_loader))[0]
         preds = model.predict(val_data)
         test_acc = 100. * (preds == np.array(val_labels)).mean()
+        
+        # For 1NN, train_acc is assumed to be perfect
+        train_acc = 100.0
 
-        return test_acc, 0, None, model
+        return test_acc, 0, train_acc, None, model, []
 
     start_epoch = 0
     loss_fun = losses.get_loss_fun()
@@ -348,6 +397,9 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
 
     val_acc_epochs_x = []
     val_acc_epochs_y = []
+    
+    temp_best_train_acc = 0.
+    epoch_times = []  # Track time for each epoch
 
     clf_train_iterations = cfg.OPTIM.MAX_EPOCH * int(len(train_loader)/cfg.TRAIN.BATCH_SIZE)
     clf_change_lr_iter = clf_train_iterations // 25
@@ -356,8 +408,9 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
     for cur_epoch in range(start_epoch, cfg.OPTIM.MAX_EPOCH):
 
         # Train for one epoch
-        train_loss, clf_iter_count = train_epoch(train_loader, model, loss_fun, optimizer, train_meter, \
+        train_loss, train_acc, clf_iter_count, epoch_time = train_epoch(train_loader, model, loss_fun, optimizer, train_meter, \
                                         cur_epoch, cfg, clf_iter_count, clf_change_lr_iter, clf_train_iterations, plotting_manager)
+        epoch_times.append(epoch_time)
 
         # Compute precise BN stats
         if cfg.BN.USE_PRECISE_STATS:
@@ -374,6 +427,7 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
             if temp_best_val_acc < val_set_acc:
                 temp_best_val_acc = val_set_acc
                 temp_best_val_epoch = cur_epoch + 1
+                temp_best_train_acc = train_acc
 
                 # Save best model and optimizer state for checkpointing
                 model.eval()
@@ -388,9 +442,7 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
             val_acc_epochs_y.append(val_set_acc)
 
         plotting_manager.add_epoch(cur_epoch+1, train_loss)
-        logger.info("Successfully logged numpy arrays!!")
-
-        print('Training Epoch: {}/{}\tTrain Loss: {}\tVal Accuracy: {}'.format(cur_epoch+1, cfg.OPTIM.MAX_EPOCH, round(train_loss, 4), round(val_set_acc, 4)))
+        print('\rTraining Epoch: {}/{}\tTrain Loss: {}\tTrain Acc: {:.2f}%\tVal Accuracy: {:.2f}%'.format(cur_epoch+1, cfg.OPTIM.MAX_EPOCH, round(train_loss, 4), train_acc, val_set_acc), end="")
 
     # Save the best model checkpoint (Episode level)
     checkpoint_file = cu.save_checkpoint(info="vlBest_acc_"+str(int(temp_best_val_acc)), \
@@ -403,8 +455,9 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
 
     best_val_acc = temp_best_val_acc
     best_val_epoch = temp_best_val_epoch
+    best_train_acc = temp_best_train_acc
 
-    return best_val_acc, best_val_epoch, checkpoint_file, None
+    return best_val_acc, best_val_epoch, best_train_acc, checkpoint_file, None, epoch_times
 
 
 def test_model(test_loader, checkpoint_file, cfg, cur_episode, model, plotting_manager):
@@ -432,6 +485,7 @@ def test_model(test_loader, checkpoint_file, cfg, cur_episode, model, plotting_m
 
 def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch, cfg, clf_iter_count, clf_change_lr_iter, clf_max_iter, plotting_manager):
     """Performs one epoch of training."""
+    epoch_start_time = time.time()
 
     # Shuffle the data
     if cfg.NUM_GPUS>1:  train_loader.sampler.set_epoch(cur_epoch)
@@ -469,17 +523,26 @@ def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch
         loss, top1_err = loss.item(), top1_err.item()
         if cur_iter != 0 and cur_iter%19 == 0:
             plotting_manager.add_iteration((cur_epoch)*len_train_loader + cur_iter, loss)
-            print('Training Epoch: {}/{}\tIter: {}/{}'.format(cur_epoch+1, cfg.OPTIM.MAX_EPOCH, cur_iter, len(train_loader)))
+            print('Training Epoch: {}/{}\tIter: {}/{}'.format(cur_epoch+1, cfg.OPTIM.MAX_EPOCH, cur_iter, len(train_loader)), end='\r')
 
         train_meter.iter_toc()
         train_meter.update_stats(top1_err=top1_err, loss=loss, \
             lr=lr, mb_size=inputs.size(0) * cfg.NUM_GPUS)
-        train_meter.log_iter_stats(cur_epoch, cur_iter)
+        # Don't log iter stats to avoid interfering with progress line
+        # train_meter.log_iter_stats(cur_epoch, cur_iter)
         train_meter.iter_tic()
     # Log epoch stats
     train_meter.log_epoch_stats(cur_epoch)
+    
+    # Calculate train accuracy for the epoch
+    # Note: topk_errors returns percentages (0-100), so num_top1_mis accumulates percentage*mb_size
+    # Therefore num_top1_mis/num_samples gives the average error percentage
+    train_acc = 100.0 - (train_meter.num_top1_mis / train_meter.num_samples)
+    
+    epoch_time = time.time() - epoch_start_time
+    
     train_meter.reset()
-    return loss, clf_iter_count
+    return loss, train_acc, clf_iter_count, epoch_time
 
 
 @torch.no_grad()

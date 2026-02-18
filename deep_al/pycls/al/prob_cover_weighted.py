@@ -34,8 +34,9 @@ class ProbCoverWeighted:
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
         self.representation_model = self.cfg['DATASET']['REPRESENTATION_MODEL']
+        features_tag = self.cfg['DATASET'].get('FEATURES_TAG', None)
         self.all_features = ds_utils.load_features(self.ds_name, representation_model=self.representation_model, train=True,
-                                                   normalize=True, project=self.cfg.ACTIVE_LEARNING.USE_COSINE_DIST)
+                                                   normalize=True, project=self.cfg.ACTIVE_LEARNING.USE_COSINE_DIST, features_tag=features_tag)
         self.lSet = lSet
         self.uSet = uSet
         self.budgetSize = budgetSize
@@ -135,7 +136,6 @@ class ProbCoverWeighted:
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
 
         print(f'Finished the selection of {len(activeSet)} samples.')
-        print(f'Active set is {activeSet}')
         return activeSet, remainSet
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,

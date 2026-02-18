@@ -14,7 +14,8 @@ class   CoverageMatrixMethod:
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
-        self.all_features = ds_utils.load_features(self.ds_name, train=True)
+        features_tag = self.cfg['DATASET'].get('FEATURES_TAG', None)
+        self.all_features = ds_utils.load_features(self.ds_name, train=True, features_tag=features_tag)
         self.debug = self.cfg.DEBUG
         self.use_sparse = getattr(self.cfg, 'SPARSE_K', False)
         self.device = 'cuda' if (self.use_sparse or self.all_features.shape[0] <= 100000) else 'cpu'
@@ -107,7 +108,7 @@ class   CoverageMatrixMethod:
     def set_rel_features(self, lset, uset):
         self.lSet = lset
         self.uSet = uset
-        print(lset)
+        # print(lset)
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
         if isinstance(self.all_features, torch.Tensor):
             self.rel_features = self.all_features[self.relevant_indices]
@@ -162,7 +163,6 @@ class   CoverageMatrixMethod:
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
         self.activeSet = activeSet
         print(f'Finished the selection of {len(activeSet)} samples.')
-        print(f'Active set is {activeSet}')
 
         del self.K
         del self.C

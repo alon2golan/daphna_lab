@@ -70,7 +70,8 @@ class TypiClust:
             self.features = np.load(fname)
             self.clusters = np.load(fname.replace('features', 'probs')).argmax(axis=-1)
         else:
-            self.features = ds_utils.load_features(self.ds_name, self.seed)
+            features_tag = self.cfg['DATASET'].get('FEATURES_TAG', None)
+            self.features = ds_utils.load_features(self.ds_name, self.seed, features_tag=features_tag)
             self.clusters = kmeans(self.features, num_clusters=num_clusters)
         print(f'Finished clustering into {num_clusters} clusters.')
 
@@ -110,7 +111,6 @@ class TypiClust:
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
 
         print(f'Finished the selection of {len(activeSet)} samples.')
-        print(f'Active set is {activeSet}')
         return activeSet, remainSet
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,

@@ -221,6 +221,8 @@ _C.CUDNN.BENCHMARK = False
 # ---------------------------------------------------------------------------- #
 _C.DATASET = CN()
 _C.DATASET.NAME = None
+# Optional tag to specify which feature representation to use (e.g., 'alon', 'itai')
+_C.DATASET.FEATURES_TAG = None
 # For Tiny ImageNet dataset, ROOT_DIR must be set to the dataset folder ("data/tiny-imagenet-200/"). For others, the outder "data" folder where all datasets can be stored is expected.
 _C.DATASET.ROOT_DIR = None
 # Specifies the proportion of data in train set that should be considered as the validation data
@@ -444,6 +446,7 @@ def build_args_dict(args):
         'ACTIVE_LEARNING.MAX_ITER': args.max_iter,
         'SPARSE_K': args.sparse_K,
         'MATRIX_DTYPE': args.matrix_dtype,
+        'DATASET.FEATURES_TAG': args.features_tag,
     }
     
     # Add max_epoch if provided

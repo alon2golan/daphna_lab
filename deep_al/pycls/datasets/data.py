@@ -214,11 +214,11 @@ class Data:
             return mnist, len(mnist)
 
         elif self.dataset == "CIFAR10":
-            cifar10 = CIFAR10(save_dir, train=isTrain, transform=preprocess_steps, test_transform=test_preprocess_steps, download=isDownload, only_features=only_features)
+            cifar10 = CIFAR10(save_dir, train=isTrain, transform=preprocess_steps, test_transform=test_preprocess_steps, download=isDownload, only_features=only_features, features_tag=self.cfg.DATASET.FEATURES_TAG)
             return cifar10, len(cifar10)
 
         elif self.dataset == "CIFAR100":
-            cifar100 = CIFAR100(save_dir, train=isTrain, transform=preprocess_steps,  test_transform=test_preprocess_steps, download=isDownload, only_features=only_features)
+            cifar100 = CIFAR100(save_dir, train=isTrain, transform=preprocess_steps,  test_transform=test_preprocess_steps, download=isDownload, only_features=only_features, features_tag=self.cfg.DATASET.FEATURES_TAG)
             return cifar100, len(cifar100)
 
         elif self.dataset == "SVHN":

@@ -131,6 +131,9 @@ def main():
         indices, acc = memory_bank_base.mine_nearest_neighbors(topk)
         np.save(p['topk_neighbors_train_path'], indices)
         np.save(p['pretext_features'], memory_bank_base.pre_lasts.cpu().numpy())
+        
+        # Fill validation memory bank before saving test features
+        fill_memory_bank(val_dataloader, model, memory_bank_val)
         np.save(p['pretext_features'].replace('features', 'test_features'), memory_bank_val.pre_lasts.cpu().numpy())
 
     # Save final model
@@ -147,13 +150,14 @@ def main():
     np.save(p['topk_neighbors_train_path'], indices)
     # save features
     np.save(p['pretext_features'], memory_bank_base.pre_lasts.cpu().numpy())
-    np.save(p['pretext_features'].replace('features', 'test_features'), memory_bank_val.pre_lasts.cpu().numpy())
 
    
     # Mine the topk nearest neighbors at the very end (Val)
     # These will be used for validation.
     print(colored('Fill memory bank for mining the nearest neighbors (val) ...', 'blue'))
     fill_memory_bank(val_dataloader, model, memory_bank_val)
+    # save test features AFTER filling the memory bank
+    np.save(p['pretext_features'].replace('features', 'test_features'), memory_bank_val.pre_lasts.cpu().numpy())
     topk = 5
     print('Mine the nearest neighbors (Top-%d)' %(topk)) 
     indices, acc = memory_bank_val.mine_nearest_neighbors(topk)

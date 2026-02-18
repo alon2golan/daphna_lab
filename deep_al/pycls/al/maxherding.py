@@ -107,8 +107,9 @@ class MaxHerding:
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
         self.device = device
+        features_tag = self.cfg['DATASET'].get('FEATURES_TAG', None)
         self.all_features = ds_utils.load_features(self.ds_name, train=True,
-                                                   normalized=True)
+                                                   normalized=True, features_tag=features_tag)
 
         self.batch_size = batch_size
         self.lSet = lSet
@@ -235,7 +236,6 @@ class MaxHerding:
         remainSet = np.array(sorted(list(set(self.total_uSet) - set(activeSet))))
         self.activeSet = activeSet
         print(f'Finished the selection of {len(activeSet)} samples.')
-        print(f'Active set is {activeSet}')
         print(f'Time: {np.round(time.time() - start_time, 4)}sec')
 
         self._free_kernel_memory()
