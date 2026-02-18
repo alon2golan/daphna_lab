@@ -107,8 +107,9 @@ class MaxHerding:
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
         self.device = device
+        features_tag = self.cfg['DATASET'].get('FEATURES_TAG', None)
         self.all_features = ds_utils.load_features(self.ds_name, train=True,
-                                                   normalized=True)
+                                                   normalized=True, features_tag=features_tag)
 
         self.batch_size = batch_size
         self.lSet = lSet

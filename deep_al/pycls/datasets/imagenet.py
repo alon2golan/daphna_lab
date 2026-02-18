@@ -125,6 +125,7 @@ class ImageNetSubset(data.Dataset):
         @param transform:
         """
         super(ImageNetSubset, self).__init__()
+        self.cfg = cfg
         self.root = root
         assert self.check_root(), "Something is wrong with the ImageNetCLS dataset path"
 
@@ -279,13 +280,14 @@ class ImageNetSubset(data.Dataset):
         return result
 
     def load_features_for_subset(self):
+        features_tag = self.cfg.DATASET.get('FEATURES_TAG', None)
         try:
-            features = ds_utils.load_features(self.dataset_name.upper(), train=self.train)
+            features = ds_utils.load_features(self.dataset_name.upper(), train=self.train, features_tag=features_tag)
             return features
 
         except KeyError:
             print(f"{self.dataset_name} | Features not exists. Extracting and saving features")
-            full_dataset_features = ds_utils.load_features("IMAGENET", train=self.train) # "/cs/labs/daphna/inbal_mishal/representations_bank/imagenet_dinov2"
+            full_dataset_features = ds_utils.load_features("IMAGENET", train=self.train, features_tag=features_tag) # "/cs/labs/daphna/inbal_mishal/representations_bank/imagenet_dinov2"
             features_map = self._load_features_map(full_dataset_features)
             features = [features_map[img][None, :] for img in self.imgs]
             if isinstance(features[0], np.ndarray):

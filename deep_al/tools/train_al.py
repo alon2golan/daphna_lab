@@ -41,6 +41,7 @@ def argparser():
     parser.add_argument('--seed', help='Random seed', default=1, type=int)
     parser.add_argument('--finetune', help='Whether to continue with existing model between rounds', action='store_true') # train the eval model from last ckpt and not from scratch (between iters)
     parser.add_argument('--eval_model_type', help='eval_model_type', type=str) # train the eval model from features not images
+    parser.add_argument('--features_tag', help='Tag to specify which feature representation to use (e.g., "alon", "itai")', type=str, default=None)
     parser.add_argument('--initial_delta', help='Relevant only for ProbCover and DCoM', default=-1, type=float)
     parser.add_argument('--kernel_type', default='rbf', type=str)
     parser.add_argument('--diff_method', default='abs_diff', type=str)

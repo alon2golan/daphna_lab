@@ -7,12 +7,12 @@ from torchvision.datasets import VisionDataset
 
 
 class CIFAR10(torchvision.datasets.CIFAR10):
-    def __init__(self, root, train, transform, test_transform, download=True, only_features= False):
+    def __init__(self, root, train, transform, test_transform, download=True, only_features=False, features_tag=None):
         super(CIFAR10, self).__init__(root, train, transform=transform, download=download)
         self.test_transform = test_transform
         self.no_aug = False
         self.only_features = only_features
-        self.features = ds_utils.load_features("CIFAR10", train=train, normalized=False)
+        self.features = ds_utils.load_features("CIFAR10", train=train, normalized=False, features_tag=features_tag)
 
 
     def __getitem__(self, index: int):
@@ -43,12 +43,12 @@ class CIFAR10(torchvision.datasets.CIFAR10):
 
 
 class CIFAR100(torchvision.datasets.CIFAR100):
-    def __init__(self, root, train, transform, test_transform, download=True, only_features= False):
+    def __init__(self, root, train, transform, test_transform, download=True, only_features=False, features_tag=None):
         super(CIFAR100, self).__init__(root, train, transform=transform, download=download)
         self.test_transform = test_transform
         self.no_aug = False
         self.only_features = only_features
-        self.features = ds_utils.load_features("CIFAR100", train=train, normalized=False)
+        self.features = ds_utils.load_features("CIFAR100", train=train, normalized=False, features_tag=features_tag)
 
     def __getitem__(self, index: int):
         """

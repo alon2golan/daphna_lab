@@ -16,7 +16,8 @@ class DCoM:
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
-        self.all_features = ds_utils.load_features(self.ds_name, self.seed)
+        features_tag = self.cfg['DATASET'].get('FEATURES_TAG', None)
+        self.all_features = ds_utils.load_features(self.ds_name, self.seed, features_tag=features_tag)
         self.lSet = lSet
         self.uSet = uSet
         self.budgetSize = budgetSize
