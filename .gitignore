@@ -25,6 +25,7 @@ pycls/datasets/data/
 # Other
 logs/
 scratch*
+_generated_sweep*
 *.out
 *.pyc
 
