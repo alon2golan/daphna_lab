@@ -291,8 +291,6 @@ def _train(model: nn.Module,
            lr: float = 1e-3,
            cfg: str = None) -> None:
     model.to(device)
-    # opt = optim.SGD(model.parameters(), lr=lr, momentum=0.9, nesterov=True, weight_decay=5e-4)
-    # Construct the optimizer
     opt = optim.construct_optimizer(cfg, model)
     opt_init_state = deepcopy(opt.state_dict())
     model_init_state = deepcopy(model.state_dict().copy())
@@ -918,7 +916,7 @@ def run_estimated_nu():
     parser.add_argument("--dbscan_min_samples", type=int, default=10)
     parser.add_argument("--dbscan_metric", type=str, default="euclidean", choices=["euclidean", "manhattan", "cosine"])
     parser.add_argument("--representation_model", type=str, default="simclr", choices=["simclr", "vit", "resnet50"])
-    args = parser.parse_args("--dataset=cifar100 --al_method random".split())
+    args = parser.parse_args()
 
 
     def get_dataset(dataset_name, representation_model, train=True,
