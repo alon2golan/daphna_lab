@@ -11,11 +11,15 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Subset, Dataset
 from torchvision import models
 from copy import copy
-# add path to TypiClust/deep-al
-import sys
-sys.path.append(os.path.abspath('/cs/labs/daphna/tomer_yaacoby/pythonProjects/oracle-teacher-proj/TypiClust/deep-al'))  # TODO change properly
-import pycls.core.builders as model_builder
-import pycls.core.optimizer as optim
+from pathlib import Path
+
+# Ensure repo root is in sys.path
+_repo_root = str(Path(__file__).resolve().parents[3])
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
+import deep_al.pycls.core.builders as model_builder
+import deep_al.pycls.core.optimizer as optim
 
 from copy import deepcopy
 from sklearn.cluster import KMeans
@@ -468,7 +472,7 @@ def get_train_idx(model: str, al_method: str, dataset: str, noise_type: str, bud
     """
     if al_method == 'random':
         return np.random.choice(train_idx, size=budget, replace=False)
-    base_dir = "/cs/labs/daphna/tomer_yaacoby/pythonProjects/oracle-teacher-proj/experiments_data/"
+    base_dir = _repo_root + "/output/"
     df = pd.read_parquet( base_dir + f"{dataset.upper()}/{dataset}_{model}_{al_method}_{noise_type}_all.parquet")
     alpha = 1 if annotator == 'oracle' else 0
     df_for_experiment = df[(df['budget'] == budget) & (df['oracle_teacher_ratio'] == tau) & (df['alpha'] == alpha)]
@@ -597,7 +601,7 @@ def estimate_nu(dataset: Dataset,
 
     # Sample noisy annotator's indices
     noisy_size = int(budget / tau)
-    noisy_idx = get_train_idx(model_name.lower(), al_method, dataset_name, 'sym', budget, tau, "noisy", train_idx)
+    noisy_idx = get_train_idx(model_name.lower(), al_method, dataset_name, 'sym', noisy_size, tau, "noisy", train_idx)
     print(f"Noisy annotator size: {noisy_size}", flush=True)
 
     # ------------------------------------------------------------------
@@ -677,7 +681,7 @@ def estimate_nu(dataset: Dataset,
 
     # Final estimate
     final_nu = (nu_high + nu_low) / 2.0
-    return i, final_nu
+    return i, final_nu, acc_oracle
 
 def plot_results():
     import numpy as np
@@ -914,27 +918,21 @@ def run_estimated_nu():
     parser.add_argument("--dbscan_min_samples", type=int, default=10)
     parser.add_argument("--dbscan_metric", type=str, default="euclidean", choices=["euclidean", "manhattan", "cosine"])
     parser.add_argument("--representation_model", type=str, default="simclr", choices=["simclr", "vit", "resnet50"])
-    args = parser.parse_args()
+    args = parser.parse_args("--dataset=cifar100 --al_method random".split())
 
-    def add_path(path):
-        if path not in sys.path:
-            sys.path.insert(0, path)
-
-    add_path(os.path.abspath(
-        '/cs/labs/daphna/tomer_yaacoby/pythonProjects/oracle-teacher-proj/TypiClust/deep-al'))  # TODO change properly
 
     def get_dataset(dataset_name, representation_model, train=True,
                     use_linear_features=False, project_features=False):
-        cfg_file = f"/cs/labs/daphna/tomer_yaacoby/pythonProjects/oracle-teacher-proj/TypiClust/deep-al/configs/{dataset_name}/al/RESNET18.yaml"
+        cfg_file = _repo_root + f"/deep_al/configs/{dataset_name}/al/RESNET18.yaml"
         cfg.merge_from_file(cfg_file)
         # cfg.NOISE.NOISE_RATE = 0
         # cfg.DATASET.REPRESENTATION_MODEL = representation_model
         cfg.MODEL.LINEAR_FROM_FEATURES = use_linear_features
         data_obj = Data(cfg)
         data, data_size = data_obj.getDataset(save_dir=cfg.DATASET.ROOT_DIR,
-                                              representation_model=representation_model,
+                                            #   representation_model=representation_model,
                                               isTrain=train, isDownload=True,
-                                              project_features=project_features,
+                                            #   project_features=project_features,
                                               )
         return data, data_size
 
@@ -970,6 +968,7 @@ def run_estimated_nu():
     num_tries_original_labels = []
     nu_hats_kmeans_labels = []
     num_tries_kmeans_labels = []
+    oracle_accs = []
     batch_size = 256 if dataset_name != 'imagenet50' else 16
     for tau in tau_vals:
         print(
@@ -1004,7 +1003,7 @@ def run_estimated_nu():
         # nu_hats_original_labels.append(nu_hat_original_labels)
         # num_tries_original_labels.append(i)
 
-        i, nu_hat_cluster_labels = estimate_nu(train_data,
+        i, nu_hat_cluster_labels, acc_oracle = estimate_nu(train_data,
                                               tau=tau,
                                               budget=budget,
                                               num_classes=num_classes,
@@ -1027,6 +1026,7 @@ def run_estimated_nu():
             f"Estimated nu for tau={tau} with Clustered labels: {nu_hat_cluster_labels:.4f}, num tries: {i}")
         nu_hats_kmeans_labels.append(nu_hat_cluster_labels)
         num_tries_kmeans_labels.append(i)
+        oracle_accs.append(acc_oracle)
 
     print("Tau values:", tau_vals, flush=True)
     logger.info(f"Tau values: {tau_vals}")
@@ -1043,6 +1043,14 @@ def run_estimated_nu():
           flush=True)
     logger.info(
         f"Number of tries for Clustered labels: {num_tries_kmeans_labels}")
+
+    # Summary prints
+    print("\n" + "="*80, flush=True)
+    print("SUMMARY RESULTS:", flush=True)
+    print("="*80, flush=True)
+    for i, tau in enumerate(tau_vals):
+        print(f"Tau: {tau:.2f} | Nu_prime (estimated): {nu_hats_kmeans_labels[i]:.4f} | Oracle Accuracy: {oracle_accs[i]:.4f}", flush=True)
+    print("="*80 + "\n", flush=True)
 
     # Save results
     results_dir = f"results/{dataset_name}/{model_name}"
@@ -1063,9 +1071,9 @@ def run_estimated_nu():
 # ------- Main - only a test script to make sure the function works -------
 
 if __name__ == "__main__":
-    from pycls.core.config import cfg
-    from pycls.datasets.data import Data
-    from pycls.core.builders import FeaturesNet
+    from deep_al.pycls.core.config import cfg
+    from deep_al.pycls.datasets.data import Data
+    from deep_al.pycls.core.builders import FeaturesNet
 
     run_estimated_nu()
     # plot_results()

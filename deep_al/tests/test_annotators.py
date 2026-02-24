@@ -14,10 +14,11 @@ import numpy as np
 import torch
 import sys
 import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # Add repo root to path
-_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_repo_root = str(Path(__file__).resolve().parents[2])
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 

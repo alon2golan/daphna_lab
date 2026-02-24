@@ -17,6 +17,7 @@ Usage:
 import os
 import sys
 import argparse
+from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
@@ -24,7 +25,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
 # Ensure repo root is in sys.path
-_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_repo_root = str(Path(__file__).resolve().parents[3])
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 

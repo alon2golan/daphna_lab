@@ -168,9 +168,21 @@ def get_pseudo_labels_kmeans(features, num_classes, seed=42, normalize=True):
     else:
         features_normalized = features
     
-    kmeans = KMeans(n_clusters=num_classes, random_state=seed, n_init=10, max_iter=300)
-    pseudo_labels = kmeans.fit_predict(features_normalized)
-    
+    from tqdm import tqdm
+    import sys
+    n_init = 10
+    best_inertia = np.inf
+    best_labels  = None
+    pbar = tqdm(range(n_init), desc=f"K-Means (k={num_classes})", unit="init", file=sys.stdout)
+    for i in pbar:
+        km = KMeans(n_clusters=num_classes, random_state=seed + i, n_init=1, max_iter=300)
+        km.fit(features_normalized)
+        pbar.set_postfix(inertia=f"{km.inertia_:.1f}")
+        if km.inertia_ < best_inertia:
+            best_inertia = km.inertia_
+            best_labels  = km.labels_
+    pseudo_labels = best_labels
+
     logger.info(f"K-Means clustering complete. Label distribution: {np.bincount(pseudo_labels)}")
     
     return pseudo_labels

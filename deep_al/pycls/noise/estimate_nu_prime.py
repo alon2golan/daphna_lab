@@ -10,33 +10,34 @@ Usage:
         --cfg configs/cifar10/al/config.yaml \\
         --output results/nu_prime_cifar10.json \\
         --budget 1000 \\
-        --oracle_cost 10.0 \\
-        --noisy_cost 1.0
+        --tau 0.1
 
 Algorithm 1: Estimating Equilibrium Noise Rate ν'
     1. Generate pseudo-labels via K-Means clustering
-    2. Train oracle baseline: sample B/$o samples, train R times, compute average accuracy
+    2. Train oracle baseline: sample B (budget) samples, train R times, compute average accuracy
     3. Binary search for ν':
        - For each candidate noise rate ν_mid:
-         * Sample B/$n samples (more samples with cheaper annotator)
+         * Sample B/τ samples (more samples with cheaper annotator)
          * Inject noise at rate ν_mid
          * Train R times, compute average accuracy
          * Compare: if Acc[oracle] > Acc[noisy], noise too high; else acceptable
     4. Return equilibrium point where both strategies have equal performance
     
-ν' represents the noise rate where: Oracle(B/$o samples) ≈ Noisy(B/$n samples, noise=ν')
+ν' represents the noise rate where: Oracle(B samples) ≈ Noisy(B/τ samples, noise=ν')
 """
 
 import os
 import sys
 import argparse
 from datetime import datetime
+from pathlib import Path
 import numpy as np
 import torch
+from tqdm import tqdm
 from torch.utils.data import DataLoader, Subset
 
 # Ensure repo root is in sys.path
-_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_repo_root = str(Path(__file__).resolve().parents[3])
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
@@ -46,6 +47,7 @@ import deep_al.pycls.core.losses as losses
 import deep_al.pycls.core.optimizer as optim
 import deep_al.pycls.utils.logging as lu
 import deep_al.pycls.utils.model_handler as mh
+from deep_al.pycls.core.builders import FeaturesNet
 from deep_al.pycls.noise.nu_prime_utils import (
     extract_features,
     get_pseudo_labels_kmeans,
@@ -67,21 +69,19 @@ def argparser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Estimate ν' for CIFAR-10 with budget 1000, oracle costs 10x more than noisy
+  # Estimate ν' for CIFAR-10 with budget 1000, tau=0.1 (noisy gets 10x more samples)
   python estimate_nu_prime.py \\
       --cfg configs/cifar10/al/config.yaml \\
       --output nu_prime_cifar10.json \\
       --budget 1000 \\
-      --oracle_cost 10.0 \\
-      --noisy_cost 1.0
+      --tau 0.1
 
   # Custom parameters with more repeats
   python estimate_nu_prime.py \\
       --cfg configs/cifar100/al/config.yaml \\
       --output results/nu_prime.json \\
       --budget 5000 \\
-      --oracle_cost 10.0 \\
-      --noisy_cost 1.0 \\
+      --tau 0.2 \\
       --repeats 5 \\
       --epsilon 0.03
         """
@@ -93,12 +93,10 @@ Examples:
                         help='Output path for nu_prime JSON file')
     
     # Budget and cost parameters (REQUIRED for Algorithm 1)
-    parser.add_argument('--budget', type=float, required=True,
-                        help='Query budget B (total labeling budget)')
-    parser.add_argument('--oracle_cost', type=float, required=True,
-                        help='Cost per oracle label $o (e.g., 10.0)')
-    parser.add_argument('--noisy_cost', type=float, required=True,
-                        help='Cost per noisy label $n (e.g., 1.0)')
+    parser.add_argument('--budget', type=int, required=True,
+                        help='Oracle budget B (number of oracle samples)')
+    parser.add_argument('--tau', type=float, required=True,
+                        help='Cost ratio τ = noisy_cost/oracle_cost (e.g., 0.1 means noisy gets B/τ = 10x more samples)')
     
     # Algorithm parameters
     parser.add_argument('--repeats', type=int, default=3,
@@ -162,8 +160,7 @@ def estimate_nu_prime_binary_search(
     cfg,
     dataset,
     budget,
-    oracle_cost,
-    noisy_cost,
+    tau,
     repeats=3,
     epsilon=0.05, 
     max_epochs=5,
@@ -195,9 +192,8 @@ def estimate_nu_prime_binary_search(
         num_classes: Number of classes
         cfg: Configuration object
         dataset: Original image dataset
-        budget: Total labeling budget B
-        oracle_cost: Cost per oracle label $o
-        noisy_cost: Cost per noisy label $n
+        budget: Oracle budget B (number of oracle samples)
+        tau: Cost ratio τ = noisy_cost/oracle_cost; noisy annotator gets B/τ samples
         repeats: Number of training repeats R for averaging
         epsilon: Binary search tolerance
         max_epochs: Training epochs per repeat
@@ -210,11 +206,11 @@ def estimate_nu_prime_binary_search(
     logger.info("=" * 70)
     logger.info("Algorithm 1: Estimating Equilibrium Noise Rate (ν')")
     logger.info("=" * 70)
-    logger.info(f"Budget: {budget}, Oracle Cost: ${oracle_cost}, Noisy Cost: ${noisy_cost}")
+    logger.info(f"Budget: {budget}, τ: {tau}")
     
-    # Calculate sample sizes based on budget
-    n_samples_oracle = int(budget / oracle_cost)
-    n_samples_noisy = int(budget / noisy_cost)
+    # Calculate sample sizes based on budget and tau
+    n_samples_oracle = budget
+    n_samples_noisy = int(budget / tau)
     
     logger.info(f"Oracle Strategy: {n_samples_oracle} samples (expensive, clean)")
     logger.info(f"Noisy Strategy:  {n_samples_noisy} samples (cheap, will add noise)")
@@ -257,7 +253,7 @@ def estimate_nu_prime_binary_search(
         
         # Train model on Do
         acc = train_and_evaluate(
-            cfg, dataset, 
+            cfg, features,
             sampled_train_indices, sampled_labels,
             test_indices, pseudo_labels_test,
             max_epochs, seed + r
@@ -308,7 +304,7 @@ def estimate_nu_prime_binary_search(
             
             # Train model on Dn with noisy labels
             acc = train_and_evaluate(
-                cfg, dataset,
+                cfg, features,
                 sampled_train_indices, noisy_labels,
                 test_indices, pseudo_labels_test,
                 max_epochs, seed + iteration * 100 + r
@@ -341,59 +337,58 @@ def estimate_nu_prime_binary_search(
     logger.info(f"  If annotator noise > {nu_prime:.4f}: Use Oracle (quality over quantity)")
     logger.info("=" * 70)
     
-    return nu_prime
+    return nu_prime, acc_oracle
 
 
-def train_and_evaluate(cfg, dataset, train_indices, labels, test_indices, test_labels, max_epochs, seed):
+def train_and_evaluate(cfg, features, train_indices, labels, test_indices, test_labels, max_epochs, seed):
     """
-    Train a model on given samples and evaluate on test set.
-    
+    Train a linear model on pre-extracted SimCLR features and evaluate on test set.
+    Mirrors estimating_delta_nu.py: FeaturesNet (single linear layer) on top of features.
+
     Args:
         cfg: Configuration object
-        dataset: Original dataset
-        train_indices: Indices for training samples
-        labels: Labels for training (may be pseudo or noisy)
-        test_indices: Indices for test samples
-        test_labels: True labels for test set
+        features: Pre-extracted feature matrix (N, d) as np.ndarray
+        train_indices: Indices into features for training samples
+        labels: Labels for training (pseudo or noisy), same length as train_indices
+        test_indices: Indices into features for test samples
+        test_labels: Labels for test set, same length as test_indices
         max_epochs: Number of training epochs
         seed: Random seed
-        
+
     Returns:
-        float: Test accuracy percentage
+        float: Test accuracy (0-100)
     """
-    # Create datasets
-    train_subset = Subset(dataset, train_indices)
-    test_subset = Subset(dataset, test_indices)
-    
-    label_map_train = {idx: int(label) for idx, label in zip(train_indices, labels)}
-    label_map_test = {idx: int(label) for idx, label in zip(test_indices, test_labels)}
-    
-    train_dataset = DatasetWithLabelMap(train_subset, label_map_train, train_indices)
-    test_dataset = DatasetWithLabelMap(test_subset, label_map_test, test_indices)
-    
-    # Create dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=cfg.TRAIN.BATCH_SIZE, shuffle=True, num_workers=2)
-    test_loader = DataLoader(test_dataset, batch_size=cfg.TRAIN.BATCH_SIZE, shuffle=False, num_workers=2)
-    
-    # Initialize model
+    train_dataset = SimpleFeatureDataset(features[train_indices], labels)
+    test_dataset  = SimpleFeatureDataset(features[test_indices],  test_labels)
+
+    train_loader = DataLoader(train_dataset, batch_size=cfg.TRAIN.BATCH_SIZE, shuffle=True,  num_workers=0)
+    test_loader  = DataLoader(test_dataset,  batch_size=cfg.TRAIN.BATCH_SIZE, shuffle=False, num_workers=0)
+
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
-    
-    model = mh.get_model(cfg)
-    optimizer_obj = optim.construct_optimizer(cfg, model)
+
+    num_features = features.shape[1]
+    num_classes  = cfg.MODEL.NUM_CLASSES
+    model = FeaturesNet(num_features, num_classes)
+
+    # Use SGD with momentum — standard SimCLR linear-eval protocol.
+    # construct_optimizer(cfg) uses BASE_LR=0.025 tuned for full ResNet
+    # training, which is far too small for a linear layer on few samples.
+    optimizer_obj = torch.optim.SGD(
+        model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.0
+    )
     loss_fn = losses.get_loss_fun()
-    
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    
-    # Train
-    for epoch in range(max_epochs):
-        train_loss = simple_train_epoch(model, train_loader, optimizer_obj, loss_fn, device)
-    
-    # Evaluate
-    test_accuracy = simple_eval_epoch(model, test_loader, device)
-    
-    return test_accuracy
+    device  = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    pbar = tqdm(range(max_epochs), desc="Training", unit="epoch", leave=False)
+    for epoch in pbar:
+        loss = simple_train_epoch(model, train_loader, optimizer_obj, loss_fn, device)
+        pbar.set_postfix(loss=f"{loss:.4f}")
+
+    acc = simple_eval_epoch(model, test_loader, device)
+    tqdm.write(f"  Epoch {max_epochs}/{max_epochs} — loss: {loss:.4f} — acc: {acc:.2f}%")
+    return acc
 
 
 def main(cfg, args):
@@ -407,10 +402,9 @@ def main(cfg, args):
     print(f"Output: {args.output}")
     print(f"\nBudget Parameters:")
     print(f"  Budget (B): {args.budget}")
-    print(f"  Oracle Cost ($o): {args.oracle_cost}")
-    print(f"  Noisy Cost ($n): {args.noisy_cost}")
-    print(f"  → Oracle samples: {int(args.budget / args.oracle_cost)}")
-    print(f"  → Noisy samples: {int(args.budget / args.noisy_cost)}")
+    print(f"  τ (tau): {args.tau}")
+    print(f"  → Oracle samples: {args.budget}")
+    print(f"  → Noisy samples: {int(args.budget / args.tau)}")
     print(f"\nAlgorithm Parameters:")
     print(f"  Repeats (R): {args.repeats}")
     print(f"  Epsilon: {args.epsilon}")
@@ -438,7 +432,7 @@ def main(cfg, args):
     # Extract features
     if args.use_simclr_features:
         logger.info("Loading pre-extracted SimCLR features...")
-        features = load_features(cfg.DATASET.NAME, seed=args.seed, train=True, normalized=True)
+        features = load_features(cfg.DATASET.NAME, seed=args.seed, train=True, normalized=True, features_tag=None)
         logger.info(f"Loaded SimCLR features: shape={features.shape}")
         
         # Get true labels from dataset
@@ -497,7 +491,7 @@ def main(cfg, args):
         pseudo_labels = None  # Will be generated inside estimate_nu_prime_binary_search
     
     # Estimate nu_prime using Algorithm 1
-    nu_prime = estimate_nu_prime_binary_search(
+    nu_prime, acc_oracle = estimate_nu_prime_binary_search(
         features=features,
         true_labels=true_labels,
         pseudo_labels=pseudo_labels,
@@ -505,8 +499,7 @@ def main(cfg, args):
         cfg=cfg,
         dataset=train_data,
         budget=args.budget,
-        oracle_cost=args.oracle_cost,
-        noisy_cost=args.noisy_cost,
+        tau=args.tau,
         repeats=args.repeats,
         epsilon=args.epsilon,
         max_epochs=args.max_epochs,
@@ -521,10 +514,10 @@ def main(cfg, args):
         'model': cfg.MODEL.TYPE,
         'num_samples': train_size,
         'budget': args.budget,
-        'oracle_cost': args.oracle_cost,
-        'noisy_cost': args.noisy_cost,
-        'oracle_samples': int(args.budget / args.oracle_cost),
-        'noisy_samples': int(args.budget / args.noisy_cost),
+        'tau': args.tau,
+        'oracle_samples': args.budget,
+        'noisy_samples': int(args.budget / args.tau),
+        'oracle_accuracy': acc_oracle,
         'repeats': args.repeats,
         'epsilon': args.epsilon,
         'max_epochs': args.max_epochs,
@@ -544,12 +537,13 @@ def main(cfg, args):
     print("\n" + "=" * 70)
     print(f"✓ Estimation Complete!")
     print(f"✓ ν' = {nu_prime:.4f}")
+    print(f"✓ Oracle Accuracy = {acc_oracle:.2f}%")
     print(f"✓ Saved to: {args.output}")
     print("=" * 70 + "\n")
     
     print("Interpretation:")
     print(f"  ν' = {nu_prime:.4f} is the equilibrium noise rate where:")
-    print(f"    Oracle({int(args.budget/args.oracle_cost)} samples, clean) ≈ Noisy({int(args.budget/args.noisy_cost)} samples, noise={nu_prime:.4f})")
+    print(f"    Oracle({args.budget} samples, clean) ≈ Noisy({int(args.budget/args.tau)} samples, noise={nu_prime:.4f})")
     print(f"\n  Decision Rule:")
     print(f"    • If your annotator's noise < {nu_prime:.4f}: Use Noisy Annotator (cost-effective)")
     print(f"    • If your annotator's noise > {nu_prime:.4f}: Use Oracle (quality over quantity)")
