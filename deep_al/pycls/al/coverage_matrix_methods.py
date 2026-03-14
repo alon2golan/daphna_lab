@@ -15,7 +15,13 @@ class   CoverageMatrixMethod:
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
         features_tag = self.cfg['DATASET'].get('FEATURES_TAG', None)
-        self.all_features = ds_utils.load_features(self.ds_name, train=True, features_tag=features_tag)
+        features_normalized = bool(getattr(self.cfg, 'FEATURES_NORMALIZED', True))
+        self.all_features = ds_utils.load_features(
+            self.ds_name,
+            train=True,
+            normalized=features_normalized,
+            features_tag=features_tag,
+        )
         self.debug = self.cfg.DEBUG
         self.use_sparse = getattr(self.cfg, 'SPARSE_K', False)
         self.device = 'cuda' if (self.use_sparse or self.all_features.shape[0] <= 100000) else 'cpu'

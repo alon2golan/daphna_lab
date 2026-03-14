@@ -449,6 +449,7 @@ def build_args_dict(args):
         'DATASET.FEATURES_TAG': args.features_tag,
         'LOCAL_SIGMA': args.local_sigma,
         'LOCAL_SIGMA_K': args.local_sigma_k,
+        'FEATURES_NORMALIZED': args.features_normalized,
     }
     
     # Add max_epoch if provided

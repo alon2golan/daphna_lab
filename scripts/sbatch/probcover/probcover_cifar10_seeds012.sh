@@ -4,8 +4,8 @@
 #SBATCH --time=24:00:00
 #SBATCH --gres=gg:g0:1
 #SBATCH --array=0-2
-#SBATCH --output /cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/probcover_cifar10_b200_seed%a-%A.txt
-#SBATCH --error /cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/probcover_cifar10_b200_seed%a-%A.err
+#SBATCH --output /cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/probcover/cifar10/global_sigma/fixed_delta/probcover_cifar10_b200_seed%a-%A.txt
+#SBATCH --error /cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/probcover/cifar10/global_sigma/fixed_delta/probcover_cifar10_b200_seed%a-%A.err
 #SBATCH --killable
 PROJECT_DIR=/cs/labs/daphna/ido.dotan/projects/daphna_lab
 cd "$PROJECT_DIR"
