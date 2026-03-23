@@ -12,7 +12,7 @@ class DCoM:
     using minimum margin.
     """
 
-    def __init__(self, cfg, lSet, uSet, budgetSize, lSet_deltas, max_delta, data_obj=None, plotting_manager=None):
+    def __init__(self, cfg, lSet, uSet, lSet_deltas, max_delta, data_obj=None, plotting_manager=None):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
@@ -20,7 +20,6 @@ class DCoM:
         self.all_features = ds_utils.load_features(self.ds_name, self.seed, features_tag=features_tag)
         self.lSet = lSet
         self.uSet = uSet
-        self.budgetSize = budgetSize
         self.max_delta = max_delta
         self.data_obj = data_obj
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)  # indices of lSet and then uSet in all_features
@@ -44,10 +43,10 @@ class DCoM:
             elapsed = time.time() - start_time
             print(f"Delta selection complete | Value: {self.cfg.ACTIVE_LEARNING.INITIAL_DELTA:.4f} | Time: {elapsed:.2f}s")
 
-        # Initialize delta list - if empty (first iteration), create initial deltas
+        # Initialize delta list - if empty (first iteration), start with no deltas
         if len(lSet_deltas) == 0:
-            print('DCoM: Initializing delta list with initial_delta for first budget')
-            self.lSet_deltas = [float(self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)] * budgetSize
+            print('DCoM: No initial deltas provided - will be initialized during first sampling round')
+            self.lSet_deltas = []
         else:
             self.lSet_deltas = [float(delta) for delta in lSet_deltas]
         
@@ -126,7 +125,7 @@ class DCoM:
         print(f'Graph contains {len(df_filtered)} edges.')
         return df_filtered, covered_samples
 
-    def select_samples(self, model, train_data, data_obj):
+    def select_samples(self, model, train_data, data_obj, num_samples):
         """
         Performs DCoM active sampling section.
         """
@@ -160,7 +159,7 @@ class DCoM:
 
         cur_df, covered_samples = self.construct_graph(self.delta_avg)
 
-        for i in range(self.budgetSize): # The active selection
+        for i in range(num_samples): # The active selection
             coverage = len(covered_samples) / len(self.relevant_indices)
 
             if len(cur_df) == 0:
@@ -188,7 +187,7 @@ class DCoM:
         print(f'Finished the selection of {len(activeSet)} samples.')
         return activeSet, remainSet
 
-    def new_centroids_deltas(self, lSet_labels, pseudo_labels, budget, batch_size=500, all_labels=[]):
+    def new_centroids_deltas(self, lSet_labels, pseudo_labels, num_samples, batch_size=500, all_labels=[]):
         """
         Performs binary search of the next delta values.
         """
@@ -225,7 +224,7 @@ class DCoM:
         print("Current threshold: ", purity_threshold)
 
         for cent_idx, centroid in enumerate(self.lSet):
-            if cent_idx < len(self.lSet) - budget:  # Not new points
+            if cent_idx < len(self.lSet) - num_samples:  # Not new points
                 continue
 
             print(f'start calculation for cent_idx: {cent_idx}')
@@ -323,20 +322,17 @@ class DCoM:
         return sorted_indices[:amount]
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None):
+                        checkpoint_file=None, num_samples=None):
         """
         Complete DCoM iteration: update state → sample → prepare next.
-        
-        Handles all state management internally:
-        1. Update deltas from checkpoint if available
-        2. Perform sampling
-        3. Prepare deltas for next iteration and update cfg.ACTIVE_LEARNING.DELTA_LST
+
+        num_samples: number of samples to select this round (computed from budget / annotator cost).
         """
-        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
-        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
-            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
-        
-        # Update sets in the instance (in case they changed)
+        assert num_samples is not None and num_samples > 0, "Expected a positive num_samples"
+        assert num_samples < len(uSet), \
+            f"num_samples cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and num_samples: {num_samples}"
+
+        # Update sets and budget for this call
         self.lSet = lSet
         self.uSet = uSet
         
@@ -346,18 +342,18 @@ class DCoM:
         
         # Stage 1: Update state from previous episode (if checkpoint provided)
         if checkpoint_file is not None and self.data_obj is not None:
-            self._update_state_from_checkpoint(checkpoint_file, lSet, trainDataset)
+            self._update_state_from_checkpoint(checkpoint_file, lSet, trainDataset, num_samples)
         
         # Stage 2: Perform sampling
-        activeSet, remainSet = self.select_samples(clf_model, trainDataset, self.data_obj)
+        activeSet, remainSet = self.select_samples(clf_model, trainDataset, self.data_obj, num_samples)
         
         # Stage 3: Prepare state for next iteration and update global delta list
         if checkpoint_file is not None:
-            self._prepare_state_for_next_iteration()
+            self._prepare_state_for_next_iteration(num_samples)
         
         return activeSet, remainSet
 
-    def _update_state_from_checkpoint(self, checkpoint_file, lSet, train_data):
+    def _update_state_from_checkpoint(self, checkpoint_file, lSet, train_data, num_samples):
         """
         Update algorithm state based on trained model checkpoint.
         
@@ -385,7 +381,7 @@ class DCoM:
             lSet_labels,
             all_labels=all_labels,
             pseudo_labels=images_pseudo_labels,
-            budget=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
+            num_samples=num_samples
         )
         
         # Update delta history and values
@@ -400,7 +396,7 @@ class DCoM:
         if self.plotting_manager is not None:
             self.plotting_manager.add_delta_stats(self.last_delta_avg, self.last_delta_std)
 
-    def _prepare_state_for_next_iteration(self):
+    def _prepare_state_for_next_iteration(self, num_samples):
         """
         Prepare algorithm state for the next iteration.
         
@@ -409,7 +405,7 @@ class DCoM:
         """
         delta_lst_float = [float(delta) for delta in self.lSet_deltas]
         avg_delta = np.average(delta_lst_float)
-        next_deltas = [avg_delta] * self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
+        next_deltas = [avg_delta] * num_samples
         
         # Extend the delta list for next iteration
         self.lSet_deltas = self.lSet_deltas + next_deltas
