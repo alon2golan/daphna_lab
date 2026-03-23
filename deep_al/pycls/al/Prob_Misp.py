@@ -74,7 +74,7 @@ class SoftTopHatKernel(object):
         return dist_matrix
 
 class ALL_MISP:
-    def __init__(self, cfg, budgetSize, train_labels, lset, delta=1):
+    def __init__(self, cfg, train_labels, lset, delta=1):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
@@ -84,7 +84,6 @@ class ALL_MISP:
         self.debug = self.cfg.DEBUG
         self.norm_importance = self.cfg.NORM_IMPORTANCE
         self.confidence_method = self.cfg.CONFIDENCE_METHOD if 'CONFIDENCE_METHOD' in self.cfg else 'max'
-        self.budgetSize = budgetSize
         self.delta = delta
         self.soft_border_val = self.cfg.SOFT_BORDER_VAL if 'SOFT_BORDER_VAL' in self.cfg else 0.15
         self.diff_method = self.cfg.DIFF_METHOD if 'DIFF_METHOD' in self.cfg else 'abs_diff'
@@ -133,7 +132,7 @@ class ALL_MISP:
         elif isinstance(self.all_features, np.ndarray):
             self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices])
 
-    def select_samples(self, lset, uset):
+    def select_samples(self, lset, uset, num_samples):
         """
         selecting samples using the greedy algorithm.
         iteratively:
@@ -143,9 +142,9 @@ class ALL_MISP:
         """
         self.init_sampling_loop(lset, uset)
 
-        print(f'Start selecting {self.budgetSize} samples.')
+        print(f'Start selecting {num_samples} samples.')
         selected = []
-        for i in range(self.budgetSize):
+        for i in range(num_samples):
 
             curr_l_set = np.concatenate((np.arange(len(self.lSet)), selected)).astype(int)
             num_classes = self.chosen_labels_num.size(0)
@@ -278,7 +277,7 @@ class ALL_MISP:
 
 
 
-        assert len(selected) == self.budgetSize, 'added a different number of samples'
+        assert len(selected) == num_samples, 'added a different number of samples'
         activeSet = self.relevant_indices[selected]
 
         self.C_general[self.relevant_indices] = self.C
@@ -297,21 +296,21 @@ class ALL_MISP:
         visualize_tsne(labeled_indices, sampled_indices, algo_name='MISP')
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None):
+                        checkpoint_file=None, num_samples=None):
         """
         Standard interface for active learning sampling.
-        Adapts the algorithm to work with the unified AL interface.
-        
+
+        num_samples: number of samples to select this round (computed from budget / annotator cost).
         Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
-        assert self.budgetSize > 0, "Expected a positive budgetSize"
-        assert self.budgetSize < len(uSet), \
-            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.budgetSize}"
-        
-        # Update sets in the instance (in case they changed)
+        assert num_samples is not None and num_samples > 0, "Expected a positive num_samples"
+        assert num_samples < len(uSet), \
+            f"num_samples cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and num_samples: {num_samples}"
+
+        # Update sets for this call
         self.lSet = lSet
         self.uSet = uSet
-        activeSet, remainSet = self.select_samples(lSet, uSet)
+        activeSet, remainSet = self.select_samples(lSet, uSet, num_samples)
         return activeSet, remainSet
 
 def batched_diffs(K, C, chunk_size=1024, diff_method="abs_diff", U=None):
