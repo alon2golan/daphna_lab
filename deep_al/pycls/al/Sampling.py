@@ -109,7 +109,7 @@ class CoreSetMIPSampling():
         end = time.time()
         print("Distance matrix computed in {} seconds".format(end-start))
         greedy_indices = []
-        for i in range(self.cfg.ACTIVE_LEARNING.BUDGET_SIZE):
+        for i in range(self.budget_size):
             if i!=0 and i%500==0:
                 print("Sampled {} samples".format(i))
             lab_temp_indexes = np.array(np.append(lSetIds, greedy_indices),dtype=int)
@@ -123,7 +123,7 @@ class CoreSetMIPSampling():
         return greedy_indices-n_lSet, remainSet
 
     def greedy_k_center(self, labeled, unlabeled):
-        greedy_indices = [None for i in range(self.cfg.ACTIVE_LEARNING.BUDGET_SIZE)]
+        greedy_indices = [None for i in range(self.budget_size)]
         greedy_indices_counter = 0
         #move cpu to gpu
         labeled = torch.from_numpy(labeled).cuda(0)
@@ -155,7 +155,7 @@ class CoreSetMIPSampling():
         greedy_indices [greedy_indices_counter] = farthest.item()
         greedy_indices_counter += 1
 
-        amount = self.cfg.ACTIVE_LEARNING.BUDGET_SIZE-1
+        amount = self.budget_size-1
         
         for i in tqdm(range(amount), desc = "Constructing Active set"):
             dist = self.gpu_compute_dists(unlabeled[greedy_indices[greedy_indices_counter-1], :].reshape((1,unlabeled.shape[1])), unlabeled)
@@ -201,11 +201,15 @@ class CoreSetMIPSampling():
             remainSet = uSet[remainSet]
         return activeSet, remainSet
     
-    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None):
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None, num_samples=None):
         """
         Unified interface for CoreSet MIP sampling.
         Handles model state management and delegates to query method.
+
+        num_samples: number of samples to select this round (computed from budget / annotator cost).
         """
+        assert num_samples is not None and num_samples > 0, "Expected a positive num_samples"
+        self.budget_size = num_samples
         waslatent = clf_model.penultimate_active
         wastrain = clf_model.training
         clf_model.penultimate_active = True
@@ -625,15 +629,15 @@ class Sampling:
         uSetLoader.dataset.no_aug = False
         return activeSet, remainSet
 
-    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None):
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None, num_samples=None):
         """
         Unified interface for sampling from uSet using the appropriate method.
-        
-        This method routes the sampling request to the appropriate sampling method
-        based on the configuration.
+
+        num_samples: number of samples to select this round (computed from budget / annotator cost).
         """
         sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
-        budget_size = self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
+        assert num_samples is not None and num_samples > 0, "Expected a positive num_samples"
+        budget_size = num_samples
         
         if sampling_fn == "random":
             activeSet, remainSet = self.random(uSet=uSet, budgetSize=budget_size)
@@ -727,7 +731,7 @@ class AdversarySampler:
         farthest = np.argmax(min_dist)
         greedy_indices.append(farthest)
 
-        amount = cfg.ACTIVE_LEARNING.BUDGET_SIZE-1
+        amount = self.budget-1
         for i in range(amount):
             if i!=0 and i%500 == 0:
                 print("{} Sampled out of {}".format(i, amount+1))
@@ -969,11 +973,16 @@ class AdversarySampler:
         unlabeled_dataloader.dataset.no_aug = False
         return activeSet, remainSet
 
-    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None):
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None, num_samples=None):
         """
         Unified interface for VAAL sampling.
         Trains VAE and discriminator, then samples for labeling.
+
+        num_samples is accepted for interface consistency but VAAL determines
+        its own selection count internally.
         """
+        if num_samples is not None:
+            self.budget = num_samples
         # Train VAE and discriminator first
         vae, disc, uSet_loader = self.vaal_perform_training(lSet=lSet, uSet=uSet, dataset=trainDataset)
         
