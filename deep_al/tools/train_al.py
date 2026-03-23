@@ -256,9 +256,7 @@ def apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data
             print("    Noise level exceeds equilibrium threshold!")
             print(f"    Selection Strategy: Always use Oracle (Annotator {oracle_idx})\n")
             
-            # Update selection strategy to always pick oracle
-            annotator_manager.best_annotator_id = oracle_idx
-            annotator_manager.selection_strategy = 'most_accurate'  # Forces oracle selection
+            annotator_manager.force_annotator(oracle_idx)
             
             logger.info(f"nu' strategy: Using oracle (noise={noisy_rate} > nu_prime={nu_prime})")
         else:
@@ -266,9 +264,7 @@ def apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data
             print("    Noise level is within acceptable range")
             print(f"    Selection Strategy: Always use Noisy Annotator (Annotator {noisy_idx})\n")
             
-            # Update selection strategy to always pick noisy annotator
-            annotator_manager.best_annotator_id = noisy_idx
-            annotator_manager.selection_strategy = 'least_cost'  # Use any fixed strategy
+            annotator_manager.force_annotator(noisy_idx)
             
             logger.info(f"nu' strategy: Using noisy annotator (noise={noisy_rate} <= nu_prime={nu_prime})")
     

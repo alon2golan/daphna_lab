@@ -45,6 +45,11 @@ class AnnotatorManager:
         self.noisy_labels = {}  # {sample_idx: noisy_label}
         self.cumulative_cost = 0.0
         
+        # Annotator statistics (populated by _compute_annotator_stats)
+        self.annotator_accuracies: List[float] = []
+        self.annotator_costs: List[float] = []
+        self.best_annotator_id: Optional[int] = None
+        
         # Compute annotator statistics
         self._compute_annotator_stats()
     
@@ -52,6 +57,7 @@ class AnnotatorManager:
         """Compute and cache annotator statistics."""
         self.annotator_accuracies = [ann.accuracy for ann in self.annotators]
         self.annotator_costs = [ann.cost for ann in self.annotators]
+        self.best_annotator_id = None
         
         # For strategies that need it
         if self.selection_strategy == "most_accurate":
@@ -76,10 +82,19 @@ class AnnotatorManager:
         """
         if self.selection_strategy == "random":
             return self.rng.integers(0, len(self.annotators))
-        elif self.selection_strategy in ["most_accurate", "least_cost", "cost_accuracy_ratio"]:
+        elif self.selection_strategy in ["most_accurate", "least_cost", "cost_accuracy_ratio", "forced"]:
             return self.best_annotator_id
         else:
             raise ValueError(f"Unknown selection strategy: {self.selection_strategy}")
+
+    def force_annotator(self, annotator_id: int):
+        """Force the manager to always select a specific annotator.
+        
+        Args:
+            annotator_id: Index into self.annotators to always use.
+        """
+        self.selection_strategy = "forced"
+        self.best_annotator_id = annotator_id
 
     def compute_num_samples_from_budget(self, budget: float) -> int:
         """
