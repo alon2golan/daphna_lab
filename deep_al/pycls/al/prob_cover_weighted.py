@@ -29,7 +29,7 @@ class RBFKernel(object):
         return k
 
 class ProbCoverWeighted:
-    def __init__(self, cfg, lSet, uSet, budgetSize, delta=1):
+    def __init__(self, cfg, lSet, uSet, delta=1):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
@@ -39,7 +39,6 @@ class ProbCoverWeighted:
                                                    normalize=True, project=self.cfg.ACTIVE_LEARNING.USE_COSINE_DIST, features_tag=features_tag)
         self.lSet = lSet
         self.uSet = uSet
-        self.budgetSize = budgetSize
         self.delta = delta
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
         # self.graph_df = self.construct_graph()
@@ -87,7 +86,7 @@ class ProbCoverWeighted:
     #     print(f'Graph contains {len(df)} edges.')
     #     return df
 
-    def select_samples(self):
+    def select_samples(self, num_samples):
         """
         selecting samples using the greedy algorithm.
         iteratively:
@@ -95,7 +94,7 @@ class ProbCoverWeighted:
         - selects the sample high the highest out degree (covers most new samples)
 
         """
-        print(f'Start selecting {self.budgetSize} samples.')
+        print(f'Start selecting {num_samples} samples.')
         selected = []
         # removing incoming edges to all covered samples from the existing labeled set
         # edge_from_seen = np.isin(self.graph_df.x, np.arange(len(self.lSet)))
@@ -103,7 +102,7 @@ class ProbCoverWeighted:
         # cur_df = self.graph_df[(~np.isin(self.graph_df.y, covered_samples))]
         curr_density = self.kernel_all.sum(dim=1)
 
-        for i in range(self.budgetSize):
+        for i in range(num_samples):
             curr_l_set = np.concatenate((np.arange(len(self.lSet)), selected)).astype(int)
             if len(curr_l_set) > 0:
                 # coverage_per_sample = self.kernel_all[:, curr_l_set].sum(dim=1)
@@ -131,7 +130,7 @@ class ProbCoverWeighted:
 
             selected.append(cur)
 
-        assert len(selected) == self.budgetSize, 'added a different number of samples'
+        assert len(selected) == num_samples, 'added a different number of samples'
         activeSet = self.relevant_indices[selected]
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
 
@@ -139,19 +138,19 @@ class ProbCoverWeighted:
         return activeSet, remainSet
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None):
+                        checkpoint_file=None, num_samples=None):
         """
         Standard interface for active learning sampling.
-        Adapts the algorithm to work with the unified AL interface.
-        
+
+        num_samples: number of samples to select this round (computed from budget / annotator cost).
         Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
-        assert self.budgetSize > 0, "Expected a positive budgetSize"
-        assert self.budgetSize < len(uSet), \
-            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.budgetSize}"
-        
-        # Update sets in the instance (in case they changed)
+        assert num_samples is not None and num_samples > 0, "Expected a positive num_samples"
+        assert num_samples < len(uSet), \
+            f"num_samples cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and num_samples: {num_samples}"
+
+        # Update sets for this call
         self.lSet = lSet
         self.uSet = uSet
-        activeSet, remainSet = self.select_samples()
+        activeSet, remainSet = self.select_samples(num_samples)
         return activeSet, remainSet

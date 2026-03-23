@@ -9,13 +9,12 @@ import matplotlib.pyplot as plt
 from deep_al.tools.utils import visualize_tsne
 
 class ProbCover:
-    def __init__(self, cfg, budgetSize, delta):
+    def __init__(self, cfg, delta):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
         features_tag = self.cfg['DATASET'].get('FEATURES_TAG', None)
         self.all_features = ds_utils.load_features(self.ds_name, self.seed, features_tag=features_tag)
-        self.budgetSize = budgetSize
 
         if delta < 0:
             print("Delta not specified. Starting automated selection process...")
@@ -87,7 +86,7 @@ class ProbCover:
         print(f'Graph contains {len(df)} edges.')
         return df
 
-    def select_samples(self, lset, uset):
+    def select_samples(self, lset, uset, num_samples):
         """
         selecting samples using the greedy algorithm.
         iteratively:
@@ -97,13 +96,13 @@ class ProbCover:
         """
         self.init_sampling_loop(lset, uset)
 
-        print(f'Start selecting {self.budgetSize} samples.')
+        print(f'Start selecting {num_samples} samples.')
         selected = []
         # removing incoming edges to all covered samples from the existing labeled set
         edge_from_seen = np.isin(self.graph_df.x, np.arange(len(self.lSet)))
         covered_samples = self.graph_df.y[edge_from_seen].unique()
         cur_df = self.graph_df[(~np.isin(self.graph_df.y, covered_samples))]
-        for i in tqdm(range(self.budgetSize)):
+        for i in tqdm(range(num_samples)):
             coverage = len(covered_samples) / len(self.relevant_indices)
             # selecting the sample with the highest degree
             degrees = np.bincount(cur_df.x, minlength=len(self.relevant_indices))
@@ -120,7 +119,7 @@ class ProbCover:
             covered_samples = np.concatenate([covered_samples, new_covered_samples])
             selected.append(cur)
 
-        assert len(selected) == self.budgetSize, 'added a different number of samples'
+        assert len(selected) == num_samples, 'added a different number of samples'
         activeSet = self.relevant_indices[selected]
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
         self.activeSet = activeSet
@@ -128,18 +127,18 @@ class ProbCover:
         return activeSet, remainSet
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None):
+                        checkpoint_file=None, num_samples=None):
         """
         Standard interface for active learning sampling.
-        Adapts the algorithm to work with the unified AL interface.
-        
+
+        num_samples: number of samples to select this round (computed from budget / annotator cost).
         Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
-        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
-        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
-            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
-        
-        return self.select_samples(lSet, uSet)
+        assert num_samples is not None and num_samples > 0, "Expected a positive num_samples"
+        assert num_samples < len(uSet), \
+            f"num_samples cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and num_samples: {num_samples}"
+
+        return self.select_samples(lSet, uSet, num_samples)
 
     def plot_tsne(self):
         labeled_indices = np.array(self.lSet).astype(int)
