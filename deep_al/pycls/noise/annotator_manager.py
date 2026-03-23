@@ -80,7 +80,29 @@ class AnnotatorManager:
             return self.best_annotator_id
         else:
             raise ValueError(f"Unknown selection strategy: {self.selection_strategy}")
-    
+
+    def compute_num_samples_from_budget(self, budget: float) -> int:
+        """
+        Compute how many samples can be annotated with the given budget,
+        using the annotator that would be selected by the current strategy.
+
+        For a uniform per-sample cost c, this is floor(budget / c).
+        If the selected annotator has cost 0 (oracle), returns the budget
+        value itself as an integer (caller should pass a meaningful fallback).
+
+        Args:
+            budget: Total annotation budget for this round.
+
+        Returns:
+            int: Number of samples affordable with this budget.
+        """
+        annotator_id = self.select_annotator()
+        cost_per_sample = self.annotators[annotator_id].cost
+        if cost_per_sample <= 0:
+            # Free annotator (oracle): budget directly equals number of samples
+            return int(budget)
+        return int(budget / cost_per_sample)
+
     def annotate_samples(
         self,
         sample_indices: np.ndarray,
