@@ -46,7 +46,7 @@ class TypiClust:
     MAX_NUM_CLUSTERS = 500
     K_NN = 20
 
-    def __init__(self, cfg, lSet, uSet, budgetSize, is_scan=False):
+    def __init__(self, cfg, lSet, uSet, is_scan=False):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
@@ -54,12 +54,10 @@ class TypiClust:
         self.clusters = None
         self.lSet = lSet
         self.uSet = uSet
-        self.budgetSize = budgetSize
         self.is_scan = is_scan
-        self.init_features_and_clusters()
 
-    def init_features_and_clusters(self):
-        num_clusters = min(len(self.lSet) + self.budgetSize, self.MAX_NUM_CLUSTERS)
+    def init_features_and_clusters(self, num_samples):
+        num_clusters = min(len(self.lSet) + num_samples, self.MAX_NUM_CLUSTERS)
         print(f'Clustering into {num_clusters} clustering. Scan clustering: {self.is_scan}')
         if self.is_scan:
             fname_dict = {'CIFAR10': f'../../scan/results/cifar-10/scan/features_seed{self.seed}_clusters{num_clusters}.npy',
@@ -75,7 +73,7 @@ class TypiClust:
             self.clusters = kmeans(self.features, num_clusters=num_clusters)
         print(f'Finished clustering into {num_clusters} clusters.')
 
-    def select_samples(self):
+    def select_samples(self, num_samples):
         # using only labeled+unlabeled indices, without validation set.
         relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
         features = self.features[relevant_indices]
@@ -94,7 +92,7 @@ class TypiClust:
 
         selected = []
 
-        for i in range(self.budgetSize):
+        for i in range(num_samples):
             cluster = clusters_df.iloc[i % len(clusters_df)].cluster_id
             indices = (labels == cluster).nonzero()[0]
             rel_feats = features[indices]
@@ -105,7 +103,7 @@ class TypiClust:
             labels[idx] = -1
 
         selected = np.array(selected)
-        assert len(selected) == self.budgetSize, 'added a different number of samples'
+        assert len(selected) == num_samples, 'added a different number of samples'
         assert len(np.intersect1d(selected, existing_indices)) == 0, 'should be new samples'
         activeSet = relevant_indices[selected]
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
@@ -114,20 +112,20 @@ class TypiClust:
         return activeSet, remainSet
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None):
+                        checkpoint_file=None, num_samples=None):
         """
         Standard interface for active learning sampling.
-        Adapts the algorithm to work with the unified AL interface.
-        
+
+        num_samples: number of samples to select this round (computed from budget / annotator cost).
         Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
-        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
-        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
-            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
-        
-        # Update sets in the instance (in case they changed)
+        assert num_samples is not None and num_samples > 0, "Expected a positive num_samples"
+        assert num_samples < len(uSet), \
+            f"num_samples cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and num_samples: {num_samples}"
+
+        # Update sets for this call
         self.lSet = lSet
         self.uSet = uSet
-        self.init_features_and_clusters()
-        return self.select_samples()
+        self.init_features_and_clusters(num_samples)
+        return self.select_samples(num_samples)
 

@@ -101,7 +101,7 @@ class RationalQuadKernel(object):
 
 
 class MaxHerding:
-    def __init__(self, cfg, lSet, uSet, budgetSize,
+    def __init__(self, cfg, lSet, uSet,
                  delta=1, kernel="rbf", device="cpu", batch_size=1024):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
@@ -114,11 +114,10 @@ class MaxHerding:
         self.batch_size = batch_size
         self.lSet = lSet
         self.total_uSet = copy.deepcopy(uSet)
-        self.budgetSize = budgetSize
         self.delta = delta
         print(f"MaxHerding | Using {kernel} kernel with sigma = {delta}")
 
-        # subset_size = compute_cand_size(len(self.lSet), self.budgetSize) # 35000 if self.ds_name not in ['IMAGENET', 'IMBALANCED_IMAGENET'] else 40000
+        # subset_size = compute_cand_size(len(self.lSet), num_samples) # 35000 if self.ds_name not in ['IMAGENET', 'IMBALANCED_IMAGENET'] else 40000
         subset_size = 35000 if self.ds_name not in ['IMAGENET', 'IMBALANCED_IMAGENET'] else 40000
         # print(f'Subset size: {subset_size}')
         # # if permute:
@@ -174,7 +173,7 @@ class MaxHerding:
                 batch_size=self.batch_size).to(self.device)
 
 
-    def select_samples(self):
+    def select_samples(self, num_samples):
         # uncertainties = torch.ones(1, len(self.relevant_indices)).float().to(self.device)
 
         self.init_sampling_loop()
@@ -193,7 +192,7 @@ class MaxHerding:
             # max_embedding = torch.zeros(1, len(inner_lSet) + len(fixed_inner_uSet)).to(self.device) # 1 x N
 
         selected = []
-        for i in tqdm(range(self.budgetSize), desc="MaxHerding | Selecting samples"):
+        for i in tqdm(range(num_samples), desc="MaxHerding | Selecting samples"):
             num_lSet = len(inner_lSet)
             num_uSet = len(inner_uSet)
 
@@ -231,7 +230,7 @@ class MaxHerding:
         # coverage = compute_coverage(total_lSet_features, self.relevant_features, self.kernel_fn)
         # print(f'Mean coverage herding: {coverage}')
 
-        assert len(selected) == self.budgetSize, 'added a different number of samples'
+        assert len(selected) == num_samples, 'added a different number of samples'
         activeSet = self.relevant_indices[selected].reshape(-1)
         remainSet = np.array(sorted(list(set(self.total_uSet) - set(activeSet))))
         self.activeSet = activeSet
@@ -256,28 +255,28 @@ class MaxHerding:
         visualize_tsne(labeled_indices, sampled_indices, algo_name='Max Herding')
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None):
+                        checkpoint_file=None, num_samples=None):
         """
         Standard interface for active learning sampling.
-        Adapts the algorithm to work with the unified AL interface.
-        
+
+        num_samples: number of samples to select this round (computed from budget / annotator cost).
         Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
-        assert self.budgetSize > 0, "Expected a positive budgetSize"
-        assert self.budgetSize < len(uSet), \
-            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.budgetSize}"
-        
-        # Update sets in the instance (in case they changed)
+        assert num_samples is not None and num_samples > 0, "Expected a positive num_samples"
+        assert num_samples < len(uSet), \
+            f"num_samples cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and num_samples: {num_samples}"
+
+        # Update sets for this call
         self.lSet = lSet
         self.uSet = uSet
         self.total_uSet = copy.deepcopy(uSet)
-        
+
         # CRITICAL: Recompute derived state that depends on lSet/uSet
         self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)
         if isinstance(self.all_features, torch.Tensor):
             self.relevant_features = self.all_features[self.relevant_indices]
         elif isinstance(self.all_features, np.ndarray):
             self.relevant_features = torch.from_numpy(self.all_features[self.relevant_indices])
-        
-        activeSet, remainSet = self.select_samples()
+
+        activeSet, remainSet = self.select_samples(num_samples)
         return activeSet, remainSet
