@@ -24,7 +24,6 @@ class   CoverageMatrixMethod:
         self.matrices_type = getattr(torch, mat_type)
         
         self.features_gpu = torch.from_numpy(self.all_features).to(self.device, dtype=self.matrices_type)
-        self.budgetSize = cfg.ACTIVE_LEARNING.BUDGET_SIZE
         self.sigma = cfg.ACTIVE_LEARNING.INITIAL_SIGMA if 'INITIAL_SIGMA' in cfg.ACTIVE_LEARNING else 1.0
 
 
@@ -116,7 +115,7 @@ class   CoverageMatrixMethod:
             self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices])
     
     @torch.inference_mode()
-    def select_samples(self, lset, uset):
+    def select_samples(self, lset, uset, num_samples):
         """
         selecting samples using the greedy algorithm.
         iteratively:
@@ -127,9 +126,9 @@ class   CoverageMatrixMethod:
 
         self.init_sampling_loop(lset, uset)
 
-        print(f'Start selecting {self.budgetSize} samples.')
+        print(f'Start selecting {num_samples} samples.')
         selected = []
-        for i in tqdm(range(self.budgetSize), desc="Selecting Samp"):
+        for i in tqdm(range(num_samples), desc="Selecting Samp"):
             curr_l_set = np.concatenate((np.arange(len(self.lSet)), selected)).astype(int)
 
             max_vals, indices = torch.max(self.C, dim=1)
@@ -156,7 +155,7 @@ class   CoverageMatrixMethod:
             selected.append(sampled_point)
             del K_row_dense
 
-        assert len(selected) == self.budgetSize, 'added a different number of samples'
+        assert len(selected) == num_samples, 'added a different number of samples'
         activeSet = self.relevant_indices[selected]
 
         self.C_general[self.relevant_indices] = self.C
@@ -170,18 +169,19 @@ class   CoverageMatrixMethod:
         return activeSet, remainSet
     
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None):
+                        checkpoint_file=None, num_samples=None):
         """
         Standard interface for active learning sampling.
         Adapts the algorithm to work with the unified AL interface.
-        
+
+        num_samples: number of samples to select this round (computed from budget / annotator cost).
         Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
-        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
-        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
-            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
-        
-        return self.select_samples(lSet, uSet)
+        assert num_samples is not None and num_samples > 0, "Expected a positive num_samples"
+        assert num_samples < len(uSet), \
+            f"num_samples cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and num_samples: {num_samples}"
+
+        return self.select_samples(lSet, uSet, num_samples)
 
 
 
