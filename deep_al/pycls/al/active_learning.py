@@ -33,12 +33,9 @@ class ActiveLearning:
         self.al_algorithm = self._create_algorithm(train_labels, lset, dataObj, plotting_manager)
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None):
+                        checkpoint_file=None, num_samples=None):
         """
         Sample from uSet using the configured algorithm.
-        
-        Delegates to algorithm instance which has access to data_obj and plotting_manager
-        stored in its constructor.
 
         INPUT
         ------
@@ -47,27 +44,26 @@ class ActiveLearning:
         trainDataset: Training dataset object
         supportingModels: List of models which are used for sampling process.
         checkpoint_file: Model checkpoint from training (for DCoM state updates only)
+        num_samples: Number of samples to select from uSet this round. This is
+                     computed by the caller from the annotator budget and cost-per-sample,
+                     so cheap annotators can afford more samples than expensive ones.
 
         OUTPUT
         -------
         Returns activeSet, new_uSet
         """
-        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
-        assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
-            f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
-        
+
+        assert num_samples > 0, "Expected a positive num_samples"
+        assert num_samples < len(uSet), \
+            f"num_samples cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and num_samples: {num_samples}"
+
         logger.info(f"Using {self.cfg.ACTIVE_LEARNING.SAMPLING_FN} sampling function for active learning.")
-        
-        # Delegate to the algorithm instance
-        # Algorithms have data_obj and plotting_manager stored in constructor
+
         activeSet, remain_set = self.al_algorithm.sample_from_uSet(
             clf_model, lSet, uSet, trainDataset, supportingModels=supportingModels,
-            checkpoint_file=checkpoint_file
+            checkpoint_file=checkpoint_file, num_samples=num_samples
         )
-        
-        # Calculate remaining unlabeled set
-        # new_uSet = np.array(sorted(list(set(uSet) - set(activeSet))))
-        
+
         return activeSet, remain_set
         
 
@@ -79,8 +75,7 @@ class ActiveLearning:
         sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
         
         if sampling_fn in ["prob_cover_orig", "probcover_orig"]:
-            return ProbCover(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                            delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
+            return ProbCover(self.cfg, delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
         
         elif sampling_fn in ["prob_cover", "probcover"]:
             if getattr(self.cfg, 'KERNEL_TYPE', None) != 'tophat':
@@ -98,11 +93,11 @@ class ActiveLearning:
         elif sampling_fn.startswith("typiclust"):
             is_scan = sampling_fn.endswith('dc')
             return TypiClust(self.cfg, lset if lset is not None else [], np.array([]),
-                            budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, is_scan=is_scan)
+                            is_scan=is_scan)
         elif sampling_fn in ["maxherding_orig", "max_herding_orig"]:
             delta = self.cfg.ACTIVE_LEARNING.INITIAL_DELTA
             return MaxHerding(self.cfg, lset if lset is not None else [], np.array([]),
-                            self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, delta=delta)
+                            delta=delta)
         
         elif sampling_fn in ["maxherding", "max_herding"]:
             if getattr(self.cfg, 'KERNEL_TYPE', None) != 'rbf':
@@ -115,9 +110,8 @@ class ActiveLearning:
         # DCoM (handles its own delta initialization internally)
         elif sampling_fn == "dcom":
             return DCoM(self.cfg, lset if lset is not None else [], [],
-                       budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
                        max_delta=self.cfg.ACTIVE_LEARNING.MAX_DELTA,
-                       lSet_deltas=[],  # DCoM will initialize if empty
+                       lSet_deltas=[],
                        data_obj=dataObj, plotting_manager=plotting_manager)
         
         # Traditional sampling methods and special cases (from Sampling class)

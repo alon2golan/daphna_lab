@@ -67,9 +67,9 @@ def argparser():
     parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
     # Equilibrium noise rate strategy (for 2-annotator setup: oracle + noisy)
     parser.add_argument('--nu_prime', type=float, default=None,
-                        help='ν\' (equilibrium noise rate) as a direct float value for oracle/noisy annotator selection')
+                        help="nu' (equilibrium noise rate) as a direct float value for oracle/noisy annotator selection")
     parser.add_argument('--nu_prime_tau', type=float, default=None,
-                        help='Tau parameter to compute ν\' on-the-fly via estimate_nu (used when --nu_prime is not provided)')
+                        help="Tau parameter to compute nu' on-the-fly via estimate_nu (used when --nu_prime is not provided)")
     return parser
 
 
@@ -161,27 +161,27 @@ def get_annotators(cfg, args, train_data):
     return annotators
 
 def apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data=None):
-    """Apply equilibrium noise rate (ν') strategy for 2-annotator setup.
+    """Apply equilibrium noise rate (nu') strategy for 2-annotator setup.
     
     This function is designed for the special case where there are exactly 2 annotators:
     - One oracle annotator (noise_rate = 0.0)
     - One noisy annotator (noise_rate > 0.0)
     
-    ν' (equilibrium noise rate) can be supplied in two ways:
+    nu' (equilibrium noise rate) can be supplied in two ways:
     - Directly as a float via args.nu_prime
     - Computed on-the-fly via estimate_nu using args.nu_prime_tau (requires train_data)
     
     Based on the comparison with the noisy annotator's noise rate, it configures the
     AnnotatorManager to always select the appropriate annotator:
-    - If noisy_noise_rate > ν': Always use oracle
-    - If noisy_noise_rate ≤ ν': Always use noisy annotator
+    - If noisy_noise_rate > nu': Always use oracle
+    - If noisy_noise_rate <= nu': Always use noisy annotator
     
     Args:
         cfg: Configuration object
         args: Command line arguments
         annotators: List of annotator objects
         annotator_manager: AnnotatorManager instance
-        train_data: Training dataset (required when computing ν' via estimate_nu)
+        train_data: Training dataset (required when computing nu' via estimate_nu)
         
     Returns:
         Updated annotator_manager with appropriate selection strategy
@@ -189,19 +189,19 @@ def apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data
     nu_prime_provided = args.nu_prime is not None
     nu_prime_compute = args.nu_prime_tau is not None
 
-    # Only apply if a ν' value or tau for computation is supplied and annotators are enabled
+    # Only apply if a nu' value or tau for computation is supplied and annotators are enabled
     if not ((nu_prime_provided or nu_prime_compute) and cfg.ANNOTATORS.ENABLED and annotators is not None):
         return annotator_manager
     
     print("\n" + "=" * 60)
-    print("  Equilibrium Noise Rate (ν') Strategy")
+    print("  Equilibrium Noise Rate (nu') Strategy")
     print("=" * 60)
     
     try:
         # Verify we have exactly 2 annotators
         if len(annotators) != 2:
-            print(f"\n⚠️  Warning: ν' strategy requires exactly 2 annotators (oracle + noisy)")
-            print(f"    Found {len(annotators)} annotators. Skipping ν' strategy.\n")
+            print(f"\nWarning: nu' strategy requires exactly 2 annotators (oracle + noisy)")
+            print(f"    Found {len(annotators)} annotators. Skipping nu' strategy.\n")
             print("=" * 60 + "\n")
             return annotator_manager
         
@@ -219,21 +219,21 @@ def apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data
         
         # Verify we have one of each
         if oracle_idx is None or noisy_idx is None:
-            print(f"\n⚠️  Warning: ν' strategy requires 1 oracle (noise=0) and 1 noisy annotator")
-            print(f"    Setup not compatible. Skipping ν' strategy.\n")
+            print(f"\nWarning: nu' strategy requires 1 oracle (noise=0) and 1 noisy annotator")
+            print(f"    Setup not compatible. Skipping nu' strategy.\n")
             print("=" * 60 + "\n")
             return annotator_manager
         
-        # Resolve ν' — either from CLI float or by running estimate_nu
+        # Resolve nu' - either from CLI float or by running estimate_nu
         if nu_prime_provided:
             nu_prime = args.nu_prime
-            print(f"\nUsing provided ν' = {nu_prime:.4f} (from --nu_prime argument)")
+            print(f"\nUsing provided nu' = {nu_prime:.4f} (from --nu_prime argument)")
         else:
             if train_data is None:
-                print(f"\n⚠️  Warning: --nu_prime_tau given but train_data not provided. Skipping ν' strategy.\n")
+                print(f"\nWarning: --nu_prime_tau given but train_data not provided. Skipping nu' strategy.\n")
                 print("=" * 60 + "\n")
                 return annotator_manager
-            print(f"\nComputing ν' via estimate_nu (tau={args.nu_prime_tau}, budget={args.budget}, "
+            print(f"\nComputing nu' via estimate_nu (tau={args.nu_prime_tau}, budget={args.budget}, "
                   f"num_classes={cfg.MODEL.NUM_CLASSES}, dataset={cfg.DATASET.NAME})...")
             _, nu_prime, _ = estimate_nu(
                 dataset=deepcopy(train_data),
@@ -242,40 +242,40 @@ def apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data
                 num_classes=cfg.MODEL.NUM_CLASSES,
                 dataset_name=cfg.DATASET.NAME,
             )
-            print(f"Computed ν' = {nu_prime:.4f}")
+            print(f"Computed nu' = {nu_prime:.4f}")
 
         print(f"\nAnnotator Setup:")
         print(f"  - Annotator {oracle_idx}: Oracle (noise_rate=0.0, cost={annotators[oracle_idx].cost})")
         print(f"  - Annotator {noisy_idx}: Noisy (noise_rate={noisy_rate:.4f}, cost={annotators[noisy_idx].cost})")
         print(f"\nEquilibrium Threshold:")
-        print(f"  - ν' = {nu_prime:.4f}")
+        print(f"  - nu' = {nu_prime:.4f}")
 
-        # Decision: compare noisy annotator's noise rate vs ν'
+        # Decision: compare noisy annotator's noise rate vs nu'
         if noisy_rate > nu_prime:
-            print(f"\n⚠️  Noisy annotator noise ({noisy_rate:.4f}) > ν' ({nu_prime:.4f})")
+            print(f"\nNoisy annotator noise ({noisy_rate:.4f}) > nu' ({nu_prime:.4f})")
             print("    Noise level exceeds equilibrium threshold!")
-            print(f"📋  Selection Strategy: Always use Oracle (Annotator {oracle_idx})\n")
+            print(f"    Selection Strategy: Always use Oracle (Annotator {oracle_idx})\n")
             
             # Update selection strategy to always pick oracle
             annotator_manager.best_annotator_id = oracle_idx
             annotator_manager.selection_strategy = 'most_accurate'  # Forces oracle selection
             
-            logger.info(f"ν' strategy: Using oracle (noise={noisy_rate} > nu_prime={nu_prime})")
+            logger.info(f"nu' strategy: Using oracle (noise={noisy_rate} > nu_prime={nu_prime})")
         else:
-            print(f"\n✅  Noisy annotator noise ({noisy_rate:.4f}) ≤ ν' ({nu_prime:.4f})")
+            print(f"\nNoisy annotator noise ({noisy_rate:.4f}) <= nu' ({nu_prime:.4f})")
             print("    Noise level is within acceptable range")
-            print(f"📋  Selection Strategy: Always use Noisy Annotator (Annotator {noisy_idx})\n")
+            print(f"    Selection Strategy: Always use Noisy Annotator (Annotator {noisy_idx})\n")
             
             # Update selection strategy to always pick noisy annotator
             annotator_manager.best_annotator_id = noisy_idx
             annotator_manager.selection_strategy = 'least_cost'  # Use any fixed strategy
             
-            logger.info(f"ν' strategy: Using noisy annotator (noise={noisy_rate} <= nu_prime={nu_prime})")
+            logger.info(f"nu' strategy: Using noisy annotator (noise={noisy_rate} <= nu_prime={nu_prime})")
     
     except Exception as e:
-        print(f"\n⚠️  Warning: Failed to apply ν' strategy: {e}")
+        print(f"\nWarning: Failed to apply nu' strategy: {e}")
         print("    Continuing with original annotator configuration\n")
-        logger.warning(f"ν' strategy failed: {e}")
+        logger.warning(f"nu' strategy failed: {e}")
     
     print("=" * 60 + "\n")
     return annotator_manager
@@ -385,7 +385,7 @@ def main(cfg, args):
                 result = annotator_manager.annotate_samples(lSet, budget=None)
                 print(f"Initial labeled set ({len(lSet)} samples) annotated. Cost: {result['cost_spent']}")
     
-        # Apply equilibrium noise rate (ν') strategy if configured
+        # Apply equilibrium noise rate (nu') strategy if configured
         annotator_manager = apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data)
 
     model = mh.get_model(cfg)
@@ -403,7 +403,13 @@ def main(cfg, args):
     
     if len(lSet) == 0:
         print('Labeled Set is Empty - Sampling an Initial Pool')
-        activeSet, new_uSet = al_obj.sample_from_uSet(model, lSet, uSet, train_data)
+        # Compute how many samples the annotator can afford with the given budget
+        if annotator_manager is not None:
+            num_samples = annotator_manager.compute_num_samples_from_budget(cfg.ACTIVE_LEARNING.BUDGET_SIZE)
+        else:
+            num_samples = cfg.ACTIVE_LEARNING.BUDGET_SIZE
+        activeSet, new_uSet = al_obj.sample_from_uSet(model, lSet, uSet, train_data,
+                                                       num_samples=num_samples)
         # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode
         lSet = np.append(lSet, activeSet)
         uSet = new_uSet
@@ -541,11 +547,18 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
     print("======== ACTIVE SAMPLING ========\n")
     logger.info("======== ACTIVE SAMPLING ========\n")
     clf_model = mh.get_model(cfg, checkpoint_file)
+    # Compute how many samples the annotator can afford with the given budget
+    if annotator_manager is not None:
+        num_samples = annotator_manager.compute_num_samples_from_budget(cfg.ACTIVE_LEARNING.BUDGET_SIZE)
+    else:
+        num_samples = cfg.ACTIVE_LEARNING.BUDGET_SIZE
+    print(f"Budget={cfg.ACTIVE_LEARNING.BUDGET_SIZE}, num_samples to query={num_samples}")
     # Pass checkpoint_file to let algorithm handle its own state updates internally
     # AL algorithm selects samples (MISP already considers annotator quality in veracity)
     activeSet, new_uSet = al_obj.sample_from_uSet(
-        clf_model, lSet, uSet, train_data, 
-        checkpoint_file=checkpoint_file
+        clf_model, lSet, uSet, train_data,
+        checkpoint_file=checkpoint_file,
+        num_samples=num_samples
     )
     
     print(f"Active Learning selected {len(activeSet)} candidate samples")
