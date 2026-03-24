@@ -70,13 +70,10 @@ class AnnotatorManager:
                      zip(self.annotator_accuracies, self.annotator_costs)]
             self.best_annotator_id = int(np.argmax(ratios))
     
-    def select_annotator(self, sample_idx: Optional[int] = None) -> int:
+    def select_annotator(self) -> int:
         """
         Select an annotator based on the configured strategy.
-        
-        Args:
-            sample_idx: Index of the sample (can be used for sample-specific strategies)
-            
+
         Returns:
             int: Index of the selected annotator
         """
@@ -96,89 +93,82 @@ class AnnotatorManager:
         self.selection_strategy = "forced"
         self.best_annotator_id = annotator_id
 
-    def compute_num_samples_from_budget(self, budget: float) -> int:
+    def plan_annotation_round(self, budget: float) -> tuple:
         """
-        Compute how many samples can be annotated with the given budget,
-        using the annotator that would be selected by the current strategy.
+        Select the annotator for this round and compute how many samples
+        can be annotated within the given budget.
 
-        For a uniform per-sample cost c, this is floor(budget / c).
-        If the selected annotator has cost 0 (oracle), returns the budget
-        value itself as an integer (caller should pass a meaningful fallback).
+        Returns both values so the caller can pass the same annotator_id to
+        annotate_samples(), keeping selection and annotation in sync.
 
         Args:
             budget: Total annotation budget for this round.
 
         Returns:
-            int: Number of samples affordable with this budget.
+            (num_samples, annotator_id): number of samples affordable and the
+            annotator index selected for this round.
         """
         annotator_id = self.select_annotator()
         cost_per_sample = self.annotators[annotator_id].cost
+
         if cost_per_sample <= 0:
             # Free annotator (oracle): budget directly equals number of samples
-            return int(budget)
-        return int(budget / cost_per_sample)
+            return int(budget), annotator_id
+        return int(budget / cost_per_sample), annotator_id
 
     def annotate_samples(
         self,
         sample_indices: np.ndarray,
-        budget: Optional[float] = None,
         annotator_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Annotate a set of samples, respecting budget constraints.
-        
+        Annotate a set of samples using a single annotator for the entire batch.
+
+        The annotator is chosen once per call (either the provided annotator_id or
+        the one returned by select_annotator()), so all samples in this batch are
+        labelled by the same person.  The caller is responsible for sizing the
+        sample list (e.g. via plan_annotation_round) before calling this method.
+
         Args:
             sample_indices: Array of sample indices to annotate
-            budget: Maximum budget to spend (None = no limit)
             annotator_id: Specific annotator to use (None = use selection strategy)
-            
+
         Returns:
             Dictionary with:
                 - 'annotated_samples': List of sample indices that were annotated
                 - 'annotator_assignments': Dict mapping sample_idx to annotator_id
                 - 'noisy_labels': Dict mapping sample_idx to noisy label
                 - 'cost_spent': Total cost spent
-                - 'samples_skipped': Number of samples skipped due to budget
         """
+        # Pick one annotator for the whole batch
+        if annotator_id is None:
+            annotator_id = self.select_annotator()
+
+        cost_per_sample = self.annotators[annotator_id].cost
+
         annotated_samples = []
         local_assignments = {}
         local_labels = {}
         cost_spent = 0.0
-        samples_skipped = 0
-        
+
         for idx in sample_indices:
-            # Select annotator
-            if annotator_id is not None:
-                selected_annotator_id = annotator_id
-            else:
-                selected_annotator_id = self.select_annotator(idx)
-            
-            # Check budget
-            annotator_cost = self.annotators[selected_annotator_id].cost
-            if budget is not None and cost_spent + annotator_cost > budget:
-                samples_skipped += 1
-                continue
-            
-            # Get label from annotator
-            noisy_label = self.annotators[selected_annotator_id].get_label(idx)
-            
-            # Update tracking
-            self.annotator_assignments[int(idx)] = int(selected_annotator_id)
+            noisy_label = self.annotators[annotator_id].get_label(idx)
+
+            self.annotator_assignments[int(idx)] = int(annotator_id)
             self.noisy_labels[int(idx)] = int(noisy_label)
-            local_assignments[int(idx)] = int(selected_annotator_id)
+            local_assignments[int(idx)] = int(annotator_id)
             local_labels[int(idx)] = int(noisy_label)
-            
+
             annotated_samples.append(int(idx))
-            cost_spent += annotator_cost
-        
+            cost_spent += cost_per_sample
+
         self.cumulative_cost += cost_spent
-        
+
         return {
             'annotated_samples': annotated_samples,
             'annotator_assignments': local_assignments,
             'noisy_labels': local_labels,
             'cost_spent': cost_spent,
-            'samples_skipped': samples_skipped
         }
     
     def annotate_with_oracle(self, sample_indices: np.ndarray):

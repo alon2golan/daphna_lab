@@ -162,7 +162,7 @@ class TestAnnotatorManager(unittest.TestCase):
         )
         
         samples = np.arange(20)
-        result = manager.annotate_samples(samples, budget=None)
+        result = manager.annotate_samples(samples)
         
         self.assertEqual(len(result['annotated_samples']), 20)
         
@@ -180,8 +180,8 @@ class TestAnnotatorManager(unittest.TestCase):
         )
         
         samples = np.arange(10)
-        result = manager.annotate_samples(samples, budget=None)
-        
+        result = manager.annotate_samples(samples)
+
         # All should be annotated by cheapest annotator (id=0, cost=0.3)
         for idx in samples:
             annotator_id = manager.get_annotator_for_sample(idx)
@@ -196,32 +196,37 @@ class TestAnnotatorManager(unittest.TestCase):
         )
         
         samples = np.arange(10)
-        result = manager.annotate_samples(samples, budget=None)
-        
+        result = manager.annotate_samples(samples)
+
         # All should be annotated by most accurate (oracle, id=0)
         for idx in samples:
             annotator_id = manager.get_annotator_for_sample(idx)
             self.assertEqual(annotator_id, 0)
     
-    def test_budget_constraint(self):
-        """Test budget constraints are respected."""
-        samples = np.arange(100)
-        budget = 10.0  # Can afford 10 oracle samples or 50 cheapest samples
-        
-        result = self.manager.annotate_samples(samples, budget=budget)
-        
-        self.assertLessEqual(result['cost_spent'], budget)
-        self.assertGreater(len(result['annotated_samples']), 0)
+    def test_plan_annotation_round(self):
+        """Test plan_annotation_round returns correct sample count and annotator."""
+        manager = AnnotatorManager(
+            annotators=self.annotators,
+            selection_strategy="least_cost",
+            seed=42
+        )
+        budget = 10.0
+        num_samples, annotator_id = manager.plan_annotation_round(budget)
+
+        cost_per_sample = self.annotators[annotator_id].cost
+        expected = int(budget / cost_per_sample) if cost_per_sample > 0 else int(budget)
+        self.assertEqual(num_samples, expected)
+        self.assertIn(annotator_id, range(len(self.annotators)))
     
     def test_cost_tracking(self):
         """Test cumulative cost tracking."""
         samples1 = np.arange(5)
         samples2 = np.arange(5, 10)
         
-        result1 = self.manager.annotate_samples(samples1, budget=None)
+        result1 = self.manager.annotate_samples(samples1)
         cost1 = self.manager.cumulative_cost
-        
-        result2 = self.manager.annotate_samples(samples2, budget=None)
+
+        result2 = self.manager.annotate_samples(samples2)
         cost2 = self.manager.cumulative_cost
         
         self.assertGreater(cost2, cost1)
@@ -255,7 +260,7 @@ class TestNoisyLabelWrapper(unittest.TestCase):
         """Test wrapper returns noisy labels for annotated samples."""
         # Annotate some samples
         samples = np.array([0, 1, 2, 3, 4])
-        self.manager.annotate_samples(samples, budget=None)
+        self.manager.annotate_samples(samples)
         
         wrapper = NoisyLabelDatasetWrapper(self.dataset, self.manager)
         
@@ -447,7 +452,7 @@ class TestLabelPropagation(unittest.TestCase):
         selected_samples = np.array([10, 11, 12, 13, 14])
         
         # 2. Annotate samples (simulates active_sampling_part)
-        result = self.manager.annotate_samples(selected_samples, budget=None)
+        result = self.manager.annotate_samples(selected_samples)
         
         self.assertEqual(len(result['annotated_samples']), len(selected_samples))
         
