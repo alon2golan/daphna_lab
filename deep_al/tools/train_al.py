@@ -370,7 +370,18 @@ def main(cfg, args):
             seed=args.seed,
             save_dir=cfg.EXP_DIR
         )
-        
+
+        # Apply equilibrium noise rate (nu') strategy if configured (must happen before any annotation)
+        annotator_manager = apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data)
+
+        # Wrap train_data with noisy label wrapper
+        if cfg.ANNOTATORS.MODE != 'oracle':
+            train_data_wrapped = NoisyLabelDatasetWrapper(train_data, annotator_manager=annotator_manager)
+            print("Training data wrapped with NoisyLabelDatasetWrapper for noisy annotations")
+        else:
+            train_data_wrapped = train_data
+            print("Using clean labels (oracle mode)")
+
         # Mark initial lSet as oracle-labeled (or annotated based on config)
         if len(lSet) > 0:
             if cfg.ANNOTATORS.INITIAL_SET_ANNOTATOR == 'oracle':
@@ -378,13 +389,13 @@ def main(cfg, args):
                 print(f"Initial labeled set ({len(lSet)} samples) marked as oracle-labeled")
             else:
                 # Annotate initial set with selected annotator(s)
-                result = annotator_manager.annotate_samples(lSet, budget=None)
+                initial_lset_annotator_id = annotator_manager.select_annotator()
+                result = annotator_manager.annotate_samples(lSet, annotator_id=initial_lset_annotator_id)
                 print(f"Initial labeled set ({len(lSet)} samples) annotated. Cost: {result['cost_spent']}")
-    
-        # Apply equilibrium noise rate (nu') strategy if configured
-        annotator_manager = apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data)
+    else:
+        train_data_wrapped = train_data
+        print("Using true labels directly (annotators disabled)")
 
-    model = mh.get_model(cfg)
     if cfg.HIGH_BUDGET:
         seed = 42
         rng = np.random.default_rng(seed)
@@ -396,50 +407,27 @@ def main(cfg, args):
 
     train_labels = train_data.targets
     al_obj = ActiveLearning(data_obj, cfg, train_labels, lSet, plotting_manager, annotator_manager)
-    
+
     if len(lSet) == 0:
-        print('Labeled Set is Empty - Sampling an Initial Pool')
-        # Compute how many samples the annotator can afford with the given budget
-        if annotator_manager is not None:
-            num_samples = annotator_manager.compute_num_samples_from_budget(cfg.ACTIVE_LEARNING.BUDGET_SIZE)
-        else:
-            num_samples = cfg.ACTIVE_LEARNING.BUDGET_SIZE
-        activeSet, new_uSet = al_obj.sample_from_uSet(model, lSet, uSet, train_data,
-                                                       num_samples=num_samples)
-        # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode
-        lSet = np.append(lSet, activeSet)
-        uSet = new_uSet
-        
-        # Annotate initial pool
-        if annotator_manager is not None:
-            if cfg.ANNOTATORS.INITIAL_SET_ANNOTATOR == 'oracle':
-                annotator_manager.annotate_with_oracle(activeSet)
-                print(f"Initial pool ({len(activeSet)} samples) marked as oracle-labeled")
-            else:
-                result = annotator_manager.annotate_samples(activeSet, budget=None)
-                print(f"Initial pool ({len(activeSet)} samples) annotated. Cost: {result['cost_spent']}")
+        episode_dir = os.path.join(cfg.EXP_DIR, 'episode_initial')
+        os.makedirs(episode_dir, exist_ok=True)
+        cfg.EPISODE_DIR = episode_dir
+        oracle_initial = annotator_manager is not None and cfg.ANNOTATORS.INITIAL_SET_ANNOTATOR == 'oracle'
+        lSet, lSet_loader, uSet, valSet_loader = active_sampling_part(
+            cfg, None, 0, data_obj, lSet, None, train_data, train_data_wrapped,
+            uSet, valSet, None, al_obj, annotator_manager,
+            oracle_annotation=oracle_initial
+        )
+    else:
+        lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data_wrapped)
+        valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)  # ValSet always uses true labels
+        if valSet_loader is None:
+            valSet_loader = lSet_loader
 
     print("Data Partitioning Complete. \nLabeled Set: {}, Unlabeled Set: {}, Validation Set: {}\n".format(len(lSet), len(uSet), len(valSet)))
     logger.info("Labeled Set: {}, Unlabeled Set: {}, Validation Set: {}\n".format(len(lSet), len(uSet), len(valSet)))
 
-    # Wrap train_data with noisy label wrapper if annotators are enabled
-    if annotator_manager is not None and cfg.ANNOTATORS.MODE != 'oracle':
-        train_data_wrapped = NoisyLabelDatasetWrapper(train_data, annotator_manager=annotator_manager)
-        print("Training data wrapped with NoisyLabelDatasetWrapper for noisy annotations")
-    else:
-        train_data_wrapped = train_data
-        if annotator_manager is None:
-            print("Using true labels directly (annotators disabled)")
-        else:
-            print("Using clean labels (oracle mode)")
-
-    # Preparing dataloaders for initial training
-    lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data_wrapped)
-    valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)  # ValSet always uses true labels
     test_loader = data_obj.getTestLoader(data=test_data, test_batch_size=cfg.TRAIN.BATCH_SIZE, seed_id=cfg.RNG_SEED)
-
-    if valSet_loader is None:
-        valSet_loader = lSet_loader
 
     # Initialize the model.  
     print("model: {}\n".format(cfg.MODEL.TYPE))
@@ -539,15 +527,16 @@ def main(cfg, args):
     print("="*60 + "\n")
 
 def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet_loader, train_data, train_data_wrapped, uSet, valSet,
-                         valSet_loader, al_obj, annotator_manager):
+                         valSet_loader, al_obj, annotator_manager, oracle_annotation: bool = False):
     print("======== ACTIVE SAMPLING ========\n")
     logger.info("======== ACTIVE SAMPLING ========\n")
     clf_model = mh.get_model(cfg, checkpoint_file)
     # Compute how many samples the annotator can afford with the given budget
     if annotator_manager is not None:
-        num_samples = annotator_manager.compute_num_samples_from_budget(cfg.ACTIVE_LEARNING.BUDGET_SIZE)
+        num_samples, batch_annotator_id = annotator_manager.plan_annotation_round(cfg.ACTIVE_LEARNING.BUDGET_SIZE)
     else:
         num_samples = cfg.ACTIVE_LEARNING.BUDGET_SIZE
+        batch_annotator_id = None
     print(f"Budget={cfg.ACTIVE_LEARNING.BUDGET_SIZE}, num_samples to query={num_samples}")
     # Pass checkpoint_file to let algorithm handle its own state updates internally
     # AL algorithm selects samples (MISP already considers annotator quality in veracity)
@@ -562,14 +551,11 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
     
     # ANNOTATOR ASSIGNMENT: Simple strategy to assign who labels the selected samples
     if annotator_manager is not None:
-        if cfg.ANNOTATORS.MODE != 'oracle':
-            budget = cfg.ACTIVE_LEARNING.BUDGET_SIZE if hasattr(cfg.ACTIVE_LEARNING, 'BUDGET_SIZE') else None
-            
+        if not oracle_annotation and cfg.ANNOTATORS.MODE != 'oracle':
             # Simple annotation (no complex veracity logic - MISP already handled that)
             annotation_result = annotator_manager.annotate_samples(
                 activeSet,
-                budget=budget,
-                annotator_id=None  # Use selection strategy
+                annotator_id=batch_annotator_id
             )
             
             # Update activeSet to only include samples that were annotated
@@ -577,7 +563,6 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
             
             print(f"Annotation Complete:")
             print(f"  - Samples annotated: {len(activeSet)}")
-            print(f"  - Samples skipped (budget): {annotation_result['samples_skipped']}")
             print(f"  - Cost spent: {annotation_result['cost_spent']}")
             print(f"  - Cumulative cost: {annotator_manager.cumulative_cost}")
             
