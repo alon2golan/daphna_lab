@@ -119,8 +119,10 @@ def argparser():
     parser.add_argument('--high_budget', action='store_true')
     parser.add_argument('--norm_importance', action='store_true')
     parser.add_argument('--sparse_ds', action='store_true')
+    parser.add_argument('--sparsity_percent', type=float, default=0.0)
     parser.add_argument('--decrease_alpha', action='store_true')
     parser.add_argument('--max_iter', default=32, type=int)
+    parser.add_argument('--train_every_n_episodes', default=1, type=int, help='Train model every N episodes (default: 1, train every episode)')
     return parser
 
 
@@ -290,8 +292,14 @@ def main(cfg):
             os.mkdir(episode_dir)
         cfg.EPISODE_DIR = episode_dir
 
-        checkpoint_file = train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader,
-                                               valSet_loader)
+        # Only train model if current episode matches the training frequency
+        if cur_episode % cfg.TRAIN_EVERY_N_EPISODES == 0:
+            checkpoint_file = train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader,
+                                                   valSet_loader)
+        else:
+            checkpoint_file = None
+            print(f"Skipping training for episode {cur_episode} (train every {cfg.TRAIN_EVERY_N_EPISODES} episodes)\n")
+            logger.info(f"Skipping training for episode {cur_episode} (train every {cfg.TRAIN_EVERY_N_EPISODES} episodes)\n")
 
         # No need to perform active sampling in the last episode iteration
         if cur_episode == cfg.ACTIVE_LEARNING.MAX_ITER:
@@ -797,6 +805,7 @@ if __name__ == "__main__":
     cfg.ALPHA_UPPER = args.alpha_upper
     cfg.NORM_IMPORTANCE = args.norm_importance
     cfg.SPARSE_DS = args.sparse_ds
+    cfg.SPARSITY_PERCENT = args.sparsity_percent
     # cfg.OWN_ALPHA_WEIGHTING = args.own_alpha_weighting
 
     print("RNG_SEED is set to {}".format(cfg.RNG_SEED))
@@ -805,6 +814,7 @@ if __name__ == "__main__":
     cfg.ACTIVE_LEARNING.K_LOGISTIC = args.k_logistic
     cfg.EVAL_MODEL_TYPE = args.eval_model_type
     cfg.ACTIVE_LEARNING.MAX_ITER = args.max_iter
+    cfg.TRAIN_EVERY_N_EPISODES = args.train_every_n_episodes
     define_eval_model_type(cfg, debug)
 
     main(cfg)
