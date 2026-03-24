@@ -118,7 +118,7 @@ class ImageNet(datasets.ImageFolder):
 
 class ImageNetSubset(data.Dataset):
     def __init__(self, cfg, subset_file, root: str, exp_dir: str = ".", split: str = 'train', transform=None, test_transform=None,
-                 only_features=False, noise_type="clean_label", noise_rate=0.0, no_indices=False) -> None:
+                 only_features=False, no_indices=False) -> None:
         """
         @param root: Parent directory of classes directories. Each class has another dir.
         @param split: val, train or test
@@ -168,58 +168,12 @@ class ImageNetSubset(data.Dataset):
         self.features = self.load_features_for_subset()
         self.normalized_features = self.features / np.linalg.norm(self.features, axis=1, keepdims=True)
         self.root = os.path.join(self.root, 'dist', self.split)
-        self.noisy_labels = np.array(self.targets).copy()
-        self.is_noisy = False
-        self.noise_rate = 0.0
-
-        # load noise
-        # if self.train:
-        #     self.noise_type = noise_type
-        #     save_noise = True
-        #
-        #     noise_path = f"/cs/labs/daphna/nettashaf/TypiClustNoisy/data/imagenet50{len(class_names)}_noise_type_{noise_type}_noise_rate_{noise_rate}_noisy_labels_seed_{cfg.RNG_SEED}.npy"
-        #     use_saved_noise = exp_dir != "" and not exp_dir.endswith("test")
-        #     if use_saved_noise and os.path.exists(noise_path) and noise_type not in ['clean_label', 'noisy_label']:
-        #         print(f"{self.dataset_name} | Loading noisy labels from existed directory")
-        #         noisy_labels = np.load(noise_path)
-        #         save_noise = False
-        #
-        #     elif self.noise_type in ['clean_label']:
-        #         print(f"{self.dataset_name} | No noise added")
-        #         noisy_labels = np.array(self.targets).copy()
-        #
-        #     elif self.noise_type in ["sym", "asym"]:
-        #         noisy_labels = np.array(self.targets).copy()
-        #         if noise_rate > 0.0:
-        #             noise_idx = np.random.choice(len(self.targets), int(noise_rate * len(self.targets)), replace=False)
-        #
-        #             if self.noise_type == "sym":
-        #                 print(f"{self.dataset_name} | Generating symmetric noise with rate {noise_rate}")
-        #                 all_labels = np.arange(len(self.classes))
-        #                 valid_labels = all_labels != noisy_labels[noise_idx, np.newaxis]
-        #                 new_labels = np.apply_along_axis(lambda x: np.random.choice(all_labels[x]), 1, valid_labels)
-        #                 noisy_labels[noise_idx] = new_labels
-        #
-        #             if self.noise_type == "asym":
-        #                 print(f"{self.dataset_name} | Generating asymmetric noise with rate {noise_rate}")
-        #                 confusion_matrix = np.load("/cs/labs/daphna/nettashaf/TypiClustNoisy/experiments/45_create_confusion_matrix/confusion_matrix_imagenet50_epochs_10.npy")
-        #                 noisy_labels = ds_utils.add_asym_label_noise(noisy_labels, confusion_matrix, noise_rate)
-        #
-        #     else:
-        #         raise ValueError(f"Unknown noise type: {self.noise_type} with dataset IMAGENET")
-        #
-        #     self.noisy_labels = noisy_labels
-        #     self.is_noisy = np.asarray(self.noisy_labels) != np.asarray(self.targets)
-        #     self.noise_rate = np.mean(self.is_noisy.astype(int))
-        #     if save_noise:
-        #         np.save(noise_path, self.noisy_labels)
 
     def __len__(self):
         return len(self.imgs)
 
     def __getitem__(self, index):
         path, target = self.samples[index]
-        target1 = self.targets[index]
         with open(path, 'rb') as f:
             sample = Image.open(f).convert('RGB')
 
@@ -235,13 +189,7 @@ class ImageNetSubset(data.Dataset):
                 if self.transform is not None:
                     sample = self.transform(sample)
 
-        if self.no_indices:
-            return sample, target
-        if self.train:
-            noisy_label = self.noisy_labels[index]
-            return sample, target
-        else:
-            return sample, target
+        return sample, target
 
     def check_root(self):
         check_list = ['labels.txt', 'dist', 'class-ids-TRAIN.npy', 'class-ids-VAL.npy', 'class-names-TRAIN.npy',
