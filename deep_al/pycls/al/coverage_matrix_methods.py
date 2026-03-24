@@ -1,3 +1,5 @@
+import json
+import os
 import time
 import numpy as np
 import pandas as pd
@@ -75,6 +77,7 @@ class   CoverageMatrixMethod:
                 device=self.device,
                 dtype=torch.float32,
             )
+            self._record_local_sigma_stats()
 
         if self.kernel_type == 'tophat':
             self.kernel_fn = TopHatKernel('cuda')
@@ -107,6 +110,81 @@ class   CoverageMatrixMethod:
 
         self.C_general = torch.full((self.all_features.shape[0], unique_labels.size), self.alpha, device=self.device,
                                         dtype=self.matrices_type)
+
+    def _build_local_sigma_stats(self):
+        if self.local_sigma is None:
+            return None
+
+        sigma_cpu = self.local_sigma.detach().cpu().to(torch.float64)
+        quantile_levels = torch.tensor([0.05, 0.25, 0.5, 0.75, 0.95], dtype=torch.float64)
+        quantiles = torch.quantile(sigma_cpu, quantile_levels)
+
+        stats = {
+            "dataset": self.ds_name,
+            "seed": int(self.seed),
+            "kernel_type": self.kernel_type,
+            "local_sigma_k": int(self.local_sigma_k),
+            "num_points": int(sigma_cpu.numel()),
+            "mean": float(torch.mean(sigma_cpu).item()),
+            "std": float(torch.std(sigma_cpu, unbiased=False).item()),
+            "min": float(torch.min(sigma_cpu).item()),
+            "q05": float(quantiles[0].item()),
+            "q25": float(quantiles[1].item()),
+            "median": float(quantiles[2].item()),
+            "q75": float(quantiles[3].item()),
+            "q95": float(quantiles[4].item()),
+            "max": float(torch.max(sigma_cpu).item()),
+        }
+        stats["iqr"] = stats["q75"] - stats["q25"]
+        stats["range"] = stats["max"] - stats["min"]
+        stats["cv"] = stats["std"] / stats["mean"] if stats["mean"] > 0 else None
+        return stats
+
+    def _record_local_sigma_stats(self):
+        stats = self._build_local_sigma_stats()
+        if stats is None:
+            return
+
+        print("Local sigma stats:")
+        print(
+            "  mean={mean:.6f} std={std:.6f} median={median:.6f} min={min:.6f} "
+            "q05={q05:.6f} q25={q25:.6f} q75={q75:.6f} q95={q95:.6f} max={max:.6f}".format(**stats)
+        )
+
+        exp_dir = getattr(self.cfg, 'EXP_DIR', None)
+        if not exp_dir:
+            return
+
+        os.makedirs(exp_dir, exist_ok=True)
+        json_path = os.path.join(exp_dir, "local_sigma_stats.json")
+        txt_path = os.path.join(exp_dir, "local_sigma_stats.txt")
+
+        with open(json_path, "w", encoding="ascii") as handle:
+            json.dump(stats, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+
+        ordered_keys = [
+            "dataset",
+            "seed",
+            "kernel_type",
+            "local_sigma_k",
+            "num_points",
+            "mean",
+            "std",
+            "cv",
+            "min",
+            "q05",
+            "q25",
+            "median",
+            "q75",
+            "q95",
+            "max",
+            "iqr",
+            "range",
+        ]
+        with open(txt_path, "w", encoding="ascii") as handle:
+            for key in ordered_keys:
+                handle.write(f"{key}: {stats[key]}\n")
 
 
     def init_sampling_loop(self, lset, uset):

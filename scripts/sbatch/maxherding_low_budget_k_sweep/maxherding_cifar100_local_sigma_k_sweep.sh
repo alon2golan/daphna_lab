@@ -3,7 +3,7 @@
 #SBATCH --mem=64g
 #SBATCH -c 4
 #SBATCH --time=12:00:00
-#SBATCH --gres=gg:g0:1
+#SBATCH --gres=gg:g4:1
 #SBATCH --array=0-4
 #SBATCH --output /cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/k_sweep/maxherding_cifar100_local_sigma_k%a_seed0-%A.txt
 #SBATCH --error /cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/k_sweep/maxherding_cifar100_local_sigma_k%a_seed0-%A.err

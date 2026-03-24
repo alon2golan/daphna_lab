@@ -20,13 +20,25 @@ MaxHerding comparisons.
 - `maxherding_cifar100_global_reference.sh`
 - `maxherding_cifar10_local_sigma_k_sweep.sh`
 - `maxherding_cifar100_local_sigma_k_sweep.sh`
+- `large_k/maxherding_cifar10_local_sigma_large_k_sweep.sh`
+- `large_k/maxherding_cifar100_local_sigma_large_k_sweep.sh`
+- `wider_k/maxherding_cifar10_local_sigma_wider_k_sweep.sh`
+- `wider_k/maxherding_cifar100_local_sigma_wider_k_sweep.sh`
+- `ultra_wide/maxherding_cifar10_local_sigma_ultra_wide_k_sweep.sh`
+- `ultra_wide/maxherding_cifar100_local_sigma_ultra_wide_k_sweep.sh`
 
 ### Output layout
 
 - `outputs/maxherding/low_budget_k_sweep/cifar10/global_sigma/reference/`
 - `outputs/maxherding/low_budget_k_sweep/cifar10/local_sigma/k_sweep/`
+- `outputs/maxherding/low_budget_k_sweep/cifar10/local_sigma/large_k_sweep/`
+- `outputs/maxherding/low_budget_k_sweep/cifar10/local_sigma/wider_k_sweep/`
+- `outputs/maxherding/low_budget_k_sweep/cifar10/local_sigma/ultra_wide_k_sweep/`
 - `outputs/maxherding/low_budget_k_sweep/cifar100/global_sigma/reference/`
 - `outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/k_sweep/`
+- `outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/large_k_sweep/`
+- `outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/wider_k_sweep/`
+- `outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/ultra_wide_k_sweep/`
 
 ### Notes
 
@@ -35,5 +47,16 @@ MaxHerding comparisons.
   with `SEED=0` by default.
 - The CIFAR-100 K-sweep script uses array jobs over
   `K in {7, 15, 30, 60, 120}` with `SEED=0` by default.
+- The second-stage large-K sweeps default to `SEED=1`.
+- The CIFAR-10 large-K sweep uses `K in {30, 60, 120, 240, 480}`.
+- The CIFAR-100 large-K sweep uses `K in {60, 120, 240, 480, 960}`.
+- The third-stage wider-K sweeps also default to `SEED=1`.
+- The CIFAR-10 wider-K sweep uses `K in {120, 240, 480, 960, 1920}`.
+- The CIFAR-100 wider-K sweep uses `K in {240, 480, 960, 1920, 3840}`.
+- The fourth-stage ultra-wide sweeps also default to `SEED=1`.
+- The CIFAR-10 ultra-wide sweep uses
+  `K in {240, 480, 720, 960, 1440, 1920, 2880, 3840}`.
+- The CIFAR-100 ultra-wide sweep uses
+  `K in {480, 960, 1440, 1920, 2880, 3840, 5760, 7680}`.
 - Override the seed at submission time if needed, for example:
   `sbatch --export=SEED_OVERRIDE=1 <script>`
