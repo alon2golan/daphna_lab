@@ -377,12 +377,6 @@ def main(cfg, args):
     # for oracle-annotated samples, so behaviour is identical when using a clean annotator.
     train_data_wrapped = NoisyLabelDatasetWrapper(train_data, annotator_manager=annotator_manager)
 
-    # Annotate initial lSet if non-empty
-    if len(lSet) > 0:
-        initial_annotator_id = annotator_manager.select_annotator()
-        result = annotator_manager.annotate_samples(lSet, annotator_id=initial_annotator_id)
-        print(f"Initial labeled set ({len(lSet)} samples) annotated. Cost: {result['cost_spent']}")
-
     if cfg.HIGH_BUDGET:
         seed = 42
         rng = np.random.default_rng(seed)
@@ -395,6 +389,7 @@ def main(cfg, args):
     al_obj = ActiveLearning(data_obj, cfg, lSet, plotting_manager, annotator_manager)
 
     if len(lSet) == 0:
+        # No initial labeled set — run one AL round to bootstrap lSet
         episode_dir = os.path.join(cfg.EXP_DIR, 'episode_initial')
         os.makedirs(episode_dir, exist_ok=True)
         cfg.EPISODE_DIR = episode_dir
@@ -403,6 +398,10 @@ def main(cfg, args):
             uSet, valSet, None, al_obj, annotator_manager
         )
     else:
+        # Annotate the initial labeled set then build dataloaders
+        initial_annotator_id = annotator_manager.select_annotator()
+        result = annotator_manager.annotate_samples(lSet, annotator_id=initial_annotator_id)
+        print(f"Initial labeled set ({len(lSet)} samples) annotated. Cost: {result['cost_spent']}")
         lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data_wrapped)
         valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)  # ValSet always uses true labels
         if valSet_loader is None:
