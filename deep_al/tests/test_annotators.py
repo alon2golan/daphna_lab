@@ -142,17 +142,6 @@ class TestAnnotatorManager(unittest.TestCase):
         self.assertEqual(self.manager.cumulative_cost, 0.0)
         self.assertEqual(len(self.manager.annotator_assignments), 0)
     
-    def test_annotate_with_oracle(self):
-        """Test oracle annotation."""
-        samples = np.array([0, 1, 2, 3, 4])
-        self.manager.annotate_with_oracle(samples)
-        
-        for idx in samples:
-            self.assertEqual(
-                self.manager.get_annotator_for_sample(idx),
-                AnnotatorManager.ORACLE_ANNOTATOR_ID
-            )
-    
     def test_random_selection(self):
         """Test random annotator selection."""
         manager = AnnotatorManager(
@@ -353,12 +342,13 @@ class TestMISPAnnotatorIntegration(unittest.TestCase):
         
         # Annotate some samples with different annotators
         lSet = np.array([0, 1, 2, 3, 4])
-        self.manager.annotate_with_oracle(lSet[:2])  # First 2 with oracle
+        # Annotate first 2 samples with lowest-noise annotator (id=0)
+        self.manager.annotate_samples(lSet[:2], annotator_id=0)
         
         # Annotate next 3 with cheap noisy annotator
         for idx in lSet[2:]:
             self.manager.annotator_assignments[int(idx)] = 2  # Noisy annotator
-            self.manager.noisy_labels[int(idx)] = self.annotators[2].get_label(idx)
+            self.manager.annotated_labels[int(idx)] = self.annotators[2].get_label(idx)
         
         uSet = np.arange(5, 100)
         

@@ -57,7 +57,6 @@ class NoisyLabelDatasetWrapper(Dataset):
         
         # Determine which label to use
         if self.annotator_manager is not None:
-            # Use annotator manager to get label
             label = self.annotator_manager.get_label_for_sample(index, true_label)
         elif index in self.label_mapping:
             # Use direct label mapping

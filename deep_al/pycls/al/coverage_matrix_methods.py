@@ -10,7 +10,7 @@ torch.cuda.empty_cache()
 
 
 class   CoverageMatrixMethod:
-    def __init__(self, cfg, train_labels):
+    def __init__(self, cfg, annotator_manager=None):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
@@ -47,10 +47,7 @@ class   CoverageMatrixMethod:
 
         self.delta = cfg.ACTIVE_LEARNING.INITIAL_DELTA
 
-        self.train_labels_general = np.array(train_labels)
-        unique_labels = np.unique(self.train_labels_general)
-        self.unique_labels = unique_labels
-        self.num_of_classes = unique_labels.size
+        self.num_of_classes = cfg.MODEL.NUM_CLASSES
 
         self.kernel_build_batch_size = getattr(self.cfg, 'KERNEL_BUILD_BATCH_SIZE', 1024)
 
@@ -75,8 +72,10 @@ class   CoverageMatrixMethod:
             zero_indices=None,
         )
 
-        self.C_general = torch.full((self.all_features.shape[0], unique_labels.size), self.alpha, device=self.device,
+        self.C_general = torch.full((self.all_features.shape[0], self.num_of_classes), self.alpha, device=self.device,
                                         dtype=self.matrices_type)
+
+        self.annotator_manager = annotator_manager
 
 
     def init_sampling_loop(self, lset, uset):
@@ -102,8 +101,7 @@ class   CoverageMatrixMethod:
             self.K = self.K_general[self.relevant_indices, :][:, self.relevant_indices]
         self.K =  self.K.to(self.device) if self.K is not None else None
         self.C = self.C_general[self.relevant_indices]
-        self.train_labels = self.train_labels_general[self.relevant_indices]
-        
+
     def set_rel_features(self, lset, uset):
         self.lSet = lset
         self.uSet = uset
@@ -115,7 +113,7 @@ class   CoverageMatrixMethod:
             self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices])
     
     @torch.inference_mode()
-    def select_samples(self, lset, uset, num_samples):
+    def select_samples(self, lset, uset, num_samples, annotator_id=None):
         """
         selecting samples using the greedy algorithm.
         iteratively:
@@ -144,10 +142,11 @@ class   CoverageMatrixMethod:
             
             sampled_point = torch.argmax(point_total_contribution).item()
             # sampled_point = np.argsort(-point_total_contribution.cpu().numpy(), kind='stable')[0].item()
-            chosen_label = self.train_labels[sampled_point].item()
+            global_idx = int(self.relevant_indices[sampled_point])
+            result = self.annotator_manager.annotate_samples([global_idx], annotator_id)
+            chosen_label = result['annotated_labels'][global_idx]
 
             K_row_dense = self.K[sampled_point].to_dense().squeeze()
-
             self.C[:, chosen_label] = torch.maximum(self.C[:, chosen_label], K_row_dense)
 
 
@@ -169,19 +168,21 @@ class   CoverageMatrixMethod:
         return activeSet, remainSet
     
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None, num_samples=None):
+                        checkpoint_file=None, num_samples=None, annotator_id=None):
         """
         Standard interface for active learning sampling.
         Adapts the algorithm to work with the unified AL interface.
 
         num_samples: number of samples to select this round (computed from budget / annotator cost).
+        annotator_id: If provided, each selected point is annotated in-loop via annotator_manager
+                      so that C is updated with the actual (possibly noisy) label.
         Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
         assert num_samples is not None and num_samples > 0, "Expected a positive num_samples"
         assert num_samples < len(uSet), \
             f"num_samples cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and num_samples: {num_samples}"
 
-        return self.select_samples(lSet, uSet, num_samples)
+        return self.select_samples(lSet, uSet, num_samples, annotator_id=annotator_id)
 
 
 

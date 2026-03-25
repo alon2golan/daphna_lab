@@ -11,9 +11,6 @@ from .annotator import Annotator
 class AnnotatorManager:
     """Manages multiple annotators and handles simple selection strategies."""
     
-    # Special annotator ID for oracle/unknown annotator
-    ORACLE_ANNOTATOR_ID = -1
-    
     def __init__(
         self,
         annotators: List[Annotator],
@@ -42,7 +39,7 @@ class AnnotatorManager:
         
         # Tracking structures
         self.annotator_assignments = {}  # {sample_idx: annotator_id}
-        self.noisy_labels = {}  # {sample_idx: noisy_label}
+        self.annotated_labels = {}  # {sample_idx: annotated_label}
         self.cumulative_cost = 0.0
         
         # Annotator statistics (populated by _compute_annotator_stats)
@@ -137,7 +134,7 @@ class AnnotatorManager:
             Dictionary with:
                 - 'annotated_samples': List of sample indices that were annotated
                 - 'annotator_assignments': Dict mapping sample_idx to annotator_id
-                - 'noisy_labels': Dict mapping sample_idx to noisy label
+                - 'annotated_labels': Dict mapping sample_idx to annotated label
                 - 'cost_spent': Total cost spent
         """
         # Pick one annotator for the whole batch
@@ -155,7 +152,7 @@ class AnnotatorManager:
             noisy_label = self.annotators[annotator_id].get_label(idx)
 
             self.annotator_assignments[int(idx)] = int(annotator_id)
-            self.noisy_labels[int(idx)] = int(noisy_label)
+            self.annotated_labels[int(idx)] = int(noisy_label)
             local_assignments[int(idx)] = int(annotator_id)
             local_labels[int(idx)] = int(noisy_label)
 
@@ -167,21 +164,9 @@ class AnnotatorManager:
         return {
             'annotated_samples': annotated_samples,
             'annotator_assignments': local_assignments,
-            'noisy_labels': local_labels,
+            'annotated_labels': local_labels,
             'cost_spent': cost_spent,
         }
-    
-    def annotate_with_oracle(self, sample_indices: np.ndarray):
-        """
-        Mark samples as annotated by oracle (no noise).
-        This is used for initial labeled set or validation set.
-        
-        Args:
-            sample_indices: Array of sample indices
-        """
-        for idx in sample_indices:
-            self.annotator_assignments[int(idx)] = self.ORACLE_ANNOTATOR_ID
-            # For oracle, we don't set noisy_labels (will use true labels)
     
     def get_label_for_sample(self, sample_idx: int, true_label: int) -> int:
         """
@@ -194,15 +179,15 @@ class AnnotatorManager:
         Returns:
             int: Label to use (noisy if annotated, true if oracle/not annotated)
         """
-        if sample_idx in self.noisy_labels:
-            return self.noisy_labels[sample_idx]
+        if sample_idx in self.annotated_labels:
+            return self.annotated_labels[sample_idx]
         else:
             # Oracle or not yet annotated - use true label
             return true_label
     
-    def get_annotator_for_sample(self, sample_idx: int) -> int:
-        """Get the annotator ID for a sample."""
-        return self.annotator_assignments.get(sample_idx, self.ORACLE_ANNOTATOR_ID)
+    def get_annotator_for_sample(self, sample_idx: int):
+        """Get the annotator ID for a sample, or None if unassigned."""
+        return self.annotator_assignments.get(sample_idx, None)
     
     def save_state(self, episode_dir: str):
         """Save annotator assignments and labels to disk."""
@@ -214,10 +199,10 @@ class AnnotatorManager:
         with open(assignments_file, 'w') as f:
             json.dump(self.annotator_assignments, f, indent=2)
         
-        # Save noisy labels
-        labels_file = os.path.join(episode_dir, 'noisy_labels.json')
+        # Save annotated labels
+        labels_file = os.path.join(episode_dir, 'annotated_labels.json')
         with open(labels_file, 'w') as f:
-            json.dump(self.noisy_labels, f, indent=2)
+            json.dump(self.annotated_labels, f, indent=2)
         
         # Save cumulative cost
         cost_file = os.path.join(episode_dir, 'cumulative_cost.txt')
@@ -233,11 +218,11 @@ class AnnotatorManager:
                 # Convert string keys back to int
                 self.annotator_assignments = {int(k): v for k, v in loaded.items()}
         
-        labels_file = os.path.join(episode_dir, 'noisy_labels.json')
+        labels_file = os.path.join(episode_dir, 'annotated_labels.json')
         if os.path.exists(labels_file):
             with open(labels_file, 'r') as f:
                 loaded = json.load(f)
-                self.noisy_labels = {int(k): v for k, v in loaded.items()}
+                self.annotated_labels = {int(k): v for k, v in loaded.items()}
         
         cost_file = os.path.join(episode_dir, 'cumulative_cost.txt')
         if os.path.exists(cost_file):

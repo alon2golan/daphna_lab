@@ -26,14 +26,14 @@ class ActiveLearning:
     Initializes algorithm-specific state (e.g., DCoM delta tracking) automatically.
     """
 
-    def __init__(self, dataObj, cfg, train_labels=None, lset=None, plotting_manager=None, annotator_manager=None):
+    def __init__(self, dataObj, cfg, lset=None, plotting_manager=None, annotator_manager=None):
         self.cfg = cfg
         self.annotator_manager = annotator_manager
         # Create the appropriate algorithm instance using factory
-        self.al_algorithm = self._create_algorithm(train_labels, lset, dataObj, plotting_manager)
+        self.al_algorithm = self._create_algorithm(lset, dataObj, plotting_manager)
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None, num_samples=None):
+                        checkpoint_file=None, num_samples=None, annotator_id=None):
         """
         Sample from uSet using the configured algorithm.
 
@@ -59,15 +59,22 @@ class ActiveLearning:
 
         logger.info(f"Using {self.cfg.ACTIVE_LEARNING.SAMPLING_FN} sampling function for active learning.")
 
-        activeSet, remain_set = self.al_algorithm.sample_from_uSet(
-            clf_model, lSet, uSet, trainDataset, supportingModels=supportingModels,
-            checkpoint_file=checkpoint_file, num_samples=num_samples
-        )
+        if isinstance(self.al_algorithm, CoverageMatrixMethod):
+            activeSet, remain_set = self.al_algorithm.sample_from_uSet(
+                clf_model, lSet, uSet, trainDataset, supportingModels=supportingModels,
+                checkpoint_file=checkpoint_file, num_samples=num_samples,
+                annotator_id=annotator_id
+            )
+        else:
+            activeSet, remain_set = self.al_algorithm.sample_from_uSet(
+                clf_model, lSet, uSet, trainDataset, supportingModels=supportingModels,
+                checkpoint_file=checkpoint_file, num_samples=num_samples
+            )
 
         return activeSet, remain_set
         
 
-    def _create_algorithm(self, train_labels=None, lset=None, dataObj=None, plotting_manager=None):
+    def _create_algorithm(self, lset=None, dataObj=None, plotting_manager=None):
         """
         Factory method to create the appropriate AL algorithm instance.
         Passes data_obj and plotting_manager to each algorithm.
@@ -87,7 +94,7 @@ class ActiveLearning:
 
                 self.cfg['KERNEL_TYPE'] = 'tophat'
                 self.cfg['K_SPARSE'] = True
-            cmm = CoverageMatrixMethod(self.cfg, train_labels=train_labels)
+            cmm = CoverageMatrixMethod(self.cfg, annotator_manager=self.annotator_manager)
             return cmm
                 
         elif sampling_fn.startswith("typiclust"):
@@ -104,7 +111,7 @@ class ActiveLearning:
                 logger.info('Warning!! for MaxHerding the Kernel must be RBF. Changing KERNEL_TYPE to rbf')
                 print('Warning!! for MaxHerding the Kernel must be TopHat. Changing KERNEL_TYPE to rbf')
                 self.cfg['KERNEL_TYPE'] = 'rbf'
-            cmm = CoverageMatrixMethod(self.cfg, train_labels=train_labels)
+            cmm = CoverageMatrixMethod(self.cfg, annotator_manager=self.annotator_manager)
             return cmm
 
         # DCoM (handles its own delta initialization internally)

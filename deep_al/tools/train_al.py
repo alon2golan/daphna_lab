@@ -111,42 +111,41 @@ def prepare_datasets(cfg, args):
 
 def get_annotators(cfg, args, train_data):
     """Initialize annotators based on configuration.
-    
+
+    Always returns a non-empty list.  When annotators are disabled (or in oracle
+    mode), a single perfect oracle annotator is returned so that the rest of the
+    pipeline can remain annotator-manager-aware without any None checks.
+
     Args:
         cfg: Configuration object
         args: Command line arguments
         train_data: Training dataset
-        
+
     Returns:
-        List of annotator objects, or None if annotators are disabled
+        List of Annotator objects (always at least one oracle annotator)
     """
-    # If annotators are disabled, don't create any annotator system
-    if not cfg.ANNOTATORS.ENABLED:
-        print("Annotators disabled - using true labels directly (no annotator system)")
-        return None
-    
     annotators = []
     
-    if cfg.ANNOTATORS.MODE != 'oracle':
+    if cfg.ANNOTATORS.ENABLED and cfg.ANNOTATORS.MODE != 'oracle':
         # Noisy annotators mode
         assert len(cfg.ANNOTATORS.NOISE_RATES) == cfg.ANNOTATORS.NUM_ANNOTATORS, \
             f"Number of noise rates ({len(cfg.ANNOTATORS.NOISE_RATES)}) must match NUM_ANNOTATORS ({cfg.ANNOTATORS.NUM_ANNOTATORS})"
         assert len(cfg.ANNOTATORS.COSTS) == cfg.ANNOTATORS.NUM_ANNOTATORS, \
             f"Number of costs ({len(cfg.ANNOTATORS.COSTS)}) must match NUM_ANNOTATORS ({cfg.ANNOTATORS.NUM_ANNOTATORS})"
-        
+
         for i, (noise_rate, cost) in enumerate(zip(cfg.ANNOTATORS.NOISE_RATES, cfg.ANNOTATORS.COSTS)):
             annotator = Annotator(
                 dataset=train_data,
                 noise_type=cfg.ANNOTATORS.NOISE_TYPE,
                 noise_rate=noise_rate,
                 cost=cost,
-                seed=args.seed + i,  # Different seed for each annotator
+                seed=args.seed + i,
                 save_dir=cfg.EXP_DIR
             )
             annotators.append(annotator)
             print(f"Initialized Annotator {i}: noise_rate={noise_rate}, cost={cost}, accuracy={annotator.accuracy}")
     else:
-        # Oracle mode: single perfect annotator
+        # Oracle / disabled: single perfect annotator (gives GT labels, zero cost)
         annotator = Annotator(
             dataset=train_data,
             noise_type="clean",
@@ -156,8 +155,11 @@ def get_annotators(cfg, args, train_data):
             save_dir=cfg.EXP_DIR
         )
         annotators.append(annotator)
-        print("Initialized Oracle Annotator (clean labels, cost=0)")
-    
+        if cfg.ANNOTATORS.ENABLED:
+            print("Initialized Oracle Annotator (clean labels, cost=0)")
+        else:
+            print("Annotators disabled - falling back to oracle annotator (true labels)")
+
     return annotators
 
 def apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data=None):
@@ -359,42 +361,27 @@ def main(cfg, args):
     lSet, uSet, valSet = data_obj.loadPartitions(lSetPath=cfg.ACTIVE_LEARNING.LSET_PATH, \
             uSetPath=cfg.ACTIVE_LEARNING.USET_PATH, valSetPath = cfg.ACTIVE_LEARNING.VALSET_PATH)
     
-    # Initialize annotators and annotator manager
+    # Initialize annotators and annotator manager (always — oracle by default when disabled)
     annotators = get_annotators(cfg, args, train_data)
-    annotator_manager = None
-    
-    if annotators is not None:
-        annotator_manager = AnnotatorManager(
-            annotators=annotators,
-            selection_strategy=cfg.ANNOTATORS.SELECTION_STRATEGY,
-            seed=args.seed,
-            save_dir=cfg.EXP_DIR
-        )
+    annotator_manager = AnnotatorManager(
+        annotators=annotators,
+        selection_strategy=cfg.ANNOTATORS.SELECTION_STRATEGY,
+        seed=args.seed,
+        save_dir=cfg.EXP_DIR
+    )
 
-        # Apply equilibrium noise rate (nu') strategy if configured (must happen before any annotation)
-        annotator_manager = apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data)
+    # Apply equilibrium noise rate (nu') strategy if configured (must happen before any annotation)
+    annotator_manager = apply_nu_prime_strategy(cfg, args, annotators, annotator_manager, train_data)
 
-        # Wrap train_data with noisy label wrapper
-        if cfg.ANNOTATORS.MODE != 'oracle':
-            train_data_wrapped = NoisyLabelDatasetWrapper(train_data, annotator_manager=annotator_manager)
-            print("Training data wrapped with NoisyLabelDatasetWrapper for noisy annotations")
-        else:
-            train_data_wrapped = train_data
-            print("Using clean labels (oracle mode)")
+    # Always wrap train_data — NoisyLabelDatasetWrapper falls through to true labels
+    # for oracle-annotated samples, so behaviour is identical when using a clean annotator.
+    train_data_wrapped = NoisyLabelDatasetWrapper(train_data, annotator_manager=annotator_manager)
 
-        # Mark initial lSet as oracle-labeled (or annotated based on config)
-        if len(lSet) > 0:
-            if cfg.ANNOTATORS.INITIAL_SET_ANNOTATOR == 'oracle':
-                annotator_manager.annotate_with_oracle(lSet)
-                print(f"Initial labeled set ({len(lSet)} samples) marked as oracle-labeled")
-            else:
-                # Annotate initial set with selected annotator(s)
-                initial_lset_annotator_id = annotator_manager.select_annotator()
-                result = annotator_manager.annotate_samples(lSet, annotator_id=initial_lset_annotator_id)
-                print(f"Initial labeled set ({len(lSet)} samples) annotated. Cost: {result['cost_spent']}")
-    else:
-        train_data_wrapped = train_data
-        print("Using true labels directly (annotators disabled)")
+    # Annotate initial lSet if non-empty
+    if len(lSet) > 0:
+        initial_annotator_id = annotator_manager.select_annotator()
+        result = annotator_manager.annotate_samples(lSet, annotator_id=initial_annotator_id)
+        print(f"Initial labeled set ({len(lSet)} samples) annotated. Cost: {result['cost_spent']}")
 
     if cfg.HIGH_BUDGET:
         seed = 42
@@ -405,18 +392,15 @@ def main(cfg, args):
         lSet = uSet[lset_mask]
         uSet = uSet[~lset_mask]
 
-    train_labels = train_data.targets
-    al_obj = ActiveLearning(data_obj, cfg, train_labels, lSet, plotting_manager, annotator_manager)
+    al_obj = ActiveLearning(data_obj, cfg, lSet, plotting_manager, annotator_manager)
 
     if len(lSet) == 0:
         episode_dir = os.path.join(cfg.EXP_DIR, 'episode_initial')
         os.makedirs(episode_dir, exist_ok=True)
         cfg.EPISODE_DIR = episode_dir
-        oracle_initial = annotator_manager is not None and cfg.ANNOTATORS.INITIAL_SET_ANNOTATOR == 'oracle'
         lSet, lSet_loader, uSet, valSet_loader = active_sampling_part(
             cfg, None, 0, data_obj, lSet, None, train_data, train_data_wrapped,
-            uSet, valSet, None, al_obj, annotator_manager,
-            oracle_annotation=oracle_initial
+            uSet, valSet, None, al_obj, annotator_manager
         )
     else:
         lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data_wrapped)
@@ -527,65 +511,45 @@ def main(cfg, args):
     print("="*60 + "\n")
 
 def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet_loader, train_data, train_data_wrapped, uSet, valSet,
-                         valSet_loader, al_obj, annotator_manager, oracle_annotation: bool = False):
+                         valSet_loader, al_obj, annotator_manager):
     print("======== ACTIVE SAMPLING ========\n")
     logger.info("======== ACTIVE SAMPLING ========\n")
     clf_model = mh.get_model(cfg, checkpoint_file)
-    # Compute how many samples the annotator can afford with the given budget
-    if annotator_manager is not None:
-        num_samples, batch_annotator_id = annotator_manager.plan_annotation_round(cfg.ACTIVE_LEARNING.BUDGET_SIZE)
-    else:
-        num_samples = cfg.ACTIVE_LEARNING.BUDGET_SIZE
-        batch_annotator_id = None
+
+    num_samples, batch_annotator_id = annotator_manager.plan_annotation_round(cfg.ACTIVE_LEARNING.BUDGET_SIZE)
     print(f"Budget={cfg.ACTIVE_LEARNING.BUDGET_SIZE}, num_samples to query={num_samples}")
-    # Pass checkpoint_file to let algorithm handle its own state updates internally
-    # AL algorithm selects samples (MISP already considers annotator quality in veracity)
+
+    # Algorithms that need labels during sampling (e.g. CoverageMatrixMethod) annotate
+    # each point in-loop via annotator_manager; others ignore annotator_id entirely.
     activeSet, new_uSet = al_obj.sample_from_uSet(
         clf_model, lSet, uSet, train_data,
         checkpoint_file=checkpoint_file,
-        num_samples=num_samples
+        num_samples=num_samples,
+        annotator_id=batch_annotator_id
     )
-    
+
     print(f"Active Learning selected {len(activeSet)} candidate samples")
     logger.info(f"Active Learning selected {len(activeSet)} candidate samples")
-    
-    # ANNOTATOR ASSIGNMENT: Simple strategy to assign who labels the selected samples
-    if annotator_manager is not None:
-        if not oracle_annotation and cfg.ANNOTATORS.MODE != 'oracle':
-            # Simple annotation (no complex veracity logic - MISP already handled that)
-            annotation_result = annotator_manager.annotate_samples(
-                activeSet,
-                annotator_id=batch_annotator_id
-            )
-            
-            # Update activeSet to only include samples that were annotated
-            activeSet = np.array(annotation_result['annotated_samples'])
-            
-            print(f"Annotation Complete:")
-            print(f"  - Samples annotated: {len(activeSet)}")
-            print(f"  - Cost spent: {annotation_result['cost_spent']}")
-            print(f"  - Cumulative cost: {annotator_manager.cumulative_cost}")
-            
-            logger.info(f"Annotation: {len(activeSet)} samples, cost: {annotation_result['cost_spent']}, cumulative: {annotator_manager.cumulative_cost}")
-        else:
-            # Oracle mode - mark samples as oracle-labeled
-            annotator_manager.annotate_with_oracle(activeSet)
-            print(f"Oracle labeling: {len(activeSet)} samples")
-    
+
+    # Annotate selected samples. If already annotated in-loop (e.g. CoverageMatrixMethod),
+    # skip to avoid double-counting cost.
+    already_annotated = all(int(s) in annotator_manager.annotated_labels for s in activeSet)
+    if already_annotated:
+        print(f"Annotation Complete (done in-loop): {len(activeSet)} samples, cumulative cost: {annotator_manager.cumulative_cost}")
+        logger.info(f"Annotation done in-loop: {len(activeSet)} samples, cumulative cost: {annotator_manager.cumulative_cost}")
+    else:
+        annotation_result = annotator_manager.annotate_samples(activeSet, annotator_id=batch_annotator_id)
+        activeSet = np.array(annotation_result['annotated_samples'])
+        print(f"Annotation Complete: {len(activeSet)} samples, cost: {annotation_result['cost_spent']}, cumulative: {annotator_manager.cumulative_cost}")
+        logger.info(f"Annotation: {len(activeSet)} samples, cost: {annotation_result['cost_spent']}, cumulative: {annotator_manager.cumulative_cost}")
+
     # Save current lSet, new_uSet and activeSet in the episode directory
     data_obj.saveSets(lSet, uSet, activeSet, cfg.EPISODE_DIR)
-    
-    # Save annotator state if annotators are enabled
-    if annotator_manager is not None:
-        annotator_manager.save_state(cfg.EPISODE_DIR)
-        
-        # Print annotator statistics
-        stats = annotator_manager.get_statistics()
-        print(f"Annotator Statistics:")
-        print(f"  - Total annotated: {stats['total_annotated']}")
-        print(f"  - Total cost: {stats['total_cost']}")
-        print(f"  - Annotator usage: {stats['annotator_counts']}")
-        logger.info(f"Annotator Stats: {stats}")
+
+    annotator_manager.save_state(cfg.EPISODE_DIR)
+    stats = annotator_manager.get_statistics()
+    print(f"Annotator Statistics: total={stats['total_annotated']}, cost={stats['total_cost']}, usage={stats['annotator_counts']}")
+    logger.info(f"Annotator Stats: {stats}")
     
     # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode
     lSet = np.append(lSet, activeSet)

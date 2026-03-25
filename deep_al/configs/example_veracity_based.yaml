@@ -25,9 +25,6 @@ ANNOTATORS:
   # - 'delta_ball': Delta-ball kernel (ProbCover style) K_ij = 1 if ||x_i - x_j|| < delta, else 0
   KERNEL_TYPE: 'rbf'
   KERNEL_PARAM: 1.0  # sigma for rbf, delta (radius) for delta_ball
-  
-  # Initial labeled set uses oracle
-  INITIAL_SET_ANNOTATOR: 'oracle'
 
 ACTIVE_LEARNING:
   # Budget per episode (interpreted as cost budget when using multiple annotators)
