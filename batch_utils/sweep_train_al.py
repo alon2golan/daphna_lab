@@ -31,6 +31,7 @@ Usage
 import itertools
 import subprocess
 import argparse
+from datetime import datetime
 from pathlib import Path
 import os
 
@@ -59,6 +60,10 @@ def _git_user_email() -> str:
         return f"{user}@mail.huji.ac.il"
 
 
+SLURM_LOGIN_NODE = "phoenix-gw"
+SBATCH_BIN = "/vol/slurm/phoenix/bindir/bin/sbatch"
+SLURM_CONF = "/vol/slurm/phoenix/slurm.conf"
+
 SLURM_OPTS = {
     "mem": "32g",
     "cpus-per-task": "4",
@@ -74,30 +79,89 @@ SLURM_OPTS = {
 # NOTE: --exp-name is auto-generated from the job parameters; do not set it here.
 # ---------------------------------------------------------------------------
 FIXED_ARGS = (
-    f"--cfg deep_al/configs/cifar100/al/RESNET18.yaml "
+    f"--initial_delta 0.75 "
     f"--budget 100 "
     f"--eval_model_type from_features "
-    f"--max_iter 5 "
+    f"--max_iter 10 "
 )
 
 # ---------------------------------------------------------------------------
 # AL_CONFIGS  – each entry is one experiment variant (NOT crossed internally)
+# target_nu=0.0   → oracle-equivalent (tau=1.0, 0% noise via cache lookup)
+# target_nu=0.1-0.5 → noisy annotator at the named noise level; tau looked up from cache
 # ---------------------------------------------------------------------------
 AL_CONFIGS = [
-    "--al maxherding",
-    "--al maxherding --sparse_K",
-    "--al probcover",
+    "--cfg deep_al/configs/cifar100/al/RESNET18.yaml --target_nu 0.0",   # oracle (tau=1)
+    "--cfg deep_al/configs/cifar100/al/RESNET18.yaml --target_nu 0.1",   # low noise
+    "--cfg deep_al/configs/cifar100/al/RESNET18.yaml --target_nu 0.2",
+    "--cfg deep_al/configs/cifar100/al/RESNET18.yaml --target_nu 0.3",
+    "--cfg deep_al/configs/cifar100/al/RESNET18.yaml --target_nu 0.5",   # high noise
 ]
 
 # ---------------------------------------------------------------------------
 # GRID  – params fully crossed with every AL_CONFIG
 # ---------------------------------------------------------------------------
 GRID = dict(
-    initial_delta=[0.75, 1],
+    al=["probcover", "random"],
     seed=[1, 2, 3],
 )
 
 # ---------------------------------------------------------------------------
+
+
+def build_sweep_name_from(al_configs: list, grid: dict) -> str:
+    """
+    Build a human-readable sweep identifier from arbitrary al_configs + grid.
+    Used both by build_sweep_name() and by the dashboard Launch tab.
+    """
+    # Collect al methods from AL_CONFIGS entries
+    al_methods = []
+    for al_args in al_configs:
+        tokens = al_args.split()
+        for i, tok in enumerate(tokens):
+            if tok == "--al" and i + 1 < len(tokens):
+                al_methods.append(tokens[i + 1])
+                break
+    # Also check if 'al' is a grid key (e.g. al=["probcover","random"])
+    if not al_methods and "al" in grid:
+        al_methods = [str(v) for v in grid["al"]]
+    al_part = "_".join(dict.fromkeys(al_methods)) or "sweep"
+
+    # cfg variant: use stem of --cfg values to distinguish configs
+    cfg_stems = []
+    for al_args in al_configs:
+        tokens = al_args.split()
+        for i, tok in enumerate(tokens):
+            if tok == "--cfg" and i + 1 < len(tokens):
+                cfg_stems.append(Path(tokens[i + 1]).stem)
+                break
+    cfg_part = "_".join(dict.fromkeys(cfg_stems))
+
+    grid_parts = []
+    for k, vals in grid.items():
+        if k == "al":
+            continue  # already captured in al_part
+        if k == "seed":
+            grid_parts.append(f"seed{min(vals)}to{max(vals)}")
+        else:
+            sorted_vals = sorted(set(vals))
+            vals_str = "to".join(str(v).replace(".", "p") for v in sorted_vals)
+            grid_parts.append(f"{k}{vals_str}")
+    grid_part = "_".join(grid_parts)
+
+    name_parts = [p for p in [al_part, cfg_part, grid_part] if p]
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return "__".join(name_parts) + f"__{ts}"
+
+
+def build_sweep_name() -> str:
+    """
+    Generate a human-readable sweep identifier that encodes the AL methods, GRID
+    ranges, and a wall-clock timestamp so every submission is unique.
+
+    Example: "maxherding_probcover__delta0p75to1_seed1to3__20260406_143000"
+    """
+    return build_sweep_name_from(AL_CONFIGS, GRID)
 
 
 def args_to_exp_name(al_args: str, grid_keys: list, grid_vals: tuple) -> str:
@@ -121,7 +185,11 @@ def args_to_exp_name(al_args: str, grid_keys: list, grid_vals: tuple) -> str:
             key = tok.lstrip("-").replace("-", "_")
             # peek at next token: is it a value or another flag?
             if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
-                val = tokens[i + 1].replace(".", "p")  # 0.5 -> 0p5
+                raw_val = tokens[i + 1]
+                # If value looks like a file path, use only the stem (no dirs, no ext)
+                if "/" in raw_val:
+                    raw_val = Path(raw_val).stem
+                val = raw_val.replace(".", "p").replace("-", "_")
                 parts.append(f"{key}{val}")
                 i += 2
             else:
@@ -137,21 +205,38 @@ def args_to_exp_name(al_args: str, grid_keys: list, grid_vals: tuple) -> str:
     return "_".join(parts)
 
 
-def build_jobs() -> list[str]:
-    """Return list of complete python command strings, one per job."""
-    grid_keys = list(GRID.keys())
-    grid_combos = list(itertools.product(*GRID.values()))
-
+def build_jobs_from(
+    al_configs: list,
+    grid: dict,
+    fixed_args: str,
+    sweep_name: str | None = None,
+) -> list[str]:
+    """
+    Parametrised job builder — used by build_jobs() and the dashboard Launch tab.
+    If sweep_name is None, one is auto-generated from al_configs + grid.
+    """
+    if sweep_name is None:
+        sweep_name = build_sweep_name_from(al_configs, grid)
+    grid_keys = list(grid.keys())
+    grid_combos = list(itertools.product(*grid.values()))
     jobs = []
-    for al_args in AL_CONFIGS:
+    for al_args in al_configs:
         for grid_vals in grid_combos:
             grid_str = " ".join(
                 f"--{k} {v}" for k, v in zip(grid_keys, grid_vals)
             )
             exp_name = args_to_exp_name(al_args, grid_keys, grid_vals)
-            cmd = f"python {TRAIN_SCRIPT} {FIXED_ARGS} {al_args} {grid_str} --exp-name {exp_name}"
+            cmd = (
+                f"python {TRAIN_SCRIPT} {fixed_args.strip()} {al_args} {grid_str}"
+                f" --exp-name {exp_name} --sweep-name {sweep_name}"
+            )
             jobs.append(cmd)
     return jobs
+
+
+def build_jobs() -> list[str]:
+    """Return list of complete python command strings, one per job."""
+    return build_jobs_from(AL_CONFIGS, GRID, FIXED_ARGS)
 
 
 def build_array_script(jobs: list[str]) -> str:
@@ -181,14 +266,187 @@ def build_array_script(jobs: list[str]) -> str:
     )
 
 
+def launch_local_bg(jobs: list[str], sweep_name: str) -> dict:
+    """
+    Spawn all jobs as a single detached background bash script (non-blocking).
+    Used by the dashboard Launch tab so the UI stays responsive.
+
+    Returns a dict with: pid, log_file, script_file, sweep_id, sweep_name,
+    total_jobs, started_at, mode='local'.
+    """
+    sweep_id = f"local_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_file = LOG_DIR / f"{sweep_id}.out"
+    script_path = LOG_DIR / f"{sweep_id}.sh"
+
+    lines = [
+        "#!/bin/bash",
+        f"export SLURM_ARRAY_JOB_ID={sweep_id}",
+        f"cd {REPO_DIR}",
+        f"source {VENV_ACTIVATE}",
+        "",
+    ]
+    for i, cmd in enumerate(jobs):
+        lines += [
+            f"export SLURM_ARRAY_TASK_ID={i}",
+            f'echo "### Task {i + 1}/{len(jobs)}: {cmd}"',
+            cmd,
+            f'echo "### Task {i + 1} exit: $?"',
+            "",
+        ]
+    lines.append(f'echo "### All {len(jobs)} jobs finished."')
+
+    script_path.write_text("\n".join(lines))
+    script_path.chmod(0o755)
+
+    with open(log_file, "w") as lf:
+        proc = subprocess.Popen(
+            ["bash", str(script_path)],
+            stdout=lf,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,  # detach from the Streamlit process
+        )
+
+    return {
+        "pid": proc.pid,
+        "log_file": str(log_file),
+        "script_file": str(script_path),
+        "sweep_id": sweep_id,
+        "sweep_name": sweep_name,
+        "total_jobs": len(jobs),
+        "started_at": datetime.now().isoformat(),
+        "mode": "local",
+    }
+
+
+def submit_sbatch_jobs(jobs: list[str]) -> dict:
+    """
+    Write the array script and submit via sbatch (blocking, returns quickly).
+    Returns a dict with: returncode, stdout, stderr, script_file.
+    Note: sbatch must be available — run from phoenix-gw or any SLURM login node.
+    """
+    script = build_array_script(jobs)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    GENERATED_SCRIPT.write_text(script)
+    try:
+        result = subprocess.run(
+            ["sbatch", str(GENERATED_SCRIPT)], capture_output=True, text=True
+        )
+        return {
+            "returncode": result.returncode,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+            "script_file": str(GENERATED_SCRIPT),
+        }
+    except FileNotFoundError:
+        # sbatch not available locally — try via SSH to the SLURM login node.
+        # Requires passwordless SSH (key-based) to SLURM_LOGIN_NODE.
+        try:
+            result = subprocess.run(
+                [
+                    "ssh", "-o", "BatchMode=yes",
+                    "-o", "ConnectTimeout=10",
+                    SLURM_LOGIN_NODE,
+                    f"SLURM_CONF={SLURM_CONF}", SBATCH_BIN, str(GENERATED_SCRIPT),
+                ],
+                capture_output=True, text=True,
+            )
+            return {
+                "returncode": result.returncode,
+                "stdout": result.stdout.strip(),
+                "stderr": result.stderr.strip(),
+                "script_file": str(GENERATED_SCRIPT),
+            }
+        except FileNotFoundError:
+            return {
+                "returncode": 127,
+                "stdout": "",
+                "stderr": (
+                    "'ssh' not found. Cannot reach SLURM login node automatically."
+                ),
+                "script_file": str(GENERATED_SCRIPT),
+            }
+        except Exception as exc:
+            return {
+                "returncode": 1,
+                "stdout": "",
+                "stderr": (
+                    f"SSH to {SLURM_LOGIN_NODE} failed: {exc}\n"
+                    f"Make sure passwordless SSH is set up, then run manually:\n"
+                    f"  ssh {SLURM_LOGIN_NODE} sbatch {GENERATED_SCRIPT}"
+                ),
+                "script_file": str(GENERATED_SCRIPT),
+            }
+
+
+def run_local(jobs: list[str]) -> None:
+    """
+    Execute all jobs sequentially on the current machine (no SLURM required).
+
+    A synthetic SLURM_ARRAY_JOB_ID is injected into each process environment so
+    that ResultWriter groups all runs into the same sweep, identical to a real
+    sbatch array job.  SLURM_ARRAY_TASK_ID is set to the job index.
+    """
+    sweep_id = f"local_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    env = os.environ.copy()
+    env["SLURM_ARRAY_JOB_ID"] = sweep_id
+
+    print(f"\nRunning {len(jobs)} jobs locally (sweep_id={sweep_id})")
+    print("Jobs will run sequentially in this terminal.\n")
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    for task_id, cmd in enumerate(jobs):
+        env["SLURM_ARRAY_TASK_ID"] = str(task_id)
+        log_file = LOG_DIR / f"local_{sweep_id}_{task_id}.out"
+        print(f"\n{'='*60}")
+        print(f"Task {task_id + 1}/{len(jobs)}: {cmd}")
+        print(f"Log: {log_file}")
+        print(f"{'='*60}")
+        with open(log_file, "w") as lf:
+            result = subprocess.run(
+                f"cd {REPO_DIR} && source {VENV_ACTIVATE} && {cmd}",
+                shell=True,
+                env=env,
+                executable="/bin/bash",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            lf.write(result.stdout.decode(errors="replace"))
+        status = "✓ OK" if result.returncode == 0 else f"✗ FAILED (exit {result.returncode})"
+        print(f"Task {task_id}: {status}")
+
+    print(f"\n{'='*60}")
+    print(f"All {len(jobs)} local jobs finished.")
+    print(f"Logs: {LOG_DIR}")
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description=(
+            "Submit or run a sweep of train_al.py jobs.\n"
+            "Modes:\n"
+            "  (default)      Dry-run: print the generated script\n"
+            "  --submit       Write _generated_sweep.sh and sbatch it  "
+                             "(run from phoenix-gw)\n"
+            "  --local        Run all jobs sequentially on THIS machine "
+                             "(run from takara or any GPU machine)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "--submit",
         action="store_true",
-        help="Write the generated .sh script and submit it (default: dry-run)",
+        help="Write the generated .sh script and submit via sbatch (from phoenix-gw)",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Run all jobs sequentially on the current machine (from takara)",
     )
     args = parser.parse_args()
+
+    if args.submit and args.local:
+        parser.error("--submit and --local are mutually exclusive.")
 
     jobs = build_jobs()
     script = build_array_script(jobs)
@@ -198,21 +456,29 @@ def main() -> None:
         print(f"  {c}")
     print(f"\nGRID: {GRID}")
     print(f"\nTotal jobs: {len(jobs)}\n")
-    print("--- Generated script ---")
-    print(script)
-    print("------------------------")
 
-    if args.submit:
+    if args.local:
+        run_local(jobs)
+    elif args.submit:
+        print("--- Generated script ---")
+        print(script)
+        print("------------------------")
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         GENERATED_SCRIPT.write_text(script)
         print(f"Written: {GENERATED_SCRIPT}")
-        result = subprocess.run(["sbatch", str(GENERATED_SCRIPT)], capture_output=True, text=True)
+        submit_cmd = f"SLURM_CONF={SLURM_CONF} {SBATCH_BIN} {GENERATED_SCRIPT}"
+        ssh_cmd = ["ssh", SLURM_LOGIN_NODE, submit_cmd]
+        print(f"Submitting: {' '.join(ssh_cmd)}")
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True)
         if result.returncode == 0:
             print(f"Submitted: {result.stdout.strip()}")
         else:
             print(f"ERROR: {result.stderr.strip()}")
     else:
-        print("Dry-run complete. Pass --submit to write + submit the script.")
+        print("--- Generated script ---")
+        print(script)
+        print("------------------------")
+        print("Dry-run complete.  Pass --submit (phoenix-gw) or --local (takara) to run.")
 
 
 if __name__ == "__main__":
