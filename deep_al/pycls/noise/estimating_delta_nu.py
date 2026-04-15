@@ -20,6 +20,7 @@ if _repo_root not in sys.path:
 
 import deep_al.pycls.core.builders as model_builder
 import deep_al.pycls.core.optimizer as optim
+from deep_al.pycls.core.builders import FeaturesNet
 
 from copy import deepcopy
 from sklearn.cluster import KMeans
@@ -54,6 +55,10 @@ def _set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    torch.use_deterministic_algorithms(True, warn_only=True)
 
 def _cluster_labels(x_np: np.ndarray,
                     num_classes: int,
@@ -254,12 +259,15 @@ def _cluster_labels(x_np: np.ndarray,
 def _build_model(img_shape: int,
                  num_classes: int,
                  model_name: str = "resnet18",
-                 representation_model='simclr') -> nn.Module:
-    if model_name.lower() == "resnet18" or model_name.lower() == "resnet50":
-        model = model_builder.build_model(cfg)
+                 representation_model='simclr',
+                 dataset_name: str = '') -> nn.Module:
+    if model_name.lower() == "resnet18":
+        model = models.resnet18(weights=None)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
 
-        # model = models.resnet18(weights=None)
-        # model.fc = nn.Linear(model.fc.in_features, num_classes)
+    elif model_name.lower() == "resnet50":
+        model = models.resnet50(weights=None)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
 
     elif model_name in ('vit', 'vit_b_16'):
         # torchvision ViT supports an `image_size` kwarg
@@ -271,13 +279,12 @@ def _build_model(img_shape: int,
         model.heads = nn.Linear(in_feat, num_classes)
 
     elif model_name == 'linear':
-        # your custom FeaturesNet; assumes cfg.DATASET.REPRESENTATION_DIM is defined
         if representation_model == 'resnet50':
             num_features = 2048
         elif representation_model == 'vit':
             num_features = 768
         else:
-            num_features = 384 if cfg.DATASET.NAME in ['IMAGENET50', 'IMAGENET100','IMAGENET200'] else 512
+            num_features = 384 if dataset_name.upper() in ['IMAGENET50', 'IMAGENET100','IMAGENET200'] else 512
         model = FeaturesNet(num_features, num_classes)
     else:
         raise ValueError(f"Unknown model type '{model_name}'")
@@ -288,12 +295,9 @@ def _train(model: nn.Module,
            loader: DataLoader,
            device: torch.device,
            epochs: int = 5,
-           lr: float = 1e-3,
-           cfg: str = None) -> None:
+           lr: float = 1e-3) -> None:
     model.to(device)
-    opt = optim.construct_optimizer(cfg, model)
-    opt_init_state = deepcopy(opt.state_dict())
-    model_init_state = deepcopy(model.state_dict().copy())
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
     model.train()
     for epoch in range(epochs):
@@ -467,14 +471,32 @@ def get_train_idx(model: str, al_method: str, dataset: str, noise_type: str, bud
     noise type (asym/sym)
     al_method (random/probcover or margin)
 
+    If the exact (budget, tau) is not present in the parquet, the closest
+    available values are used (nearest budget, then nearest tau within that budget).
     """
     if al_method == 'random':
         return np.random.choice(train_idx, size=budget, replace=False)
     base_dir = _repo_root + "/output/"
-    df = pd.read_parquet( base_dir + f"{dataset.upper()}/{dataset}_{model}_{al_method}_{noise_type}_all.parquet")
+    df = pd.read_parquet(base_dir + f"{dataset.upper()}/{dataset.lower()}_{model}_{al_method}_{noise_type}_all.parquet")
     alpha = 1 if annotator == 'oracle' else 0
-    df_for_experiment = df[(df['budget'] == budget) & (df['oracle_teacher_ratio'] == tau) & (df['alpha'] == alpha)]
-    # choose  train_idx randomly  from all the lsets
+    df_alpha = df[df['alpha'] == alpha]
+
+    # Snap budget to the closest available value
+    available_budgets = df_alpha['budget'].unique()
+    closest_budget = available_budgets[np.argmin(np.abs(available_budgets - budget))]
+    if closest_budget != budget:
+        logger.warning(f"get_train_idx: budget={budget} not in parquet; using closest={closest_budget}")
+
+    df_budget = df_alpha[df_alpha['budget'] == closest_budget]
+
+    # Snap tau to the closest available value within that budget
+    available_taus = df_budget['oracle_teacher_ratio'].unique()
+    closest_tau = available_taus[np.argmin(np.abs(available_taus - tau))]
+    if closest_tau != tau:
+        logger.warning(f"get_train_idx: tau={tau} not in parquet; using closest={closest_tau}")
+
+    df_for_experiment = df_budget[df_budget['oracle_teacher_ratio'] == closest_tau]
+
     run_idx = np.random.randint(0, len(df_for_experiment))
     lsets = df_for_experiment.iloc[run_idx]['lsets']
     train_idx = lsets[0]  # take the first lset
@@ -498,10 +520,10 @@ def estimate_nu(dataset: Dataset,
                 epochs: int = 200,
                 lr: float = 1e-3,
                 seed: int = 42,
-                cluster_labels=False,  # keep existing flag meaning: "use clusters"
+                cluster_labels=True,   # use KMeans clusters instead of GT labels
                 cluster_method: str = "kmeans",  # 'kmeans' | 'gmm' | 'agglomerative'
                 runs: int = 1,
-                noise_mode: str = "asymmetric",  # "random" or "asymmetric"
+                noise_mode: str = "random",    # "random" or "asymmetric"
                 al_method: str = "random",
                 dataset_name: str = "",
                 ) -> (int, float):
@@ -529,6 +551,7 @@ def estimate_nu(dataset: Dataset,
     nu_hat : float
         Estimated ν.
     """
+    _set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     features = dataset.features
@@ -538,7 +561,15 @@ def estimate_nu(dataset: Dataset,
         x_np = features.cpu().numpy()
     else:
         x_np = features
-    img_shape = dataset[0][0].shape
+
+    # If the dataset exposes precomputed features, train a linear head on them
+    # parquet files are always named with the feature extractor (resnet18), not the eval head
+    parquet_model_name = "resnet18" if model_name == "linear" else model_name
+    if hasattr(dataset, 'features'):
+        model_name = 'linear'
+        img_shape = None  # linear model doesn't use img_shape; avoid triggering dataset transforms
+    else:
+        img_shape = dataset[0][0].shape
 
     # ------------------------------------------------------------------
     # 1) Unsupervised labelling via K-Means
@@ -555,7 +586,7 @@ def estimate_nu(dataset: Dataset,
     # labels: np.array of ground-truth for this run (original or KMeans)
     labels_are_kmeans = bool(cluster_labels)
     asym_mapping = _make_asym_mapping(
-        cfg.DATASET.NAME if hasattr(cfg, "DATASET") else "",
+        dataset_name,
         num_classes,
         dataset,
         labels_are_kmeans)
@@ -584,13 +615,13 @@ def estimate_nu(dataset: Dataset,
     oracle_runs = 2
     for r in range(oracle_runs):
         # oracle_idx = np.random.choice(train_idx, size=budget, replace=False) # TODO change the al method of sampling
-        oracle_idx = get_train_idx(model_name.lower(), al_method, dataset_name, 'sym', budget, tau, "oracle", train_idx)
+        oracle_idx = get_train_idx(parquet_model_name.lower(), al_method, dataset_name.lower(), 'sym', budget, tau, "oracle", train_idx)
         ds_oracle = Subset(dataset, oracle_idx)
         dl_oracle = DataLoader(ds_oracle, batch_size=batch_size, shuffle=True)
 
-        m_oracle = _build_model(img_shape, num_classes, model_name, representation_model=representation_model)
+        m_oracle = _build_model(img_shape, num_classes, model_name, representation_model=representation_model, dataset_name=dataset_name)
         oracle_epochs = 100 if model_name == "linear" else epochs
-        _train(m_oracle, dl_oracle, device, oracle_epochs, lr, cfg)
+        _train(m_oracle, dl_oracle, device, oracle_epochs, lr)
         oracle_accs.append(_accuracy(m_oracle, dl_test, device))
 
     acc_oracle = float(np.mean(oracle_accs))
@@ -599,7 +630,7 @@ def estimate_nu(dataset: Dataset,
 
     # Sample noisy annotator's indices
     noisy_size = int(budget / tau)
-    noisy_idx = get_train_idx(model_name.lower(), al_method, dataset_name, 'sym', noisy_size, tau, "noisy", train_idx)
+    noisy_idx = get_train_idx(parquet_model_name.lower(), al_method, dataset_name.lower(), 'sym', noisy_size, tau, "noisy", train_idx)
     print(f"Noisy annotator size: {noisy_size}", flush=True)
 
     # ------------------------------------------------------------------
@@ -657,8 +688,8 @@ def estimate_nu(dataset: Dataset,
             ds_noisy = Subset(dataset, noisy_idx)
             dl_noisy = DataLoader(ds_noisy, batch_size=batch_size, shuffle=True)
 
-            m_noisy = _build_model(img_shape, num_classes, model_name, representation_model=representation_model)
-            _train(m_noisy, dl_noisy, device, epochs, lr, cfg)
+            m_noisy = _build_model(img_shape, num_classes, model_name, representation_model=representation_model, dataset_name=dataset_name)
+            _train(m_noisy, dl_noisy, device, epochs, lr)
             noisy_accs.append(_accuracy(m_noisy, dl_test, device))
 
         acc_noisy = float(np.mean(noisy_accs))
@@ -680,6 +711,183 @@ def estimate_nu(dataset: Dataset,
     # Final estimate
     final_nu = (nu_high + nu_low) / 2.0
     return i, final_nu, acc_oracle
+
+def estimate_tau_for_nu(dataset: Dataset,
+                        target_nu: float,
+                        budget: int,
+                        num_classes: int,
+                        model_name: str = "resnet18",
+                        representation_model: str = 'simclr',
+                        epsilon: float = 0.005,
+                        train_transform=None,
+                        test_transform=None,
+                        *,
+                        test_size: float = 0.2,
+                        batch_size: int = 32,
+                        epochs: int = 100,
+                        lr: float = 1e-3,
+                        seed: int = 42,
+                        cluster_labels: bool = True,
+                        cluster_method: str = "kmeans",
+                        runs: int = 1,
+                        noise_mode: str = "random",
+                        al_method: str = "random",
+                        dataset_name: str = "",
+                        tau_lo: float = 0.01,
+                        tau_hi: float = 0.99,
+                        ) -> tuple[int, float, float]:
+    """
+    Inverse of estimate_nu: given a fixed target noise level *target_nu*, find
+    the breakeven tau via a single binary search over tau.
+
+    At each iteration:
+      - Oracle trains on `budget` clean samples (trained ONCE before the loop)
+      - Noisy  trains on `int(budget / tau_mid)` samples with `target_nu` fraction corrupted
+      - Update tau bracket based on acc_oracle vs acc_noisy
+
+    nu_prime(tau) is monotone decreasing in tau (larger tau → smaller noisy
+    budget → noisy model weaker), so:
+      - acc_oracle > acc_noisy  →  noisy model too weak  →  lower tau (give it more samples) → tau_hi = tau_mid
+      - acc_oracle <= acc_noisy →  noisy model strong enough → raise tau → tau_lo = tau_mid
+
+    Returns
+    -------
+    (iterations, tau_found, acc_oracle)
+    """
+    _set_seed(seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    features = dataset.features
+    N, d = features.shape
+    assert budget < N, "Budget must be smaller than dataset size N."
+    x_np = features.cpu().numpy() if isinstance(features, torch.Tensor) else features
+
+    # Switch to linear head when features are precomputed
+    # parquet files are always named with the feature extractor (resnet18), not the eval head
+    parquet_model_name = "resnet18" if model_name == "linear" else model_name
+    if hasattr(dataset, 'features'):
+        model_name = 'linear'
+        img_shape = None
+    else:
+        img_shape = dataset[0][0].shape
+
+    # ------------------------------------------------------------------
+    # 1) Cluster labels (once)
+    # ------------------------------------------------------------------
+    if cluster_labels:
+        labels = _cluster_labels(x_np, num_classes, method=cluster_method, seed=seed)
+        if hasattr(dataset, 'noisy_labels'):
+            dataset.noisy_labels = labels
+        if hasattr(dataset, 'targets'):
+            dataset.targets = labels.tolist()
+    else:
+        labels = np.array(dataset.targets)
+
+    labels_are_kmeans = bool(cluster_labels)
+    asym_mapping = _make_asym_mapping(dataset_name, num_classes, dataset, labels_are_kmeans)
+
+    # ------------------------------------------------------------------
+    # 2) Train / test split
+    # ------------------------------------------------------------------
+    idxs = np.arange(N)
+    train_idx, test_idx = train_test_split(
+        idxs, test_size=test_size, random_state=seed, stratify=labels)
+    print(f"Dataset size: {N}, Train size: {len(train_idx)}, Test size: {len(test_idx)}", flush=True)
+
+    test_copy = copy(dataset)
+    if test_transform is not None:
+        test_copy.transform = test_transform
+    dl_test = DataLoader(Subset(test_copy, test_idx), batch_size=batch_size, shuffle=False)
+
+    train_copy = copy(dataset)
+    if train_transform is not None:
+        train_copy.transform = train_transform
+
+    # ------------------------------------------------------------------
+    # 3) Train oracle ONCE (independent of tau)
+    # ------------------------------------------------------------------
+    # Use a representative tau=0.5 just for parquet sampling of oracle indices
+    _tau_for_oracle_sample = 0.5
+    oracle_accs = []
+    oracle_runs = 2
+    for r in range(oracle_runs):
+        oracle_idx = get_train_idx(parquet_model_name.lower(), al_method,
+                                   dataset_name.lower(), 'sym',
+                                   budget, _tau_for_oracle_sample, "oracle", train_idx)
+        ds_oracle = Subset(dataset, oracle_idx)
+        dl_oracle = DataLoader(ds_oracle, batch_size=batch_size, shuffle=True)
+        m_oracle = _build_model(img_shape, num_classes, model_name,
+                                representation_model=representation_model,
+                                dataset_name=dataset_name)
+        oracle_epochs = 100 if model_name == "linear" else epochs
+        _train(m_oracle, dl_oracle, device, oracle_epochs, lr)
+        oracle_accs.append(_accuracy(m_oracle, dl_test, device))
+
+    acc_oracle = float(np.mean(oracle_accs))
+    print(f"Oracle accuracy: {acc_oracle:.3f}  (budget={budget}, target_nu={target_nu:.2f})", flush=True)
+
+    # ------------------------------------------------------------------
+    # 4) Binary search over tau with fixed target_nu
+    # ------------------------------------------------------------------
+    all_labels = np.arange(num_classes)
+    rng = np.random.default_rng(seed)
+
+    def _noisy_acc_at_tau(tau_mid: float) -> float:
+        noisy_size = int(budget / tau_mid)
+        noisy_idx = get_train_idx(parquet_model_name.lower(), al_method,
+                                  dataset_name.lower(), 'sym',
+                                  noisy_size, tau_mid, "noisy", train_idx)
+        accs = []
+        for _ in range(runs):
+            noisy_labels = labels.copy()
+            flip_count = int(target_nu * noisy_size)
+            noise_idx = np.random.choice(noisy_idx, size=flip_count, replace=False)
+
+            if noise_mode == "random":
+                chooser = lambda y: rng.choice(all_labels[all_labels != y])
+            else:
+                chooser = lambda y: asym_mapping[int(y)]
+
+            noisy_labels[noise_idx] = np.fromiter(
+                (chooser(y) for y in noisy_labels[noise_idx]),
+                dtype=noisy_labels.dtype, count=len(noise_idx))
+
+            if hasattr(dataset, "noisy_labels"):
+                dataset.noisy_labels = noisy_labels
+            if hasattr(dataset, "targets"):
+                dataset.targets = noisy_labels.tolist()
+            if hasattr(dataset, "labels"):
+                dataset.labels = noisy_labels.tolist()
+
+            dl_noisy = DataLoader(Subset(dataset, noisy_idx), batch_size=batch_size, shuffle=True)
+            m_noisy = _build_model(img_shape, num_classes, model_name,
+                                   representation_model=representation_model,
+                                   dataset_name=dataset_name)
+            _train(m_noisy, dl_noisy, device, epochs, lr)
+            accs.append(_accuracy(m_noisy, dl_test, device))
+        return float(np.mean(accs))
+
+    i = 0
+    while (tau_hi - tau_lo) > epsilon:
+        tau_mid = (tau_lo + tau_hi) / 2.0
+        print(f"  tau search iter {i+1}: lo={tau_lo:.4f} mid={tau_mid:.4f} hi={tau_hi:.4f} "
+              f"(noisy_size={int(budget/tau_mid)})", flush=True)
+
+        acc_noisy = _noisy_acc_at_tau(tau_mid)
+        print(f"    oracle={acc_oracle:.4f}  noisy={acc_noisy:.4f}", flush=True)
+
+        if acc_oracle > acc_noisy:
+            # Noisy model too weak at this tau → lower tau (more noisy samples)
+            tau_hi = tau_mid
+        else:
+            # Noisy model strong enough → raise tau (fewer noisy samples)
+            tau_lo = tau_mid
+        i += 1
+
+    tau_found = (tau_lo + tau_hi) / 2.0
+    print(f"tau_found={tau_found:.4f} for target_nu={target_nu:.2f}", flush=True)
+    return i, tau_found, acc_oracle
+
 
 def plot_results():
     import numpy as np
@@ -906,8 +1114,10 @@ def run_estimated_nu():
                         default="linear")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--tau", type=float, default=0.1)
-    parser.add_argument("--al_method", choices=["random", "margin", "probcover"],
+    parser.add_argument("--al_method", choices=["random", "margin", "probcover", "maxherding"],
                         default="probcover")
+    parser.add_argument("--output_file", type=str, default=None,
+                        help="If set, save result as JSON to this path")
     parser.add_argument("--noise_mode", choices=["random", "asymmetric"],
                         default="random")
     parser.add_argument("--cluster_method", choices=["kmeans", "gmm", "agglomerative", "agglomerative_fast", "birch", "dbscan"],
@@ -921,6 +1131,8 @@ def run_estimated_nu():
 
     def get_dataset(dataset_name, representation_model, train=True,
                     use_linear_features=False, project_features=False):
+        from deep_al.pycls.core.config import cfg
+        from deep_al.pycls.datasets.data import Data
         cfg_file = _repo_root + f"/deep_al/configs/{dataset_name}/al/RESNET18.yaml"
         cfg.merge_from_file(cfg_file)
         # cfg.NOISE.NOISE_RATE = 0
@@ -967,7 +1179,7 @@ def run_estimated_nu():
     nu_hats_kmeans_labels = []
     num_tries_kmeans_labels = []
     oracle_accs = []
-    batch_size = 256 if dataset_name != 'imagenet50' else 16
+    batch_size = 32 if dataset_name != 'imagenet50' else 16
     for tau in tau_vals:
         print(
             f"Estimating nu for tau={tau} with budget={budget} and model={model_name}",
@@ -1010,6 +1222,7 @@ def run_estimated_nu():
                                               epsilon=epsilon,
                                               epochs=epochs,
                                               test_size=test_ratio,
+                                              batch_size=batch_size,
                                               seed=seed,
                                               cluster_labels=True,
                                               cluster_method=args.cluster_method,
@@ -1065,14 +1278,29 @@ def run_estimated_nu():
         f.write("Number of tries for KMeans labels: " + str(
             num_tries_kmeans_labels) + "\n")
 
+    # Save structured JSON result (used by sweep_nu_prime.py --average)
+    if args.output_file:
+        import json as _json
+        out = {
+            "dataset":   dataset_name,
+            "al_method": args.al_method,
+            "budget":    budget,
+            "tau":       tau_vals[0],
+            "seed":      seed,
+            "nu_prime":  nu_hats_kmeans_labels[0],
+        }
+        out_path = Path(args.output_file)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = Path(str(out_path) + ".tmp")
+        with open(tmp, "w") as _f:
+            _json.dump(out, _f, indent=2)
+        tmp.replace(out_path)
+        print(f"Result saved to {out_path}", flush=True)
+
 
 # ------- Main - only a test script to make sure the function works -------
 
 if __name__ == "__main__":
-    from deep_al.pycls.core.config import cfg
-    from deep_al.pycls.datasets.data import Data
-    from deep_al.pycls.core.builders import FeaturesNet
-
     run_estimated_nu()
     # plot_results()
     # plot_results_tau()
