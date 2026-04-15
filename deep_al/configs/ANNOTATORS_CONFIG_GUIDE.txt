@@ -20,7 +20,6 @@ ANNOTATORS:
   NOISE_RATES: [0.2]  # 20% noise rate
   COSTS: [1.0]
   SELECTION_STRATEGY: 'random'  # Not relevant for single annotator
-  INITIAL_SET_ANNOTATOR: 'oracle'  # Initial set uses clean labels
 
 # Example 3: Multiple Noisy Annotators with Different Accuracies and Costs
 ANNOTATORS:
@@ -31,7 +30,6 @@ ANNOTATORS:
   NOISE_RATES: [0.05, 0.15, 0.30]  # High accuracy (95%), medium (85%), low (70%)
   COSTS: [10.0, 5.0, 1.0]  # Expensive, medium, cheap
   SELECTION_STRATEGY: 'most_accurate'  # Options: 'random', 'most_accurate', 'least_cost', 'cost_accuracy_ratio'
-  INITIAL_SET_ANNOTATOR: 'oracle'  # Initial labeled set uses oracle
 
 # Example 4: Budget-Aware Multiple Annotators
 ANNOTATORS:
@@ -42,7 +40,6 @@ ANNOTATORS:
   NOISE_RATES: [0.1, 0.2]  # Annotator 1: 90% accuracy, Annotator 2: 80% accuracy
   COSTS: [2.0, 0.5]  # Annotator 1: 2x cost, Annotator 2: 0.5x cost
   SELECTION_STRATEGY: 'random'
-  INITIAL_SET_ANNOTATOR: 'random'  # Initial set also goes through annotator selection
 
 # ============================================================================ #
 # ACTIVE_LEARNING Budget Configuration
