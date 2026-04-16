@@ -78,6 +78,10 @@ _C.MODEL.TYPE = ''
 _C.MODEL.NUM_CLASSES = 10
 # Loss function (see pycls/models/loss.py for options)
 _C.MODEL.LOSS_FUN = 'cross_entropy'
+_C.MODEL.USE_1NN = False
+_C.MODEL.LINEAR_FROM_FEATURES = False
+_C.MODEL.LINEAR_FROM_IMAGES = False
+_C.MODEL.USE_LOGISTIC_REGRESSION = False
 
 
 # ---------------------------------------------------------------------------- #
@@ -336,16 +340,25 @@ def get_config_aliases():
                 'MODEL.USE_1NN': True,
                 'MODEL.LINEAR_FROM_FEATURES': True,
                 'MODEL.LINEAR_FROM_IMAGES': False,
+                'MODEL.USE_LOGISTIC_REGRESSION': False,
             },
             'from_features': {
                 'MODEL.USE_1NN': False,
                 'MODEL.LINEAR_FROM_FEATURES': True,
                 'MODEL.LINEAR_FROM_IMAGES': False,
+                'MODEL.USE_LOGISTIC_REGRESSION': False,
+            },
+            'logistic_from_features': {
+                'MODEL.USE_1NN': False,
+                'MODEL.LINEAR_FROM_FEATURES': True,
+                'MODEL.LINEAR_FROM_IMAGES': False,
+                'MODEL.USE_LOGISTIC_REGRESSION': True,
             },
             'from_images': {
                 'MODEL.USE_1NN': False,
                 'MODEL.LINEAR_FROM_FEATURES': False,
                 'MODEL.LINEAR_FROM_IMAGES': True,
+                'MODEL.USE_LOGISTIC_REGRESSION': False,
             },
         },
         'debug': {

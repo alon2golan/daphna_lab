@@ -4,7 +4,7 @@
 #SBATCH -c 4
 #SBATCH --time=36:00:00
 #SBATCH --gres=gg:g0:1
-#SBATCH --array=0-12
+#SBATCH --array=0-12%4
 #SBATCH --output /cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/sigma_probe_seed2/cifar10/linear/local_sigma/maxherding_cifar10_seed2_linear_k%a-%A.txt
 #SBATCH --error /cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/sigma_probe_seed2/cifar10/linear/local_sigma/maxherding_cifar10_seed2_linear_k%a-%A.err
 #SBATCH --killable

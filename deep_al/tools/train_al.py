@@ -230,8 +230,9 @@ def main(cfg):
     # Construct the optimizer
     model = mh.get_model(cfg)
     optimizer = optim.construct_optimizer(cfg, model)
-    opt_init_state = deepcopy(optimizer.state_dict()) if not cfg.MODEL.USE_1NN else None
-    model_init_state = deepcopy(model.state_dict().copy()) if not cfg.MODEL.USE_1NN else None
+    non_torch_eval_model = cfg.MODEL.USE_1NN or bool(getattr(cfg.MODEL, 'USE_LOGISTIC_REGRESSION', False))
+    opt_init_state = deepcopy(optimizer.state_dict()) if not non_torch_eval_model else None
+    model_init_state = deepcopy(model.state_dict().copy()) if not non_torch_eval_model else None
 
     # print("optimizer: {}\n".format(optimizer))
     # logger.info("optimizer: {}\n".format(optimizer))
@@ -401,6 +402,32 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
 
         return test_acc, 0, train_acc, None, model, []
 
+    if getattr(cfg.MODEL, 'USE_LOGISTIC_REGRESSION', False):
+
+        def _collect_full(loader):
+            xs, ys = [], []
+            for xb, yb in loader:
+                if hasattr(xb, "detach"):
+                    xb = xb.detach().cpu().numpy()
+                if hasattr(yb, "detach"):
+                    yb = yb.detach().cpu().numpy()
+                xs.append(xb)
+                ys.append(yb)
+            return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
+
+        train_data, train_labels = _collect_full(train_loader)
+        print(f"LogReg fit: train_data={train_data.shape} labels={train_labels.shape}")
+        model.fit(train_data, train_labels)
+
+        val_data, val_labels = _collect_full(val_loader)
+        print(f"LogReg eval: val_data={val_data.shape} labels={val_labels.shape}")
+        preds = model.predict(val_data)
+        val_acc = 100. * (preds == np.array(val_labels)).mean()
+        train_preds = model.predict(train_data)
+        train_acc = 100. * (train_preds == np.array(train_labels)).mean()
+
+        return val_acc, 0, train_acc, None, model, []
+
     start_epoch = 0
     loss_fun = losses.get_loss_fun()
 
@@ -490,6 +517,11 @@ def test_model(test_loader, checkpoint_file, cfg, cur_episode, model, plotting_m
 
     if cfg.MODEL.USE_1NN:
         # # 1NN model does not have a predict method, so we use the fit method to train it
+        data = test_loader.dataset.features
+        labels = test_loader.dataset.targets
+        preds = model.predict(data)
+        test_acc = 100. * (preds == np.array(labels)).mean()
+    elif getattr(cfg.MODEL, 'USE_LOGISTIC_REGRESSION', False):
         data = test_loader.dataset.features
         labels = test_loader.dataset.targets
         preds = model.predict(data)

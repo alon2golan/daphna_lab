@@ -7,7 +7,7 @@ def get_model(cfg, ckpt_file=None, model_init_state=None):
     model = model_builder.build_model(cfg)
     if ckpt_file is not None:
         model = cu.load_checkpoint(ckpt_file, model, weights_only=False)
-    if model_init_state is not None and not cfg.MODEL.USE_1NN:
+    if model_init_state is not None and not cfg.MODEL.USE_1NN and not getattr(cfg.MODEL, 'USE_LOGISTIC_REGRESSION', False):
         model.load_state_dict(model_init_state)
     return model
 
@@ -43,4 +43,3 @@ def get_label_epoch(images_loader, model, get_label_meter):
     model.train()
 
     return final_preds
-

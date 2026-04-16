@@ -9,7 +9,7 @@ import numpy as np
 
 
 K_PATTERN = re.compile(
-    r"maxherding_(?P<dataset>cifar10|cifar100)_seed2_(?P<mode>nn1|linear)_"
+    r"maxherding_(?P<dataset>cifar10|cifar100)_seed2_(?P<mode>nn1|linear|logistic)_"
     r"(?P<sigma>global_sigma|local_sigma_k(?P<k>\d+))_"
 )
 
@@ -143,8 +143,10 @@ def main():
     targets = [
         ("cifar10", "nn1", outdir / "cifar10_nn1_seed2_sigma_probe.csv"),
         ("cifar10", "linear", outdir / "cifar10_linear_seed2_sigma_probe.csv"),
+        ("cifar10", "logistic", outdir / "cifar10_logistic_seed2_sigma_probe.csv"),
         ("cifar100", "nn1", outdir / "cifar100_nn1_seed2_sigma_probe.csv"),
         ("cifar100", "linear", outdir / "cifar100_linear_seed2_sigma_probe.csv"),
+        ("cifar100", "logistic", outdir / "cifar100_logistic_seed2_sigma_probe.csv"),
     ]
 
     for dataset, mode, output_path in targets:

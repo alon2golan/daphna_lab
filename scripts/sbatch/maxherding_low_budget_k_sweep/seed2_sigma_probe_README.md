@@ -12,18 +12,23 @@ Datasets and budgets:
 Eval modes:
 - `NN1`: 1-nearest-neighbor on fixed SSL features
 - `from_features`: linear separator on fixed SSL features
+- `logistic_from_features`: scikit-learn logistic regression on fixed SSL features
 
 Global reference scripts:
 - `maxherding_cifar10_seed2_nn1_global_reference.sh`
 - `maxherding_cifar100_seed2_nn1_global_reference.sh`
 - `maxherding_cifar10_seed2_linear_global_reference.sh`
 - `maxherding_cifar100_seed2_linear_global_reference.sh`
+- `maxherding_cifar10_seed2_logistic_global_reference.sh`
+- `maxherding_cifar100_seed2_logistic_global_reference.sh`
 
 Local-sigma sigma-probe scripts:
 - `maxherding_cifar10_seed2_nn1_sigma_probe.sh`
 - `maxherding_cifar100_seed2_nn1_sigma_probe.sh`
 - `maxherding_cifar10_seed2_linear_sigma_probe.sh`
 - `maxherding_cifar100_seed2_linear_sigma_probe.sh`
+- `maxherding_cifar10_seed2_logistic_sigma_probe.sh`
+- `maxherding_cifar100_seed2_logistic_sigma_probe.sh`
 
 Unified K grid used by all sigma-probe arrays:
 - `3, 7, 60, 480, 1440, 2000, 3500, 5000, 10000, 20000, 30000, 35000, 40000`

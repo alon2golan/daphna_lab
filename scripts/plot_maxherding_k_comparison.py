@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 
 ROOT = Path("/cs/labs/daphna/ido.dotan/projects/daphna_lab")
-VIS_DIR = ROOT / "visual_outputs"
+VIS_DIR = ROOT / "visual_outputs" / "maxherding" / "seed1_curve_comparisons"
 SUMMARY_DIR = ROOT / "results_summaries"
 BASE = ROOT / "outputs" / "maxherding" / "low_budget_k_sweep"
 

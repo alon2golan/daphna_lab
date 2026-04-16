@@ -12,6 +12,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import LogisticRegression
 # Supported models
 _models = {
     # VGG style architectures
@@ -82,6 +83,17 @@ def build_model(cfg):
     if cfg.MODEL.USE_1NN:
         model = KNeighborsClassifier(n_neighbors=1)
         return model
+
+    if getattr(cfg.MODEL, 'USE_LOGISTIC_REGRESSION', False):
+        return LogisticRegression(
+            penalty='l2',
+            C=1.0,
+            solver='lbfgs',
+            multi_class='auto',
+            max_iter=2000,
+            n_jobs=None,
+            random_state=int(cfg.RNG_SEED) if cfg.RNG_SEED is not None else None,
+        )
 
     elif cfg.MODEL.LINEAR_FROM_FEATURES:
         num_features = 384 if cfg.DATASET.NAME in ['IMAGENET50', 'IMAGENET100', 'IMAGENET200'] else 512
