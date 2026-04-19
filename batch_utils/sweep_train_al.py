@@ -424,37 +424,105 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Submit or run a sweep of train_al.py jobs.\n"
+            "\n"
             "Modes:\n"
             "  (default)      Dry-run: print the generated script\n"
-            "  --submit       Write _generated_sweep.sh and sbatch it  "
-                             "(run from phoenix-gw)\n"
-            "  --local        Run all jobs sequentially on THIS machine "
-                             "(run from takara or any GPU machine)"
+            "  --submit       Write _generated_sweep.sh and sbatch it  (run from phoenix-gw)\n"
+            "  --local        Run all jobs sequentially on THIS machine (run from takara)\n"
+            "\n"
+            "Sweep variants (override the hardcoded AL_CONFIGS):\n"
+            "  --tau 0.2 0.5 0.8 1.0        → one config per tau value\n"
+            "  --target_nu 0.0 0.1 0.2 0.5  → one config per target_nu value\n"
+            "If neither is given, the hardcoded AL_CONFIGS list is used.\n"
+            "\n"
+            "Grid overrides:\n"
+            "  --al probcover random maxherding\n"
+            "  --seed 1 2 3\n"
+            "  --budget 100\n"
+            "  --cfg deep_al/configs/cifar100/al/RESNET18.yaml\n"
+            "\n"
+            "Examples:\n"
+            "  # tau sweep, probcover + random, 3 seeds\n"
+            "  python batch_utils/sweep_train_al.py --tau 0.2 0.5 0.8 1.0 --submit\n"
+            "\n"
+            "  # target_nu sweep, only maxherding\n"
+            "  python batch_utils/sweep_train_al.py --target_nu 0.0 0.1 0.2 0.3 0.5 --al maxherding --submit\n"
+            "\n"
+            "  # larger budget\n"
+            "  python batch_utils/sweep_train_al.py --target_nu 0.0 0.3 --budget 200 --submit\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
-        "--submit",
-        action="store_true",
-        help="Write the generated .sh script and submit via sbatch (from phoenix-gw)",
-    )
-    parser.add_argument(
-        "--local",
-        action="store_true",
-        help="Run all jobs sequentially on the current machine (from takara)",
-    )
+    parser.add_argument("--submit", action="store_true",
+                        help="Write the generated .sh script and submit via sbatch (from phoenix-gw)")
+    parser.add_argument("--local",  action="store_true",
+                        help="Run all jobs sequentially on the current machine (from takara)")
+
+    # ── sweep variant (mutually exclusive) ────────────────────────────────
+    variant = parser.add_mutually_exclusive_group()
+    variant.add_argument("--tau",       nargs="+", type=float, metavar="TAU",
+                         help="Run one config per tau value (e.g. --tau 0.2 0.5 0.8 1.0)")
+    variant.add_argument("--target_nu", nargs="+", type=float, metavar="NU",
+                         help="Run one config per target_nu value (e.g. --target_nu 0.0 0.1 0.2 0.5)")
+
+    # ── grid overrides ─────────────────────────────────────────────────────
+    parser.add_argument("--al",     nargs="+", default=None,
+                        metavar="METHOD",
+                        help=f"AL methods to sweep (default: {GRID['al']})")
+    parser.add_argument("--seed",   nargs="+", type=int, default=None,
+                        metavar="SEED",
+                        help=f"Seeds to sweep (default: {GRID['seed']})")
+    parser.add_argument("--budget", type=int, default=None,
+                        help="Budget (default: taken from FIXED_ARGS)")
+    parser.add_argument("--cfg",    default=None,
+                        help="Config yaml path (default: deep_al/configs/cifar100/al/RESNET18.yaml)")
+
     args = parser.parse_args()
 
     if args.submit and args.local:
         parser.error("--submit and --local are mutually exclusive.")
 
-    jobs = build_jobs()
+    # ── Build AL_CONFIGS from CLI or fall back to hardcoded ────────────────
+    cfg_path = args.cfg or "deep_al/configs/cifar100/al/RESNET18.yaml"
+
+    if args.tau is not None:
+        al_configs = [
+            f"--cfg {cfg_path} --tau {t}"
+            for t in args.tau
+        ]
+    elif args.target_nu is not None:
+        al_configs = [
+            f"--cfg {cfg_path} --target_nu {nu}"
+            for nu in args.target_nu
+        ]
+    else:
+        al_configs = AL_CONFIGS  # hardcoded default
+
+    # ── Build GRID from CLI or fall back to hardcoded ──────────────────────
+    grid = dict(GRID)  # copy
+    if args.al is not None:
+        grid["al"] = args.al
+    if args.seed is not None:
+        grid["seed"] = args.seed
+
+    # ── Build FIXED_ARGS with optional budget override ─────────────────────
+    fixed_args = FIXED_ARGS
+    if args.budget is not None:
+        # replace --budget N in fixed_args
+        import re
+        fixed_args = re.sub(r"--budget\s+\S+", f"--budget {args.budget}", fixed_args)
+        if "--budget" not in fixed_args:
+            fixed_args += f" --budget {args.budget}"
+
+    # ── Print plan ─────────────────────────────────────────────────────────
+    jobs = build_jobs_from(al_configs, grid, fixed_args)
     script = build_array_script(jobs)
 
-    print(f"AL_CONFIGS ({len(AL_CONFIGS)} variants):")
-    for c in AL_CONFIGS:
+    print(f"\nAL_CONFIGS ({len(al_configs)} variants):")
+    for c in al_configs:
         print(f"  {c}")
-    print(f"\nGRID: {GRID}")
+    print(f"\nGRID: {grid}")
+    print(f"FIXED_ARGS: {fixed_args.strip()}")
     print(f"\nTotal jobs: {len(jobs)}\n")
 
     if args.local:
@@ -483,3 +551,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -494,13 +494,52 @@ with tab_compare:
     if df.empty:
         st.info("No results yet. Start a sweep from the 🚀 Launch tab.")
     else:
+        # ── Filters ───────────────────────────────────────────────────────
+        fcol1, fcol2, fcol3 = st.columns(3)
+
         # Sweep filter
         all_sweep_names = sorted(df["sweep_name"].unique().tolist())
-        sel_sweeps = st.multiselect(
-            "Filter by sweep(s)  (empty = all sweeps)",
+        sel_sweeps = fcol1.multiselect(
+            "Sweep(s)  (empty = all)",
             options=all_sweep_names,
         )
-        cmp_df = df[df["sweep_name"].isin(sel_sweeps)] if sel_sweeps else df
+
+        # AL method filter
+        _al_col = "p_al_method" if "p_al_method" in df.columns else None
+        if _al_col:
+            all_methods = sorted(df[_al_col].dropna().unique().tolist())
+            sel_methods = fcol2.multiselect(
+                "AL method(s)  (empty = all)",
+                options=all_methods,
+            )
+        else:
+            sel_methods = []
+
+        # target_nu filter
+        _nu_col = "p_target_nu" if "p_target_nu" in df.columns else None
+        if _nu_col:
+            all_nus = sorted(df[_nu_col].dropna().unique().tolist())
+            sel_nus = fcol3.multiselect(
+                "target_nu  (empty = all)",
+                options=[f"{v:.2f}" if isinstance(v, float) else str(v) for v in all_nus],
+            )
+            # convert back to original dtype for comparison
+            _nu_map = {
+                f"{v:.2f}" if isinstance(v, float) else str(v): v
+                for v in all_nus
+            }
+            sel_nus_vals = [_nu_map[s] for s in sel_nus]
+        else:
+            sel_nus_vals = []
+
+        # Apply filters
+        cmp_df = df.copy()
+        if sel_sweeps:
+            cmp_df = cmp_df[cmp_df["sweep_name"].isin(sel_sweeps)]
+        if sel_methods and _al_col:
+            cmp_df = cmp_df[cmp_df[_al_col].isin(sel_methods)]
+        if sel_nus_vals and _nu_col:
+            cmp_df = cmp_df[cmp_df[_nu_col].isin(sel_nus_vals)]
 
         agg_list = get_all_aggregated(cmp_df)
         if not agg_list:
