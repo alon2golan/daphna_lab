@@ -64,6 +64,7 @@ class   CoverageMatrixMethod:
         self.kernel_build_batch_size = getattr(self.cfg, 'KERNEL_BUILD_BATCH_SIZE', 1024)
 
         self.kernel_type = self.cfg.KERNEL_TYPE if 'KERNEL_TYPE' in self.cfg else 'rbf'
+        self.rbf_cutoff_mode = getattr(self.cfg, 'RBF_CUTOFF_MODE', 'none')
         self.use_local_sigma = bool(getattr(self.cfg, 'LOCAL_SIGMA', False))
         self.local_sigma_k = int(getattr(self.cfg, 'LOCAL_SIGMA_K', 7))
 
@@ -82,16 +83,23 @@ class   CoverageMatrixMethod:
         if self.kernel_type == 'tophat':
             self.kernel_fn = TopHatKernel('cuda')
             initial_threshold = self.delta
+            rbf_keep_mode = 'kernel_value'
         else:
             self.kernel_fn = RBFKernel('cuda')
-            if self.use_sparse:
+            if self.rbf_cutoff_mode == 'probcover':
+                initial_threshold = self.delta
+                rbf_keep_mode = 'local_probcover' if self.use_local_sigma else 'distance'
+            elif self.use_sparse:
                 if self.use_local_sigma:
-                    # Keep the same distance-based sparsity rule: keep edges with d < delta
+                    # Preserve the existing sparse local-sigma behavior by default.
                     initial_threshold = self.delta
+                    rbf_keep_mode = 'distance'
                 else:
                     initial_threshold = np.exp(-1.0 * (self.delta / self.sigma) ** 2)
+                    rbf_keep_mode = 'kernel_value'
             else:
                 initial_threshold = 0.0
+                rbf_keep_mode = 'kernel_value'
 
         self.K_general = build_K_general_matrix(
             self.all_features,
@@ -105,7 +113,7 @@ class   CoverageMatrixMethod:
             kernel_fn=self.kernel_fn,
             zero_indices=None,
             local_sigma=self.local_sigma,
-            threshold_is_distance=(self.use_local_sigma and self.kernel_type == 'rbf'),
+            rbf_keep_mode=rbf_keep_mode,
         )
 
         self.C_general = torch.full((self.all_features.shape[0], unique_labels.size), self.alpha, device=self.device,

@@ -159,7 +159,9 @@ def _compute_keep_mask(
         *,
         kernel_type,
         threshold,
-        threshold_is_distance,
+        rbf_keep_mode='kernel_value',
+        local_sigma_i=None,
+        local_sigma_j=None,
 ):
     """
     Compute the sparsity mask for a kernel block.
@@ -169,14 +171,24 @@ def _compute_keep_mask(
         kernel_block (torch.Tensor): Kernel values (B x B').
         kernel_type (str): 'rbf' or 'tophat'.
         threshold (float): Threshold value (kernel-value threshold or distance cutoff).
-        threshold_is_distance (bool): If True and kernel_type=='rbf', threshold is a distance cutoff.
+        rbf_keep_mode (str): For RBF, one of:
+            - 'kernel_value': keep entries with kernel value > threshold
+            - 'distance': keep entries with raw distance < threshold
+            - 'local_probcover': keep entries satisfying d^2 / (sigma_i sigma_j) < threshold^2
+        local_sigma_i (torch.Tensor, optional): Local sigma for rows (B x 1).
+        local_sigma_j (torch.Tensor, optional): Local sigma for cols (1 x B').
 
     Returns:
         torch.Tensor: Boolean mask for entries to keep.
     """
-    if kernel_type == 'rbf' and threshold_is_distance:
-        return dist_block < threshold
     if kernel_type == 'rbf':
+        if rbf_keep_mode == 'distance':
+            return dist_block < threshold
+        if rbf_keep_mode == 'local_probcover':
+            if local_sigma_i is None or local_sigma_j is None:
+                raise ValueError("local_probcover keep mode requires local sigma values")
+            denom = torch.clamp(local_sigma_i * local_sigma_j, min=1e-12)
+            return (dist_block ** 2) / denom < (threshold ** 2)
         return kernel_block > threshold
     return kernel_block > 0
 
@@ -194,7 +206,7 @@ def build_sparse_kernel_matrix(
         prev_threshold=None,
         capture_zero_contrib=False,
         local_sigma=None,
-        threshold_is_distance=False,
+        rbf_keep_mode='kernel_value',
 ):
     """
     Build a symmetric sparse kernel matrix in CSR format without materializing the full dense matrix.
@@ -217,8 +229,7 @@ def build_sparse_kernel_matrix(
         local_sigma (array-like or torch.Tensor, optional): Per-point sigma values for
             self-tuning kernels. When provided, kernel values are computed using
             exp(-d^2 / (sigma_i * sigma_j)) and tophat uses normalized distance.
-        threshold_is_distance (bool): If True and kernel_type=='rbf', the threshold is
-            interpreted as a distance cutoff (keep edges where d < threshold).
+        rbf_keep_mode (str): For RBF, the keep-mask mode used when sparsifying.
 
     Returns:
         scipy.sparse.csr_matrix: Symmetric sparse kernel matrix (N x N).
@@ -298,7 +309,9 @@ def build_sparse_kernel_matrix(
                     kernel_block,
                     kernel_type=kernel_type,
                     threshold=thresh_val,
-                    threshold_is_distance=threshold_is_distance,
+                    rbf_keep_mode=rbf_keep_mode,
+                    local_sigma_i=sigma_i,
+                    local_sigma_j=sigma_j,
                 )
 
                 nz_rows, nz_cols = torch.nonzero(mask, as_tuple=True)
@@ -323,8 +336,11 @@ def build_sparse_kernel_matrix(
                 if not capture_zero_contrib:
                     continue
 
-                if kernel_type == 'rbf' and threshold_is_distance:
+                if kernel_type == 'rbf' and rbf_keep_mode == 'distance':
                     prev_keep_mask = dist_block < prev_thresh_val
+                elif kernel_type == 'rbf' and rbf_keep_mode == 'local_probcover':
+                    denom = torch.clamp(sigma_i * sigma_j, min=1e-12)
+                    prev_keep_mask = (dist_block ** 2) / denom < (prev_thresh_val ** 2)
                 elif kernel_type == 'rbf':
                     prev_keep_mask = kernel_block > prev_thresh_val
                 else:
@@ -410,7 +426,7 @@ def build_K_general_matrix(
         diff_method=None,
         cum_labels_info=None,
         local_sigma=None,
-        threshold_is_distance=False,
+        rbf_keep_mode='kernel_value',
 ):
     """
     Build a kernel matrix (sparse or dense) based on the provided parameters.
@@ -433,7 +449,7 @@ def build_K_general_matrix(
         diff_method: The differencing method (required for label connection updates).
         cum_labels_info: Cumulative labels info tensor (optional, for non-prob_cover/max_herding methods).
         local_sigma: Per-point sigma values for self-tuning kernels.
-        threshold_is_distance: If True and kernel_type=='rbf', threshold is a distance cutoff.
+        rbf_keep_mode: For RBF, the keep-mask mode used when sparsifying / zeroing.
 
     Returns:
         K_matrix: The kernel matrix (sparse CSR or dense tensor).
@@ -472,7 +488,7 @@ def build_K_general_matrix(
             prev_threshold=prev_thresh_val,
             capture_zero_contrib=should_capture,
             local_sigma=local_sigma,
-            threshold_is_distance=threshold_is_distance,
+            rbf_keep_mode=rbf_keep_mode,
         )
         if should_capture:
             K_matrix, zero_contrib = build_result
@@ -528,7 +544,9 @@ def build_K_general_matrix(
             dense_K,
             kernel_type=kernel_type,
             threshold=thresh_val,
-            threshold_is_distance=threshold_is_distance,
+            rbf_keep_mode=rbf_keep_mode,
+            local_sigma_i=sigma_i,
+            local_sigma_j=sigma_j,
         )
         dense_K = torch.where(keep_mask, dense_K, torch.zeros_like(dense_K))
 

@@ -82,6 +82,7 @@ _C.MODEL.USE_1NN = False
 _C.MODEL.LINEAR_FROM_FEATURES = False
 _C.MODEL.LINEAR_FROM_IMAGES = False
 _C.MODEL.USE_LOGISTIC_REGRESSION = False
+_C.RBF_CUTOFF_MODE = 'none'
 
 
 # ---------------------------------------------------------------------------- #
@@ -458,6 +459,7 @@ def build_args_dict(args):
         'EVAL_MODEL_TYPE': args.eval_model_type,
         'ACTIVE_LEARNING.MAX_ITER': args.max_iter,
         'SPARSE_K': args.sparse_K,
+        'RBF_CUTOFF_MODE': args.rbf_cutoff_mode,
         'MATRIX_DTYPE': args.matrix_dtype,
         'DATASET.FEATURES_TAG': args.features_tag,
         'LOCAL_SIGMA': args.local_sigma,

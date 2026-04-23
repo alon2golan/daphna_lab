@@ -63,6 +63,8 @@ def argparser():
     parser.add_argument('--max_iter', default=32, type=int)
     parser.add_argument('--initial_sigma', default=1.0, type=float)
     parser.add_argument('--sparse_K', action='store_true')
+    parser.add_argument('--rbf_cutoff_mode', default='none', choices=['none', 'probcover'],
+                        help='Optional cutoff for RBF kernels. "probcover" keeps smooth RBF values but zeros entries outside the ProbCover threshold.')
     parser.add_argument('--matrix_dtype', type=str, default=None, choices=['float32', 'float16'], help="Choose torch dtype: float32 or float16")
     parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
     parser.add_argument('--features_normalized', dest='features_normalized', action='store_true',
