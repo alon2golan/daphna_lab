@@ -38,12 +38,12 @@ BASE_OUTPUT_PATH = os.path.join(REPO_BASE, "visual_outputs")
 #              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_7'),
 #              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_10')]
 
-ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_4'),
-             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_5'),
-             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_7'),
-             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_10'),
-             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_11'),
-             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_12')]
+#ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_4'),
+#             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_5'),
+#             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_7'),
+#             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_10'),
+#             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_11'),
+#             os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_12')]
 
 # ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_10_26'),
 #              os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_10_23'),
@@ -59,6 +59,9 @@ ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2025_11_4'),
 #              os.path.join(REPO_BASE, 'output/SCENARIO_A/resnet18/2025_10_22')
 #              ]
 
+ROOT_DIRS = [os.path.join(REPO_BASE, 'output/CIFAR10/resnet18/2026_4_29')]
+
+
 # Store all the data in a structured form
 records = []
 eval_models = ["from_features", "from_images", "NN1"]
@@ -68,9 +71,10 @@ for root_dir in ROOT_DIRS:
     files_names = os.listdir(root_dir)
 
     for folder_name in files_names:
-        # check within each folder if the folder episode_31 exists if not continue
-        if not os.path.isdir(os.path.join(root_dir, folder_name, 'episode_50')):
-            continue
+        # check within each folder if the folder episode_50 exists if not continue
+        #if not os.path.isdir(os.path.join(root_dir, folder_name, 'episode_50')):
+        #if not os.path.exists(os.path.join(root_dir, folder_name, 'episode_5')):
+        #    continue
         folder_path = os.path.join(root_dir, folder_name)
         config_path = os.path.join(folder_path, 'config.yaml')
         with open(config_path, 'r') as file:
@@ -242,6 +246,7 @@ for idx, row in seed0_full_cifar_10_df.iterrows():
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 #increase plot size
 plt.gcf().set_size_inches(20, 12)
+plt.savefig('my_results_plot.png')
 plt.show()
 relevant_seeds_df.to_parquet(full_path)
 

@@ -34,4 +34,4 @@ output/
 data/
 results/
 /datasets/
-/scan/datasets/
+/scan/datasets/wandb/

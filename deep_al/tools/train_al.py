@@ -4,6 +4,7 @@ from datetime import datetime
 import argparse
 import numpy as np
 import time
+import wandb
 
 # Ensure repo root is in sys.path for clean imports
 _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -162,8 +163,20 @@ def main(cfg):
     # Save the config file in EXP_DIR and OUT_DIR
     dump_cfg(cfg)
 
+    # Determine the run name based on your arguments
+    run_name = f"{cfg.ACTIVE_LEARNING.SAMPLING_FN}_b{args.budget}_s{cfg.RNG_SEED}"
+
     # Setup Logger
     lu.setup_logging(cfg)
+
+    wandb.init(project="daphna_lab",
+               name=f"{cfg.ACTIVE_LEARNING.SAMPLING_FN}_s{cfg.RNG_SEED}",
+               config=cfg)
+
+
+    # Set all accuracy metrics to use num_labeled as their x-axis
+    wandb.define_metric("test_accuracy", step_metric="num_labeled")
+    wandb.define_metric("train_accuracy", step_metric="num_labeled")
 
     # Dataset preparing steps
     print("\n======== PREPARING DATA AND MODEL ========\n")
@@ -259,6 +272,14 @@ def main(cfg):
         final_train_acc = best_train_acc
         final_val_acc = best_val_acc
         final_test_acc = test_acc
+        wandb.log({
+            "num_labeled": len(lSet),  # This must match the define_metric name exactly
+            "test_accuracy": test_acc,
+            "train_accuracy": best_train_acc,
+            "episode": cur_episode,
+            # Method-specific metric
+            "accuracy/" + cfg.ACTIVE_LEARNING.SAMPLING_FN: test_acc
+        })
 
         # No need to perform active sampling in the last episode iteration
         if cur_episode == cfg.ACTIVE_LEARNING.MAX_ITER:
