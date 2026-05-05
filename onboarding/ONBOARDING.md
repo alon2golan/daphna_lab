@@ -70,7 +70,7 @@ Now you have to install the requirements inside the virtual env:
 ```
 cd /cs/labs/daphna/<user>/projects/daphna_lab/
 source venv/bin/activate
-pip install -r deep-al/requirements.txt
+pip install -r deep_al/requirements.txt
 ```
 
 ### Create an Alias (Optional)
