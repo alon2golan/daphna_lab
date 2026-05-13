@@ -61,6 +61,7 @@ def argparser():
     parser.add_argument('--sparse_K', action='store_true')
     parser.add_argument('--matrix_dtype', type=str, default=None, choices=['float32', 'float16'], help="Choose torch dtype: float32 or float16")
     parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
+    parser.add_argument('--group', type=str, default=None, help='W&B group name')
     return parser
 
 
@@ -133,8 +134,7 @@ def setup_experiment_directory(cfg):
         exp_prefix = f"{cfg.EXP_NAME}_"
     
     exp_suffix = f'{now.year}_{now.month}_{now.day}_{now.hour:02}{now.minute:02}{now.second:02}_{now.microsecond}'
-    exp_name = f'{exp_prefix}{cfg.DATASET.NAME}_{cfg.ACTIVE_LEARNING.SAMPLING_FN}_{cfg.EVAL_MODEL_TYPE}_{exp_suffix}'
-    
+    exp_name = f'{exp_prefix}{cfg.DATASET.NAME}_{cfg.ACTIVE_LEARNING.SAMPLING_FN}_{args.eval_model_type}_{exp_suffix}'
     # Create experiment directory
     exp_dir = os.path.join(full_day_dir, exp_name)
     if not os.path.exists(exp_dir):
@@ -163,15 +163,15 @@ def main(cfg):
     # Save the config file in EXP_DIR and OUT_DIR
     dump_cfg(cfg)
 
-    # Determine the run name based on your arguments
-    run_name = f"{cfg.ACTIVE_LEARNING.SAMPLING_FN}_b{args.budget}_s{cfg.RNG_SEED}"
-
     # Setup Logger
     lu.setup_logging(cfg)
 
-    wandb.init(project="daphna_lab",
-               name=f"{cfg.ACTIVE_LEARNING.SAMPLING_FN}_s{cfg.RNG_SEED}",
-               config=cfg)
+    wandb.init(
+        project="daphna_lab",
+        name=cfg.EXP_NAME,
+        group=args.group,
+        config=cfg
+    )
 
 
     # Set all accuracy metrics to use num_labeled as their x-axis
