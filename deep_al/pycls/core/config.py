@@ -78,6 +78,9 @@ _C.MODEL.TYPE = ''
 _C.MODEL.NUM_CLASSES = 10
 # Loss function (see pycls/models/loss.py for options)
 _C.MODEL.LOSS_FUN = 'cross_entropy'
+_C.MODEL.USE_1NN = False
+_C.MODEL.LINEAR_FROM_FEATURES = False
+_C.MODEL.LINEAR_FROM_IMAGES = False
 
 
 # ---------------------------------------------------------------------------- #
