@@ -178,7 +178,7 @@ class CoreSetMIPSampling():
     def query(self, lSet, uSet, clf_model, dataset):
 
         assert clf_model.training == False, "Classification model expected in training mode"
-        assert clf_model.penultimate_active == True,"Classification model is expected in penultimate mode"    
+        assert clf_model.penultimate_active == True,"Classification model is expected in penultimate mode"
         
         print("Extracting Lset Representations")
         lb_repr = self.get_representation(clf_model=clf_model, idx_set=lSet, dataset=dataset)
@@ -202,6 +202,12 @@ class CoreSetMIPSampling():
         return activeSet, remainSet
     
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None, current_iteration=None, batch_idx=None, checkpoint_file=None):
+
+        # UNIVERSAL COLD START
+        if len(lSet) == 0:
+            print("Labeled set empty. CoreSet picking initial pool randomly.")
+            return np.random.choice(uSet, self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, replace=False), uSet
+
         """
         Unified interface for CoreSet MIP sampling.
         Handles model state management and delegates to query method.
@@ -634,7 +640,12 @@ class Sampling:
         """
         sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
         budget_size = self.cfg.ACTIVE_LEARNING.BUDGET_SIZE
-        
+
+        # UNIVERSAL COLD START
+        if len(lSet) == 0 and sampling_fn != "random":
+            print(f"Cold Start: {sampling_fn} is picking the initial pool randomly.")
+            return self.random(uSet=uSet, budgetSize=budget_size)
+
         if sampling_fn == "random":
             activeSet, remainSet = self.random(uSet=uSet, budgetSize=budget_size)
         elif sampling_fn == "uncertainty":

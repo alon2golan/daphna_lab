@@ -62,6 +62,8 @@ def argparser():
     parser.add_argument('--matrix_dtype', type=str, default=None, choices=['float32', 'float16'], help="Choose torch dtype: float32 or float16")
     parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
     parser.add_argument('--group', type=str, default=None, help='W&B group name')
+    parser.add_argument('--collection', dest='job_type', type=str, default=None,
+                        help='High-level grouping for the entire benchmark')
     return parser
 
 
@@ -147,7 +149,7 @@ def setup_experiment_directory(cfg):
     return exp_dir
 
 
-def main(cfg):
+def main(cfg, args):
     plotting_manager = PlottingManager()
     print("RNG_SEED is set to {}".format(cfg.RNG_SEED))
     # Setting up GPU args
@@ -169,7 +171,8 @@ def main(cfg):
     wandb.init(
         project="daphna_lab",
         name=cfg.EXP_NAME,
-        group=args.group,
+        group=args.group, # e.g., "TypiClust"
+        job_type=args.job_type, #e.g., "Fig4_CIFAR10_Benchmark
         config=cfg
     )
 
@@ -621,4 +624,4 @@ if __name__ == "__main__":
     args = argparser().parse_args()
     cfg_instance = setup_cfg(args)
     # Run main with the initialized config
-    main(cfg_instance)
+    main(cfg_instance, args)
