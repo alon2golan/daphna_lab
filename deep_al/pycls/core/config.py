@@ -83,6 +83,14 @@ _C.MODEL.LINEAR_FROM_FEATURES = False
 _C.MODEL.LINEAR_FROM_IMAGES = False
 _C.MODEL.USE_LOGISTIC_REGRESSION = False
 _C.RBF_CUTOFF_MODE = 'none'
+_C.DENSITY_NORMALIZE_KERNEL = False
+_C.DENSITY_NORM_ALPHA = 0.5
+_C.DENSITY_NORM_MODE = 'symmetric'
+_C.DENSITY_NORM_DEGREE = 'effective'
+_C.DENSITY_NORM_MIN_DEGREE = 1.0
+_C.DENSITY_NORM_SCHEDULE = 'constant'
+_C.DENSITY_NORM_SCHEDULE_STEPS = 3
+_C.CURRENT_SAMPLING_ROUND = 0
 
 
 # ---------------------------------------------------------------------------- #
@@ -461,6 +469,13 @@ def build_args_dict(args):
         'SPARSE_K': args.sparse_K,
         'RBF_CUTOFF_MODE': args.rbf_cutoff_mode,
         'MATRIX_DTYPE': args.matrix_dtype,
+        'DENSITY_NORMALIZE_KERNEL': args.density_normalize_kernel,
+        'DENSITY_NORM_ALPHA': args.density_norm_alpha,
+        'DENSITY_NORM_MODE': args.density_norm_mode,
+        'DENSITY_NORM_DEGREE': args.density_norm_degree,
+        'DENSITY_NORM_MIN_DEGREE': args.density_norm_min_degree,
+        'DENSITY_NORM_SCHEDULE': args.density_norm_schedule,
+        'DENSITY_NORM_SCHEDULE_STEPS': args.density_norm_schedule_steps,
         'DATASET.FEATURES_TAG': args.features_tag,
         'LOCAL_SIGMA': args.local_sigma,
         'LOCAL_SIGMA_K': args.local_sigma_k,

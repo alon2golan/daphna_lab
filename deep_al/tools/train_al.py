@@ -66,6 +66,23 @@ def argparser():
     parser.add_argument('--rbf_cutoff_mode', default='none', choices=['none', 'probcover'],
                         help='Optional cutoff for RBF kernels. "probcover" keeps smooth RBF values but zeros entries outside the ProbCover threshold.')
     parser.add_argument('--matrix_dtype', type=str, default=None, choices=['float32', 'float16'], help="Choose torch dtype: float32 or float16")
+    parser.add_argument('--density_normalize_kernel', action='store_true',
+                        help='Normalize kernel values by graph density after building K')
+    parser.add_argument('--density_norm_alpha', default=0.5, type=float,
+                        help='Exponent for density normalization. 0 disables the effect.')
+    parser.add_argument('--density_norm_mode', default='symmetric',
+                        choices=['source', 'target', 'symmetric'],
+                        help='Which side of K to normalize by graph density')
+    parser.add_argument('--density_norm_degree', default='effective',
+                        choices=['effective', 'weighted'],
+                        help='Use nonzero count or weighted row sum as graph density')
+    parser.add_argument('--density_norm_min_degree', default=1.0, type=float,
+                        help='Minimum degree floor used to avoid exploding sparse-point weights')
+    parser.add_argument('--density_norm_schedule', default='constant',
+                        choices=['constant', 'linear_decay', 'early_only', 'three_phase'],
+                        help='Schedule for density_norm_alpha across sampling rounds')
+    parser.add_argument('--density_norm_schedule_steps', default=3, type=int,
+                        help='Number of sampling rounds per phase for early_only/three_phase schedules')
     parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
     parser.add_argument('--features_normalized', dest='features_normalized', action='store_true',
                         help='L2-normalize SSL features (default)')
@@ -209,6 +226,7 @@ def main(cfg):
     
     if len(lSet) == 0:
         print('Labeled Set is Empty - Sampling an Initial Pool')
+        cfg.CURRENT_SAMPLING_ROUND = 0
         activeSet, new_uSet = al_obj.sample_from_uSet(model, lSet, uSet, train_data)
         # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode
         lSet = np.append(lSet, activeSet)
@@ -329,6 +347,10 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
     print("======== ACTIVE SAMPLING ========\n")
     logger.info("======== ACTIVE SAMPLING ========\n")
     clf_model = mh.get_model(cfg, checkpoint_file)
+    # This sampling creates the next labeled set, so its round index is one
+    # after the episode that was just evaluated. The initial pre-loop sampling
+    # uses round 0.
+    cfg.CURRENT_SAMPLING_ROUND = cur_episode + 1
     # Pass checkpoint_file to let algorithm handle its own state updates internally
     activeSet, new_uSet = al_obj.sample_from_uSet(
         clf_model, lSet, uSet, train_data, checkpoint_file=checkpoint_file
