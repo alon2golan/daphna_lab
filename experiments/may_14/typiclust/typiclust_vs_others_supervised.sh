@@ -4,14 +4,14 @@
 #SBATCH -c 4
 #SBATCH --time=2:00:00
 #SBATCH --gres=gpu:l40s:1
-#SBATCH --array=0-49%15
+#SBATCH --array=0-39%15
 #SBATCH --output=/dev/null
 #SBATCH --error=/dev/null
 #SBATCH --killable
 
 # 1. Setup Directories
 START_DIR=$(pwd)
-mkdir -p "$START_DIR/logs/Attempt2"
+mkdir -p "$START_DIR/logs/Attempt5"
 
 # 2. Method Mapping
 # Removing Badge and TypiClust-DP because of lack of implementation / necessary npy files
@@ -22,7 +22,7 @@ SEED=$((SLURM_ARRAY_TASK_ID % 5))
 TASK_TIME=$(date +"%H%M") # per task start
 
 # 4. Clean Logging
-LOG_FILE="$START_DIR/logs/Attempt2/fig4_${METHOD}_s${SEED}_${TASK_TIME}.out"
+LOG_FILE="$START_DIR/logs/Attempt5/fig4_${METHOD}_s${SEED}_${TASK_TIME}.out"
 exec > "$LOG_FILE" 2>&1
 
 # 5. Environment & Paths
@@ -33,7 +33,7 @@ cd $PROJECT_DIR/deep_al/tools
 
 # 6. W&B Grouping Logic
 # This is the "Whole Title" you asked for. All 100 runs will share this.
-COLLECTION_NAME="Figure4_CIFAR10_B10_Results_Attempt2"
+COLLECTION_NAME="Figure4_CIFAR10_B10_Results_Attempt5"
 
 # This groups the 10 seeds of the SAME method together for mean+variance.
 # e.g., "Group_typiclust"

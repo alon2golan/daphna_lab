@@ -173,9 +173,10 @@ def main(cfg, args):
         name=cfg.EXP_NAME,
         group=args.group, # e.g., "TypiClust"
         job_type=args.job_type, #e.g., "Fig4_CIFAR10_Benchmark
-        config=cfg
+        config=cfg,
+        settings=wandb.Settings(init_timeout=300) # increase timeout to 5 minutes instead of 90 seconds
     )
-
+    wandb.config.update(args)  # Automatically logs --al, --seed, and all other args!
 
     # Set all accuracy metrics to use num_labeled as their x-axis
     wandb.define_metric("test_accuracy", step_metric="num_labeled")

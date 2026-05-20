@@ -206,7 +206,7 @@ _C.ACTIVE_LEARNING.FINE_TUNE = True # continue after AL from existing model or f
 # ---------------------------------------------------------------------------- #
 _C.DATA_LOADER = CN()
 # Number of data loader workers per training process
-_C.DATA_LOADER.NUM_WORKERS = 4
+_C.DATA_LOADER.NUM_WORKERS = 0
 # Load data to pinned host memory
 _C.DATA_LOADER.PIN_MEMORY = True
 
