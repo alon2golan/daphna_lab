@@ -27,8 +27,8 @@ SEED_ID=$((SLURM_ARRAY_TASK_ID % 5))
 SEED=$((SEED_ID + 1))
 TASK_TIME=$(date +"%H%M") # per task start
 
-# 3. Network Staggering Buffer (Stops jobs from attacking W&B simultaneously)
-sleep $((1 + RANDOM % 45))
+# 3. Network Staggering Buffer (Stops jobs from attacking W&B and accessing data simultaneously)
+sleep $((1 + SLURM_ARRAY_TASK_ID * 30))
 
 # 4. Clean Logging
 LOG_FILE="$START_DIR/logs/1NN_NORM_CIFAR100_B100/${METHOD}_s${SEED}_${TASK_TIME}.out"
