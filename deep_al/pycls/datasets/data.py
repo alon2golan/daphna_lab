@@ -207,7 +207,7 @@ class Data:
             preprocess_steps = test_preops_list
         preprocess_steps = transforms.Compose(preprocess_steps)
 
-        only_features = self.cfg.MODEL.LINEAR_FROM_FEATURES
+        only_features = self.cfg.DATASET.RETURN_FEATURES
 
         if self.dataset == "MNIST":
             mnist = MNIST(save_dir, train=isTrain, transform=preprocess_steps, test_transform=test_preprocess_steps, download=isDownload)

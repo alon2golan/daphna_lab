@@ -79,10 +79,15 @@ _C.MODEL.NUM_CLASSES = 10
 # Loss function (see pycls/models/loss.py for options)
 _C.MODEL.LOSS_FUN = 'cross_entropy'
 _C.MODEL.USE_1NN = False
-_C.MODEL.LINEAR_FROM_FEATURES = False
-_C.MODEL.LINEAR_FROM_IMAGES = False
+# Which classifier head to build. One of: 'resnet' (full ResNet on raw images),
+# 'linear' (FeaturesNet linear head on frozen features), 'knn' (sklearn 1-NN
+# on frozen features). The eval_model_type CLI flag sets this via aliases.
+# build_model dispatches on this single key; do not reintroduce side-by-side
+# boolean flags (the old LINEAR_FROM_FEATURES / LINEAR_FROM_IMAGES / USE_1NN
+# combination required a specific check order in build_model to behave).
+_C.MODEL.HEAD_TYPE = 'resnet'
 # Whether to L2-normalize features before 1-NN fit/predict (cosine-similarity behavior).
-# Only consulted when USE_1NN is True. Original loader arrays are never mutated.
+# Only consulted when HEAD_TYPE == 'knn'. Original loader arrays are never mutated.
 _C.MODEL.NN1_NORMALIZE = False
 
 
@@ -229,6 +234,10 @@ _C.DATASET = CN()
 _C.DATASET.NAME = None
 # Optional tag to specify which feature representation to use (e.g., 'alon', 'itai')
 _C.DATASET.FEATURES_TAG = None
+# If True, the dataset returns pre-computed feature vectors (e.g. SimCLR
+# embeddings) instead of raw images. Paired with MODEL.HEAD_TYPE in
+# ('linear', 'knn'); MODEL.HEAD_TYPE='resnet' expects raw images.
+_C.DATASET.RETURN_FEATURES = False
 # For Tiny ImageNet dataset, ROOT_DIR must be set to the dataset folder ("data/tiny-imagenet-200/"). For others, the outder "data" folder where all datasets can be stored is expected.
 _C.DATASET.ROOT_DIR = None
 # Specifies the proportion of data in train set that should be considered as the validation data
@@ -331,34 +340,34 @@ def get_config_aliases():
     
     Example:
         aliases['eval_model_type']['from_features'] = {
+            'MODEL.HEAD_TYPE': 'linear',
+            'DATASET.RETURN_FEATURES': True,
             'MODEL.USE_1NN': False,
-            'MODEL.LINEAR_FROM_FEATURES': True,
-            ...
         }
     """
     aliases = {
         'eval_model_type': {
             'NN1': {
+                'MODEL.HEAD_TYPE': 'knn',
+                'DATASET.RETURN_FEATURES': True,
                 'MODEL.USE_1NN': True,
-                'MODEL.LINEAR_FROM_FEATURES': True,
-                'MODEL.LINEAR_FROM_IMAGES': False,
                 'MODEL.NN1_NORMALIZE': False,
             },
             'NN1_normalized': {
+                'MODEL.HEAD_TYPE': 'knn',
+                'DATASET.RETURN_FEATURES': True,
                 'MODEL.USE_1NN': True,
-                'MODEL.LINEAR_FROM_FEATURES': True,
-                'MODEL.LINEAR_FROM_IMAGES': False,
                 'MODEL.NN1_NORMALIZE': True,
             },
             'from_features': {
+                'MODEL.HEAD_TYPE': 'linear',
+                'DATASET.RETURN_FEATURES': True,
                 'MODEL.USE_1NN': False,
-                'MODEL.LINEAR_FROM_FEATURES': True,
-                'MODEL.LINEAR_FROM_IMAGES': False,
             },
             'from_images': {
+                'MODEL.HEAD_TYPE': 'resnet',
+                'DATASET.RETURN_FEATURES': False,
                 'MODEL.USE_1NN': False,
-                'MODEL.LINEAR_FROM_FEATURES': False,
-                'MODEL.LINEAR_FROM_IMAGES': True,
             },
         },
         'debug': {

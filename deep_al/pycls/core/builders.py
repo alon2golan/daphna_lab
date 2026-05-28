@@ -78,21 +78,27 @@ def get_loss_fun(cfg):
 
 
 def build_model(cfg):
-    """Builds the model."""
-    if cfg.MODEL.USE_1NN:
-        model = KNeighborsClassifier(n_neighbors=1)
-        return model
+    """Builds the model. Dispatches on cfg.MODEL.HEAD_TYPE.
 
-    elif cfg.MODEL.LINEAR_FROM_FEATURES:
+    'knn'    -> sklearn 1-NN on pre-computed features (no GPU)
+    'linear' -> FeaturesNet linear head on pre-computed features
+    'resnet' -> full ResNet (or whatever cfg.MODEL.TYPE names) on raw images
+    """
+    head = cfg.MODEL.HEAD_TYPE
+    if head == 'knn':
+        return KNeighborsClassifier(n_neighbors=1)
+    if head == 'linear':
         num_features = 384 if cfg.DATASET.NAME in ['IMAGENET50', 'IMAGENET100', 'IMAGENET200'] else 512
         num_features = 2 if cfg.DATASET.NAME in ['SCENARIO_A', 'HALF_MOON'] else num_features
         return FeaturesNet(num_features, cfg.MODEL.NUM_CLASSES).cuda()
-
-    model = get_model(cfg)(num_classes=cfg.MODEL.NUM_CLASSES, use_dropout=True)
-    if cfg.DATASET.NAME == 'MNIST':
-        model.conv1 =  torch.nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
-    
-    return model.cuda()
+    if head == 'resnet':
+        model = get_model(cfg)(num_classes=cfg.MODEL.NUM_CLASSES, use_dropout=True)
+        if cfg.DATASET.NAME == 'MNIST':
+            model.conv1 = torch.nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        return model.cuda()
+    raise ValueError(
+        f"Unknown MODEL.HEAD_TYPE='{head}'. Expected one of: 'knn', 'linear', 'resnet'."
+    )
 
 
 def build_loss_fun(cfg):
