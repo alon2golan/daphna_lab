@@ -17,6 +17,49 @@ import deep_al.pycls.datasets.utils as ds_utils
 logger = lu.get_logger(__name__)
 
 
+# AL methods that operate purely on pre-computed features and never call any
+# method on clf_model. These are the only AL methods that work when clf_model
+# is a sklearn KNeighborsClassifier (i.e. cfg.MODEL.USE_1NN=True). Every other
+# method calls nn.Module-only APIs (.eval(), .train(), .penultimate_active,
+# forward passes for logits / dropout) and would raise AttributeError under 1-NN.
+NN1_COMPATIBLE_METHODS = frozenset({
+    'random',
+    'probcover', 'prob_cover', 'probcover_orig', 'prob_cover_orig',
+    'maxherding', 'max_herding', 'maxherding_orig', 'max_herding_orig',
+})
+
+
+def _is_nn1_compatible(sampling_fn):
+    fn = sampling_fn.lower()
+    # typiclust dispatch in _create_algorithm uses startswith(), so match the same way
+    if fn.startswith('typiclust'):
+        return True
+    return fn in NN1_COMPATIBLE_METHODS
+
+
+def validate_method_eval_compat(cfg):
+    """Reject AL method x eval_model_type combinations that can only fail.
+
+    Raises ValueError when USE_1NN is True but the chosen AL method needs a
+    parametric classifier (logits, gradients, or penultimate features). Catches
+    the failure at config-load time instead of after dataset loading, with a
+    useful message instead of a downstream AttributeError.
+    """
+    if not cfg.MODEL.USE_1NN:
+        return
+    if _is_nn1_compatible(cfg.ACTIVE_LEARNING.SAMPLING_FN):
+        return
+    raise ValueError(
+        "AL method '{fn}' is incompatible with --eval_model_type NN1/NN1_normalized: "
+        "it requires a parametric model (logits, gradients, or penultimate features), "
+        "but USE_1NN is True so clf_model is a sklearn KNeighborsClassifier. "
+        "Use --eval_model_type from_features instead, or pick one of: {ok}.".format(
+            fn=cfg.ACTIVE_LEARNING.SAMPLING_FN,
+            ok=sorted(NN1_COMPATIBLE_METHODS | {'typiclust*'}),
+        )
+    )
+
+
 class ActiveLearning:
     """
     Active Learning orchestrator that delegates to concrete AL strategies.

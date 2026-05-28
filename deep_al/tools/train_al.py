@@ -14,7 +14,7 @@ if _repo_root not in sys.path:
 import torch
 from copy import deepcopy
 
-from deep_al.pycls.al.active_learning import ActiveLearning
+from deep_al.pycls.al.active_learning import ActiveLearning, validate_method_eval_compat
 from deep_al.pycls.core.config import cfg, dump_cfg, setup_cfg
 import deep_al.pycls.core.losses as losses
 import deep_al.pycls.core.optimizer as optim
@@ -157,6 +157,12 @@ def setup_experiment_directory(cfg):
 
 
 def main(cfg, args):
+    # Fail fast on incompatible AL method x eval_model_type combinations
+    # (e.g. coreset under --eval_model_type NN1) so the run errors with a
+    # readable message instead of a downstream AttributeError after several
+    # minutes of setup. See active_learning.NN1_COMPATIBLE_METHODS.
+    validate_method_eval_compat(cfg)
+
     plotting_manager = PlottingManager()
     print("RNG_SEED is set to {}".format(cfg.RNG_SEED))
     # Setting up GPU args
