@@ -408,11 +408,11 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
         val_data, val_labels = _collect_full(val_loader)
         print(f"1NN eval: val_data={val_data.shape} labels={val_labels.shape}")
         preds = model.predict(val_data)
-        test_acc = 100. * (preds == np.array(val_labels)).mean()
+        val_acc = 100. * (preds == np.array(val_labels)).mean()
 
         # For 1NN, train_acc is assumed to be perfect
         train_acc = 100.0
-        return test_acc, 0, train_acc, None, model, []
+        return val_acc, 0, train_acc, None, model, []
 
     start_epoch = 0
     loss_fun = losses.get_loss_fun()
