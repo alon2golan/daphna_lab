@@ -59,9 +59,7 @@ python3 train_al.py \
   --budget 10 \
   --initial_size 0 \
   --max_iter 5 \
-  --eval_model_type "from_features" \
-  MODEL.USE_1NN True
-
+  --eval_model_type "from_features"
 
 # ==============================================================================
 # RECONSTRUCTING RESULTS: PROTOCOL DATA (based on TypiClust article)
