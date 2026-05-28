@@ -81,6 +81,9 @@ _C.MODEL.LOSS_FUN = 'cross_entropy'
 _C.MODEL.USE_1NN = False
 _C.MODEL.LINEAR_FROM_FEATURES = False
 _C.MODEL.LINEAR_FROM_IMAGES = False
+# Whether to L2-normalize features before 1-NN fit/predict (cosine-similarity behavior).
+# Only consulted when USE_1NN is True. Original loader arrays are never mutated.
+_C.MODEL.NN1_NORMALIZE = False
 
 
 # ---------------------------------------------------------------------------- #
@@ -339,6 +342,13 @@ def get_config_aliases():
                 'MODEL.USE_1NN': True,
                 'MODEL.LINEAR_FROM_FEATURES': True,
                 'MODEL.LINEAR_FROM_IMAGES': False,
+                'MODEL.NN1_NORMALIZE': False,
+            },
+            'NN1_normalized': {
+                'MODEL.USE_1NN': True,
+                'MODEL.LINEAR_FROM_FEATURES': True,
+                'MODEL.LINEAR_FROM_IMAGES': False,
+                'MODEL.NN1_NORMALIZE': True,
             },
             'from_features': {
                 'MODEL.USE_1NN': False,

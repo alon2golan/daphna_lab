@@ -32,6 +32,13 @@ from deep_al.pycls.utils.plotting_state import PlottingManager
 logger = lu.get_logger(__name__)
 
 
+def _l2_normalize_copy(x):
+    # Returns a new array; the input is never mutated (numpy division allocates).
+    norms = np.linalg.norm(x, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1.0, norms)
+    return x / norms
+
+
 def argparser():
     parser = argparse.ArgumentParser(description='Active Learning - Image Classification')
     parser.add_argument('--cfg', dest='cfg_file', help='Config file', required=True, type=str)
@@ -402,12 +409,14 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
             return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
 
         train_data, train_labels = _collect_full(train_loader)
-        print(f"1NN fit: train_data={train_data.shape} labels={train_labels.shape}")
-        model.fit(train_data, train_labels)
+        fit_data = _l2_normalize_copy(train_data) if cfg.MODEL.NN1_NORMALIZE else train_data
+        print(f"1NN fit: train_data={fit_data.shape} labels={train_labels.shape}")
+        model.fit(fit_data, train_labels)
 
         val_data, val_labels = _collect_full(val_loader)
-        print(f"1NN eval: val_data={val_data.shape} labels={val_labels.shape}")
-        preds = model.predict(val_data)
+        predict_data = _l2_normalize_copy(val_data) if cfg.MODEL.NN1_NORMALIZE else val_data
+        print(f"1NN eval: val_data={predict_data.shape} labels={val_labels.shape}")
+        preds = model.predict(predict_data)
         val_acc = 100. * (preds == np.array(val_labels)).mean()
 
         # For 1NN, train_acc is assumed to be perfect
@@ -505,7 +514,8 @@ def test_model(test_loader, checkpoint_file, cfg, cur_episode, model, plotting_m
         # # 1NN model does not have a predict method, so we use the fit method to train it
         data = test_loader.dataset.features
         labels = test_loader.dataset.targets
-        preds = model.predict(data)
+        predict_data = _l2_normalize_copy(data) if cfg.MODEL.NN1_NORMALIZE else data
+        preds = model.predict(predict_data)
         test_acc = 100. * (preds == np.array(labels)).mean()
     else:
         model = mh.get_model(cfg, checkpoint_file)
