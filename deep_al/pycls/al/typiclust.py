@@ -81,9 +81,14 @@ class TypiClust:
         features = self.features[relevant_indices]
         labels = np.copy(self.clusters[relevant_indices])
         existing_indices = np.arange(len(self.lSet))
-        # counting cluster sizes and number of labeled samples per cluster
+        # counting cluster sizes and number of labeled samples per cluster.
+        # np.unique drops empty clusters, so cluster_ids has length = num_non_empty.
+        # np.bincount returns length = max(labels.max()+1, minlength), which can
+        # exceed len(cluster_ids) when an empty cluster sits below a populated one
+        # -> mismatched DataFrame columns. Reindex by cluster_id to stay aligned.
         cluster_ids, cluster_sizes = np.unique(labels, return_counts=True)
-        cluster_labeled_counts = np.bincount(labels[existing_indices], minlength=len(cluster_ids))
+        all_labeled_counts = np.bincount(labels[existing_indices], minlength=int(labels.max()) + 1)
+        cluster_labeled_counts = all_labeled_counts[cluster_ids]
         clusters_df = pd.DataFrame({'cluster_id': cluster_ids, 'cluster_size': cluster_sizes, 'existing_count': cluster_labeled_counts,
                                     'neg_cluster_size': -1 * cluster_sizes})
         # drop too small clusters
