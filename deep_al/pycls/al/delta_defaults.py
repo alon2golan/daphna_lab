@@ -45,12 +45,20 @@ PROBCOVER_AUTO_DELTAS = {
 # the warning text below.
 DCOM_AUTO_DELTAS = {}
 
-# NOTE: MaxHerding deliberately does not use any auto-delta table. In
-# MaxHerding's code path delta is the RBF kernel bandwidth (sigma-like),
-# not the tophat radius it is for ProbCover, so a value tuned on one method
-# is meaningless for the other. The maxherding sampling_fn keeps its
-# original pre-refactor behavior (numeric -> use; otherwise -> knee), handled
-# inline in coverage_matrix_methods.py.
+# NOTE: MaxHerding deliberately has NO auto-delta table. Reasons:
+#   * Semantically different parameter. For ProbCover, delta is the tophat
+#     distance cutoff that defines the coverage graph. For MaxHerding it is
+#     only consulted when --sparse_K is on, where it sets the kernel-entry
+#     pruning threshold. The actual RBF kernel bandwidth is sigma. A delta
+#     value tuned on one method has no meaning for the other.
+#   * Currently the user does not run --sparse_K, so MaxHerding's delta is
+#     not read by anything downstream. Pinning values for an unread variable
+#     would be premature scaffolding.
+# When and if MaxHerding sparse-mode deltas get tuned, add a
+# MAXHERDING_AUTO_DELTAS = {...} table here and route the maxherding branch
+# in coverage_matrix_methods.py through resolve_initial_delta, the same way
+# ProbCover does. Until then, that branch keeps the original pre-refactor
+# auto-pick (with a non-sparse short-circuit).
 
 
 def _dataset_eval_key(cfg):

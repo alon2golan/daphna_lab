@@ -35,17 +35,36 @@ class   CoverageMatrixMethod:
         self.alpha = 0
         # CoverageMatrixMethod backs both probcover and maxherding, but they
         # use delta for completely unrelated things and must NOT share any
-        # part of the delta-resolution logic. MaxHerding therefore runs the
-        # ORIGINAL pre-refactor block verbatim -- no auto-table, no
-        # resolve_initial_delta, no [delta] banner. The only adjustment to
-        # the original is that the `< 0` check is widened to also catch
-        # non-numeric values (the new keyword-default 'auto_delta' string
-        # belongs to the ProbCover / DCoM system and is meaningless here),
-        # treating them the same way the original -1 sentinel was treated.
+        # part of the delta-resolution logic. ProbCover goes through the new
+        # resolve_initial_delta path (with PROBCOVER_AUTO_DELTAS). MaxHerding
+        # stays on the original pre-refactor behavior -- no auto-table, no
+        # [delta] banner, no resolve_initial_delta call. The two adjustments
+        # vs. the literal original are:
+        #   1. The `< 0` check is widened to also accept non-numeric values,
+        #      since the new keyword default ('auto_delta' string) would have
+        #      raised TypeError. A string keyword for maxherding is treated
+        #      the same way the old -1 sentinel was: "no delta provided".
+        #   2. When --sparse_K is OFF the knee algorithm is skipped entirely.
+        #      The non-sparse RBF code path in kernel_utils.py reads only
+        #      sigma; self.delta is passed in but never affects the kernel
+        #      matrix or which samples MaxHerding picks. Computing a value
+        #      that gets discarded just burns ~5s of KMeans per AL episode
+        #      and prints a misleading "Delta selection complete" line.
+        #      A dummy 0.0 is the harmless placeholder.
         sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
         if sampling_fn in ('maxherding', 'max_herding', 'maxherding_orig', 'max_herding_orig'):
             _initial = self.cfg.ACTIVE_LEARNING.INITIAL_DELTA
-            if (not isinstance(_initial, (int, float))) or _initial < 0:
+            if isinstance(_initial, (int, float)) and _initial >= 0:
+                # User-provided explicit value; honor it.
+                self.delta = float(_initial)
+                cfg.ACTIVE_LEARNING.INITIAL_DELTA = self.delta
+            elif not self.use_sparse:
+                # Non-sparse RBF: delta is unused downstream, skip the knee.
+                self.delta = 0.0
+                cfg.ACTIVE_LEARNING.INITIAL_DELTA = self.delta
+            else:
+                # Sparse RBF: delta sets the kernel-pruning threshold. Run
+                # the original auto-pick with the original two log lines.
                 print("Delta not specified. Starting automated selection process...")
                 start_time = time.time()
                 print("Running Delta selection algorithm...")
@@ -56,7 +75,7 @@ class   CoverageMatrixMethod:
                 )
                 elapsed = time.time() - start_time
                 print(f"Delta selection complete | Value: {cfg.ACTIVE_LEARNING.INITIAL_DELTA:.4f} | Time: {elapsed:.2f}s")
-            self.delta = cfg.ACTIVE_LEARNING.INITIAL_DELTA
+                self.delta = cfg.ACTIVE_LEARNING.INITIAL_DELTA
         else:
             self.delta = resolve_initial_delta(
                 cfg=self.cfg,
