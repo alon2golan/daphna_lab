@@ -45,11 +45,12 @@ PROBCOVER_AUTO_DELTAS = {
 # the warning text below.
 DCOM_AUTO_DELTAS = {}
 
-# MaxHerding pinned values are not yet defined either. MaxHerding's optimal
-# delta is different from ProbCover's even on the same (dataset, eval_mode),
-# so it gets its own table rather than sharing PROBCOVER_AUTO_DELTAS. Add
-# rows when you have them.
-MAXHERDING_AUTO_DELTAS = {}
+# NOTE: MaxHerding deliberately does not use any auto-delta table. In
+# MaxHerding's code path delta is the RBF kernel bandwidth (sigma-like),
+# not the tophat radius it is for ProbCover, so a value tuned on one method
+# is meaningless for the other. The maxherding sampling_fn keeps its
+# original pre-refactor behavior (numeric -> use; otherwise -> knee), handled
+# inline in coverage_matrix_methods.py.
 
 
 def _dataset_eval_key(cfg):
@@ -110,7 +111,6 @@ def resolve_initial_delta(cfg, features, num_classes, seed,
     table_label = (
         'PROBCOVER_AUTO_DELTAS' if auto_table is PROBCOVER_AUTO_DELTAS
         else 'DCOM_AUTO_DELTAS' if auto_table is DCOM_AUTO_DELTAS
-        else 'MAXHERDING_AUTO_DELTAS' if auto_table is MAXHERDING_AUTO_DELTAS
         else f'{method_name}_AUTO_DELTAS'
     )
     key = _dataset_eval_key(cfg)
@@ -122,18 +122,13 @@ def resolve_initial_delta(cfg, features, num_classes, seed,
               f"or --initial_delta knee_delta to run the knee algorithm.")
         return delta
 
-    # Table miss -> knee fallback. DCoM / MaxHerding get an extra hint when
-    # their pinned table is currently empty.
+    # Table miss -> knee fallback. DCoM gets an extra hint when its pinned
+    # table is currently empty.
     empty_hint = ''
     if auto_table is DCOM_AUTO_DELTAS and not DCOM_AUTO_DELTAS:
         empty_hint = (
             f" (note: {table_label} is empty -- DCoM pinned values "
             f"are not yet defined; add rows when known.)"
-        )
-    elif auto_table is MAXHERDING_AUTO_DELTAS and not MAXHERDING_AUTO_DELTAS:
-        empty_hint = (
-            f" (note: {table_label} is empty -- MaxHerding pinned "
-            f"values are not yet defined; add rows when known.)"
         )
     delta, elapsed = _run_knee(cfg, features, num_classes, seed)
     print(f"[delta] {method_name}: AUTO delta requested but no row for "
