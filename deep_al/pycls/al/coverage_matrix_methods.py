@@ -33,30 +33,30 @@ class   CoverageMatrixMethod:
 
 
         self.alpha = 0
-        # CoverageMatrixMethod backs both probcover and maxherding. They use
-        # delta for different things (probcover: tophat radius; maxherding:
-        # RBF kernel bandwidth), so they get fundamentally different
-        # treatment here. ProbCover goes through the new resolve_initial_delta
-        # (auto-table + knee fallback). MaxHerding keeps its original
-        # pre-refactor behavior: numeric value -> use as-is; otherwise (string
-        # keyword or negative) -> run the knee algorithm with the original
-        # log lines. No auto-table involvement for MaxHerding.
+        # CoverageMatrixMethod backs both probcover and maxherding, but they
+        # use delta for completely unrelated things and must NOT share any
+        # part of the delta-resolution logic. MaxHerding therefore runs the
+        # ORIGINAL pre-refactor block verbatim -- no auto-table, no
+        # resolve_initial_delta, no [delta] banner. The only adjustment to
+        # the original is that the `< 0` check is widened to also catch
+        # non-numeric values (the new keyword-default 'auto_delta' string
+        # belongs to the ProbCover / DCoM system and is meaningless here),
+        # treating them the same way the original -1 sentinel was treated.
         sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
         if sampling_fn in ('maxherding', 'max_herding', 'maxherding_orig', 'max_herding_orig'):
-            raw = self.cfg.ACTIVE_LEARNING.INITIAL_DELTA
-            if isinstance(raw, (int, float)) and raw >= 0:
-                self.delta = float(raw)
-            else:
+            _initial = self.cfg.ACTIVE_LEARNING.INITIAL_DELTA
+            if (not isinstance(_initial, (int, float))) or _initial < 0:
                 print("Delta not specified. Starting automated selection process...")
                 start_time = time.time()
                 print("Running Delta selection algorithm...")
-                self.delta = float(ds_utils.select_delta(
+                cfg.ACTIVE_LEARNING.INITIAL_DELTA = ds_utils.select_delta(
                     features=self.all_features,
                     num_classes=self.cfg.MODEL.NUM_CLASSES,
                     seed=self.seed,
-                ))
+                )
                 elapsed = time.time() - start_time
-                print(f"Delta selection complete | Value: {self.delta:.4f} | Time: {elapsed:.2f}s")
+                print(f"Delta selection complete | Value: {cfg.ACTIVE_LEARNING.INITIAL_DELTA:.4f} | Time: {elapsed:.2f}s")
+            self.delta = cfg.ACTIVE_LEARNING.INITIAL_DELTA
         else:
             self.delta = resolve_initial_delta(
                 cfg=self.cfg,
@@ -66,7 +66,7 @@ class   CoverageMatrixMethod:
                 auto_table=PROBCOVER_AUTO_DELTAS,
                 method_name='ProbCover',
             )
-        cfg.ACTIVE_LEARNING.INITIAL_DELTA = self.delta
+            cfg.ACTIVE_LEARNING.INITIAL_DELTA = self.delta
 
         self.train_labels_general = np.array(train_labels)
         unique_labels = np.unique(self.train_labels_general)
