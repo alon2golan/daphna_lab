@@ -35,3 +35,6 @@ data/
 results/
 /datasets/
 /scan/datasets/
+# Ad-hoc / experimental scratch (quick-and-dirty, not part of the pipeline)
+experimental/
+diagnostics/

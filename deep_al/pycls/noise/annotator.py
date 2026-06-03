@@ -6,6 +6,14 @@ import numpy as np
 from torch.utils.data import Dataset
 from typing import Optional
 
+# Offset so the annotator's noise RNG never collides with cfg.RNG_SEED (the
+# data-split seed). When they coincided, np.random.choice for the noise indices
+# reproduced the exact prefix of the makeLUVSets shuffle permutation, so the
+# corrupted samples landed disproportionately in the ProbCover selection pool
+# (realized lset noise ~45% at nominal nu=0.30). Decoupling restores the
+# nominal rate.
+NOISE_SEED_OFFSET = 10_000
+
 
 class Annotator:
     """A Annotator wrapper that adds label noise to any dataset."""
@@ -49,9 +57,11 @@ class Annotator:
     
     def _apply_noise(self, noise_transition_matrix=None):
         """Apply the specified noise type to labels."""
-        np.random.seed(self.seed)
+        # Dedicated RNG, offset away from cfg.RNG_SEED, and isolated from the
+        # global np.random stream (see NOISE_SEED_OFFSET note above).
+        self._noise_rng = np.random.RandomState(self.seed + NOISE_SEED_OFFSET)
         n_samples = len(self.clean_labels)
-        noise_idx = np.random.choice(
+        noise_idx = self._noise_rng.choice(
             n_samples,
             int(self.noise_rate * n_samples),
             replace=False
@@ -75,7 +85,7 @@ class Annotator:
             # Get all labels except the current one
             valid_labels = all_labels[all_labels != self.clean_labels[idx]]
             # Randomly pick one
-            self.noisy_labels[idx] = np.random.choice(valid_labels)
+            self.noisy_labels[idx] = self._noise_rng.choice(valid_labels)
     
     def _add_asymmetric_noise(self, noise_idx, noise_transition_matrix=None):
         """Add asymmetric noise using a transition matrix."""
@@ -93,7 +103,7 @@ class Annotator:
             # Get the transition probabilities for this label
             transition_probs = noise_transition_matrix[true_label]
             # Sample new label according to transition probabilities
-            self.noisy_labels[idx] = np.random.choice(
+            self.noisy_labels[idx] = self._noise_rng.choice(
                 self.num_classes,
                 p=transition_probs
             )
