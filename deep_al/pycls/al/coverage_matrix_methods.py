@@ -6,6 +6,7 @@ import deep_al.pycls.datasets.utils as ds_utils
 from deep_al.pycls.al.kernel_utils import build_K_general_matrix, RBFKernel, TopHatKernel
 from deep_al.pycls.al.delta_defaults import (
     PROBCOVER_AUTO_DELTAS,
+    MAXHERDING_AUTO_DELTAS,
     resolve_initial_delta,
 )
 
@@ -32,13 +33,23 @@ class   CoverageMatrixMethod:
 
 
         self.alpha = 0
+        # CoverageMatrixMethod backs both probcover and maxherding. Pick the
+        # right pinned table + log label by inspecting the sampling_fn so
+        # MaxHerding does NOT silently inherit ProbCover-tuned deltas.
+        sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
+        if sampling_fn in ('maxherding', 'max_herding', 'maxherding_orig', 'max_herding_orig'):
+            _auto_table = MAXHERDING_AUTO_DELTAS
+            _method_name = 'MaxHerding'
+        else:
+            _auto_table = PROBCOVER_AUTO_DELTAS
+            _method_name = 'ProbCover'
         self.delta = resolve_initial_delta(
             cfg=self.cfg,
             features=self.all_features,
             num_classes=self.cfg.MODEL.NUM_CLASSES,
             seed=self.seed,
-            auto_table=PROBCOVER_AUTO_DELTAS,
-            method_name='ProbCover',
+            auto_table=_auto_table,
+            method_name=_method_name,
         )
         cfg.ACTIVE_LEARNING.INITIAL_DELTA = self.delta
 
