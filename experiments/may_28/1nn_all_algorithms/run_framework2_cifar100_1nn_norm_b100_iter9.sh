@@ -62,7 +62,7 @@ python3 train_al.py \
   --budget 100 \
   --initial_size 0 \
   --max_iter 9 \
-  --eval_model_type "NN1_normalized"
+  --eval_model_type "NN1"
 
 # ==============================================================================
 # PURPOSE

@@ -1,10 +1,13 @@
-import time
 import numpy as np
 import pandas as pd
 import torch
 from tqdm import tqdm
 import deep_al.pycls.datasets.utils as ds_utils
 from deep_al.pycls.al.kernel_utils import build_K_general_matrix, RBFKernel, TopHatKernel
+from deep_al.pycls.al.delta_defaults import (
+    PROBCOVER_AUTO_DELTAS,
+    resolve_initial_delta,
+)
 
 torch.cuda.empty_cache()
 
@@ -29,24 +32,15 @@ class   CoverageMatrixMethod:
 
 
         self.alpha = 0
-        if cfg.ACTIVE_LEARNING.INITIAL_DELTA < 0:
-            print("Delta not specified. Starting automated selection process...")
-    
-            # Track time for performance monitoring
-            start_time = time.time()
-
-            print("Running Delta selection algorithm...")
-
-            cfg.ACTIVE_LEARNING.INITIAL_DELTA = ds_utils.select_delta(
-                features=self.all_features,
-                num_classes=self.cfg.MODEL.NUM_CLASSES,
-                seed=self.seed
-            )
-
-            elapsed = time.time() - start_time
-            print(f"Delta selection complete | Value: {cfg.ACTIVE_LEARNING.INITIAL_DELTA:.4f} | Time: {elapsed:.2f}s")
-
-        self.delta = cfg.ACTIVE_LEARNING.INITIAL_DELTA
+        self.delta = resolve_initial_delta(
+            cfg=self.cfg,
+            features=self.all_features,
+            num_classes=self.cfg.MODEL.NUM_CLASSES,
+            seed=self.seed,
+            auto_table=PROBCOVER_AUTO_DELTAS,
+            method_name='ProbCover',
+        )
+        cfg.ACTIVE_LEARNING.INITIAL_DELTA = self.delta
 
         self.train_labels_general = np.array(train_labels)
         unique_labels = np.unique(self.train_labels_general)

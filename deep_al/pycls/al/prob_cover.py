@@ -1,4 +1,3 @@
-import time
 import numpy as np
 import pandas as pd
 import torch
@@ -7,9 +6,13 @@ import deep_al.pycls.datasets.utils as ds_utils
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 from deep_al.tools.utils import visualize_tsne
+from deep_al.pycls.al.delta_defaults import (
+    PROBCOVER_AUTO_DELTAS,
+    resolve_initial_delta,
+)
 
 class ProbCover:
-    def __init__(self, cfg, budgetSize, delta):
+    def __init__(self, cfg, budgetSize, delta=None):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
@@ -17,24 +20,21 @@ class ProbCover:
         self.all_features = ds_utils.load_features(self.ds_name, self.seed, features_tag=features_tag)
         self.budgetSize = budgetSize
 
-        if delta < 0:
-            print("Delta not specified. Starting automated selection process...")
-    
-            # Track time for performance monitoring
-            start_time = time.time()
-
-            print("Running Delta selection algorithm...")
-
-            delta = ds_utils.select_delta(
-                features=self.all_features,
-                num_classes=self.cfg.MODEL.NUM_CLASSES,
-                seed=self.seed
-            )
-
-            elapsed = time.time() - start_time
-            print(f"Delta selection complete | Value: {delta:.4f} | Time: {elapsed:.2f}s")
-
-        self.delta = delta
+        # The `delta` constructor arg is kept for backward-compat callers, but
+        # the resolution chain (explicit float > knee_delta > auto_delta table
+        # > knee fallback) is driven entirely by cfg.ACTIVE_LEARNING.INITIAL_DELTA.
+        # All ProbCover entry points should rely on resolve_initial_delta.
+        self.delta = resolve_initial_delta(
+            cfg=self.cfg,
+            features=self.all_features,
+            num_classes=self.cfg.MODEL.NUM_CLASSES,
+            seed=self.seed,
+            auto_table=PROBCOVER_AUTO_DELTAS,
+            method_name='ProbCover',
+        )
+        # Stash the resolved float back into cfg so downstream readers see a
+        # number, not a keyword.
+        self.cfg.ACTIVE_LEARNING.INITIAL_DELTA = self.delta
         # self.lSet = lSet
         # self.uSet = uSet
         # self.relevant_indices = np.concatenate([self.lSet, self.uSet]).astype(int)

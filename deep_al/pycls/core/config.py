@@ -345,19 +345,30 @@ def get_config_aliases():
             'MODEL.USE_1NN': False,
         }
     """
+    # NN1 is now the L2-normalized 1-NN variant. NN1_non_normalized is the
+    # raw-Euclidean opt-out. NN1_normalized is kept as a backward-compat alias
+    # so existing scripts and configs that spell out "NN1_normalized" still
+    # produce the same model. See EVAL_MODE_CANONICAL for the alias->canonical
+    # map used by callers (e.g. PROBCOVER_AUTO_DELTAS table lookup).
     aliases = {
         'eval_model_type': {
             'NN1': {
                 'MODEL.HEAD_TYPE': 'knn',
                 'DATASET.RETURN_FEATURES': True,
                 'MODEL.USE_1NN': True,
-                'MODEL.NN1_NORMALIZE': False,
+                'MODEL.NN1_NORMALIZE': True,
             },
             'NN1_normalized': {
                 'MODEL.HEAD_TYPE': 'knn',
                 'DATASET.RETURN_FEATURES': True,
                 'MODEL.USE_1NN': True,
                 'MODEL.NN1_NORMALIZE': True,
+            },
+            'NN1_non_normalized': {
+                'MODEL.HEAD_TYPE': 'knn',
+                'DATASET.RETURN_FEATURES': True,
+                'MODEL.USE_1NN': True,
+                'MODEL.NN1_NORMALIZE': False,
             },
             'from_features': {
                 'MODEL.HEAD_TYPE': 'linear',
@@ -378,6 +389,28 @@ def get_config_aliases():
         }
     }
     return aliases
+
+
+EVAL_MODE_CANONICAL = {
+    'NN1':                'NN1',
+    'NN1_normalized':     'NN1',
+    'NN1_non_normalized': 'NN1_non_normalized',
+    'from_features':      'from_features',
+    'from_images':        'from_images',
+}
+
+
+def canonical_eval_mode(name):
+    """Map an accepted --eval_model_type value to its canonical form.
+
+    NN1_normalized is treated as a backward-compat spelling of NN1 (both
+    produce the normalized 1-NN model), so callers that need to identify
+    the eval mode regardless of which alias the user typed should go
+    through this function. Unknown names are returned unchanged.
+    """
+    if name is None:
+        return None
+    return EVAL_MODE_CANONICAL.get(name, name)
 
 
 def apply_config_aliases(alias_name, alias_value, aliases):

@@ -18,7 +18,7 @@ mkdir -p "$START_DIR/logs/1NN_NORM_COMPARISON_CIFAR10"
 # Four (method, eval_type) pairs -> SLURM_ARRAY_TASK_ID / 5 picks the pair,
 # SLURM_ARRAY_TASK_ID % 5 picks the seed (1..5). Total tasks = 4 * 5 = 20.
 METHODS=("typiclust"      "typiclust"        "random"     "random")
-EVAL_TYPES=("NN1"         "NN1_normalized"   "NN1"        "NN1_normalized")
+EVAL_TYPES=("NN1_non_normalized" "NN1"   "NN1_non_normalized"   "NN1")
 PAIR_IDX=$((SLURM_ARRAY_TASK_ID / 5))
 METHOD=${METHODS[$PAIR_IDX]}
 EVAL_TYPE=${EVAL_TYPES[$PAIR_IDX]}
@@ -71,14 +71,13 @@ python3 train_al.py \
 # ==============================================================================
 #
 # Compare 1-NN evaluation with and without L2-normalized features, for the two
-# AL methods known to work under --eval_model_type NN1 (typiclust and random).
-# All 4 variants land in the same W&B collection so the mean+std curves plot on
-# one graph:
+# AL methods that work under USE_1NN (typiclust and random). All 4 variants
+# land in the same W&B collection so the mean+std curves plot on one graph:
 #
-#   typiclust + NN1              (baseline)
-#   typiclust + NN1_normalized   (cosine-similarity NN on the unit hypersphere)
-#   random    + NN1              (baseline)
-#   random    + NN1_normalized   (cosine-similarity NN on the unit hypersphere)
+#   typiclust + NN1_non_normalized   (raw-Euclidean baseline)
+#   typiclust + NN1                  (cosine-similarity NN on the unit hypersphere; new default)
+#   random    + NN1_non_normalized   (raw-Euclidean baseline)
+#   random    + NN1                  (cosine-similarity NN on the unit hypersphere; new default)
 #
 # Why: SimCLR features live on (approximately) the unit hypersphere, so 1-NN
 # under Euclidean distance over UN-normalized features can be dominated by

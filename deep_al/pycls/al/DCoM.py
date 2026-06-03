@@ -5,6 +5,10 @@ import torch
 from sklearn.preprocessing import MinMaxScaler
 import deep_al.pycls.datasets.utils as ds_utils
 from tqdm import tqdm
+from deep_al.pycls.al.delta_defaults import (
+    DCOM_AUTO_DELTAS,
+    resolve_initial_delta,
+)
 
 class DCoM:
     """
@@ -27,22 +31,14 @@ class DCoM:
         # self.relevant_indices = np.arange(self.lSet.size +self.uSet.size).astype(int)  # indices of lSet and then uSet in all_features
         self.rel_features = self.all_features[self.relevant_indices]  # features of lSet and then uSet
         
-        if self.cfg.ACTIVE_LEARNING.INITIAL_DELTA < 0:
-            print("Delta not specified. Starting automated selection process...")
-    
-            # Track time for performance monitoring
-            start_time = time.time()
-
-            print("Running Delta selection algorithm...")
-
-            self.cfg.ACTIVE_LEARNING.INITIAL_DELTA = ds_utils.select_delta(
-                features=self.all_features,
-                num_classes=self.cfg.MODEL.NUM_CLASSES,
-                seed=self.seed
-            )
-
-            elapsed = time.time() - start_time
-            print(f"Delta selection complete | Value: {self.cfg.ACTIVE_LEARNING.INITIAL_DELTA:.4f} | Time: {elapsed:.2f}s")
+        self.cfg.ACTIVE_LEARNING.INITIAL_DELTA = resolve_initial_delta(
+            cfg=self.cfg,
+            features=self.all_features,
+            num_classes=self.cfg.MODEL.NUM_CLASSES,
+            seed=self.seed,
+            auto_table=DCOM_AUTO_DELTAS,
+            method_name='DCoM',
+        )
 
         # Initialize delta list - if empty (first iteration), create initial deltas
         if len(lSet_deltas) == 0:

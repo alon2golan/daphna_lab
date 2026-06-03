@@ -39,6 +39,30 @@ def _l2_normalize_copy(x):
     return x / norms
 
 
+# Accepted string keywords for --initial_delta. See resolve_initial_delta in
+# deep_al/pycls/al/delta_defaults.py for what each keyword does.
+DELTA_KEYWORDS = ('auto_delta', 'knee_delta')
+
+
+def _initial_delta_arg(s):
+    """argparse type for --initial_delta: accepts a float OR one of the
+    keywords in DELTA_KEYWORDS. A positive float is the explicit value used
+    as-is; 'knee_delta' forces the knee-point algorithm; 'auto_delta' (also
+    the default when the flag is omitted) looks up the pinned (dataset,
+    eval_mode) table and falls back to the knee algorithm with a warning if
+    no row matches.
+    """
+    if s in DELTA_KEYWORDS:
+        return s
+    try:
+        return float(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"invalid --initial_delta value {s!r}: expected a float, "
+            f"or one of {DELTA_KEYWORDS}"
+        )
+
+
 def argparser():
     parser = argparse.ArgumentParser(description='Active Learning - Image Classification')
     parser.add_argument('--cfg', dest='cfg_file', help='Config file', required=True, type=str)
@@ -49,7 +73,18 @@ def argparser():
     parser.add_argument('--seed', help='Random seed', default=1, type=int)
     parser.add_argument('--eval_model_type', help='eval_model_type', type=str) # train the eval model from features not images
     parser.add_argument('--features_tag', help='Tag to specify which feature representation to use (e.g., "alon", "itai")', type=str, default=None)
-    parser.add_argument('--initial_delta', help='Relevant only for ProbCover and DCoM', default=-1, type=float)
+    parser.add_argument(
+        '--initial_delta',
+        help=(
+            "Relevant only for ProbCover and DCoM. Accepts a positive float "
+            "to use as-is, 'knee_delta' to run the data-driven knee-point "
+            "algorithm, or 'auto_delta' (default) to look up the pinned "
+            "(dataset, eval_mode) table and fall back to the knee algorithm "
+            "with a warning if no row matches."
+        ),
+        default='auto_delta',
+        type=_initial_delta_arg,
+    )
     parser.add_argument('--kernel_type', default='rbf', type=str)
     parser.add_argument('--diff_method', default='abs_diff', type=str)
     parser.add_argument('--confidence_method', default='margin', type=str)
