@@ -1,3 +1,4 @@
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
@@ -17,89 +18,143 @@ REPO_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 import deep_al.pycls.datasets.utils as ds_utils
 
 
+def _load_precomputed_2d(dataset_name, method, in_dir):
+    """Read 2D embeddings + labels + (optional) original indices saved by
+    deep_al/tools/visualize_feature_space.py.
+
+    Returns (embeddings, labels, full_to_plot) where full_to_plot maps an
+    original full-dataset index -> position in the plotted array, or None
+    if no _indices file is present (i.e. plot covers the full dataset and
+    the identity map suffices).
+    """
+    emb_path = os.path.join(in_dir, f"{dataset_name}_{method}_embeddings.npy")
+    lab_path = os.path.join(in_dir, f"{dataset_name}_labels.npy")
+    idx_path = os.path.join(in_dir, f"{dataset_name}_{method}_indices.npy")
+    embeddings = np.load(emb_path)
+    labels = np.load(lab_path)
+    full_to_plot = None
+    if os.path.exists(idx_path):
+        orig_indices = np.load(idx_path)
+        if len(orig_indices) != len(embeddings) or not np.array_equal(orig_indices, np.arange(len(embeddings))):
+            full_to_plot = {int(o): p for p, o in enumerate(orig_indices)}
+    return embeddings, labels, full_to_plot
+
+
+def _remap(indices, full_to_plot):
+    if indices is None or len(indices) == 0:
+        return np.array([], dtype=np.int64)
+    if full_to_plot is None:
+        return np.asarray(indices, dtype=np.int64)
+    return np.array([full_to_plot[int(i)] for i in indices if int(i) in full_to_plot], dtype=np.int64)
+
+
+def visualize_feature_space(
+    method: str = 'tsne',
+    labeled_indices: np.ndarray = None,
+    sampled_indices: np.ndarray = None,
+    dataset_name: str = 'CIFAR10',
+    algo_name: str = 'default',
+    in_dir: str = None,
+    out_dir: str = None,
+    seed: int = None,
+):
+    """Overlay labeled / newly-sampled points on a precomputed 2D embedding
+    of the feature space (PCA / t-SNE / UMAP), colored by class.
+
+    Files expected in in_dir:
+        {dataset_name}_{method}_embeddings.npy
+        {dataset_name}_labels.npy
+        {dataset_name}_{method}_indices.npy   (optional; needed if subsampled)
+
+    Generate them with deep_al/tools/visualize_feature_space.py.
+    """
+    in_dir = in_dir or os.path.join(REPO_BASE, "results", "feature-space")
+    out_dir = out_dir or os.path.join(REPO_BASE, "results", "feature-space-visual")
+    os.makedirs(out_dir, exist_ok=True)
+
+    from deep_al.tools.visualize_feature_space import (
+        classmap_layout, draw_classmap_on_axes, get_distinct_palette, build_sorted_classmap,
+    )
+
+    embeddings, labels, full_to_plot = _load_precomputed_2d(dataset_name, method, in_dir)
+    classes = np.unique(labels)
+    num_classes = len(classes)
+
+    names_path = os.path.join(in_dir, f"{dataset_name}_class_names.json")
+    class_names = None
+    if os.path.exists(names_path):
+        with open(names_path) as f:
+            class_names = json.load(f)
+
+    name_for = (lambda i: class_names[int(i)]) if class_names else (lambda i: f"{int(i)}")
+    palette = get_distinct_palette(num_classes)
+    names_ordered = [name_for(c) for c in classes]
+    palette_dict = {names_ordered[i]: palette[i] for i in range(num_classes)}
+    hue_all = np.array([name_for(c) for c in labels])
+
+    labeled_plot_idx = _remap(labeled_indices, full_to_plot)
+    sampled_plot_idx = _remap(sampled_indices, full_to_plot)
+
+    ncols, nrows = classmap_layout(num_classes)
+    legend_w = max(2.6, 2.6 * ncols)
+    legend_h_needed = 0.32 * nrows + 0.6
+    fig_h = max(10, legend_h_needed)
+    fig = plt.figure(figsize=(10 + legend_w, fig_h))
+    gs = fig.add_gridspec(1, 2, width_ratios=[10, legend_w], wspace=0.02)
+    ax_scatter = fig.add_subplot(gs[0, 0])
+    ax_legend = fig.add_subplot(gs[0, 1])
+
+    sns.scatterplot(
+        ax=ax_scatter,
+        x=embeddings[:, 0], y=embeddings[:, 1],
+        hue=hue_all, hue_order=names_ordered, palette=palette_dict,
+        legend=False,
+        s=15, alpha=0.7, linewidth=0,
+    )
+    if len(labeled_plot_idx) > 0:
+        sns.scatterplot(
+            ax=ax_scatter,
+            x=embeddings[labeled_plot_idx, 0], y=embeddings[labeled_plot_idx, 1],
+            hue=hue_all[labeled_plot_idx], hue_order=names_ordered, palette=palette_dict,
+            marker='*', s=180, edgecolor='#222222', linewidth=1.6, legend=False,
+        )
+    if len(sampled_plot_idx) > 0:
+        sns.scatterplot(
+            ax=ax_scatter,
+            x=embeddings[sampled_plot_idx, 0], y=embeddings[sampled_plot_idx, 1],
+            hue=hue_all[sampled_plot_idx], hue_order=names_ordered, palette=palette_dict,
+            marker='*', s=220, edgecolor='black', linewidth=2.0, legend=False,
+        )
+    ax_scatter.set_title(f"{method.upper()} of {dataset_name} — {algo_name}")
+    ax_scatter.set_axis_off()
+
+    legend_labels, legend_colors = build_sorted_classmap(classes, palette, class_names)
+    draw_classmap_on_axes(ax_legend, legend_labels, legend_colors, title="color → class (A→Z)")
+
+    num_labeled_samples = len(labeled_plot_idx)
+    seed_tag = f"_seed{int(seed)}" if seed is not None else ""
+    save_full_path = os.path.join(
+        out_dir, f"{algo_name}_{dataset_name}_{method}{seed_tag}_labeled_{num_labeled_samples}.png"
+    )
+    fig.savefig(save_full_path, bbox_inches='tight', dpi=150)
+    plt.close(fig)
+    return save_full_path
+
+
 def visualize_tsne(
     labeled_indices: np.ndarray = None,
     sampled_indices: np.ndarray = None,
     dataset_name: str = 'CIFAR10',
     algo_name: str = 'default',
 ):
-    """
-    Reduces embeddings to 2D using t-SNE and plots them with labels. Optionally subsamples for speed.
-
-    :param embeddings: NumPy array of shape (N, D)
-    :param labels: NumPy array of shape (N,)
-    :param perplexity: t-SNE perplexity parameter
-    :param random_state: Random seed for reproducibility
-    :param max_samples: Number of samples to use for visualization
-    :param save_path: Optional path to save the plot
-    :param include_indices: Optional array of indices to always include and highlight
-    """
-
-    embeddings_path = os.path.join(REPO_BASE, f"results/t-sne/{dataset_name}_t-sne_embeddings.npy")
-    labels_path = os.path.join(REPO_BASE, f"results/t-sne/{dataset_name}_t-sne_labels.npy")
-    embeddings = np.load(embeddings_path)
-    labels = np.load(labels_path)
-    num_classes = len(np.unique(labels))
-
-    labeled_embeddings = embeddings[labeled_indices]
-    labeled_labels = labels[labeled_indices]
-
-    sampled_embeddings = embeddings[sampled_indices]
-    sampled_labels = labels[sampled_indices]
-
-    plt.figure(figsize=(10, 10))
-    palette = sns.color_palette("hsv", num_classes)
-
-    # Plot all points normally
-    sns.scatterplot(
-        x=embeddings[:, 0],
-        y=embeddings[:, 1],
-        hue=labels,
-        palette=palette,
-        legend="full",
-        s=15,
-        alpha=0.7
+    """Back-compat shim. Prefer visualize_feature_space(method='tsne', ...)."""
+    return visualize_feature_space(
+        method='tsne',
+        labeled_indices=labeled_indices,
+        sampled_indices=sampled_indices,
+        dataset_name=dataset_name,
+        algo_name=algo_name,
     )
-
-    # Overlay included indices with different marker
-    if len(labeled_indices) > 0:
-        sns.scatterplot(
-            x=labeled_embeddings[:, 0],
-            y=labeled_embeddings[:, 1],
-            hue=labeled_labels,
-            palette=palette,
-            marker='X',
-            s=90,
-            edgecolor='gray',
-            linewidth=0.7,
-            legend=False  # Avoid duplicate legend entries
-        )
-    if len(sampled_indices) > 0:
-        sns.scatterplot(
-            x=sampled_embeddings[:, 0],
-            y=sampled_embeddings[:, 1],
-            hue=sampled_labels,
-            palette=palette,
-            marker='X',
-            s=110,
-            edgecolor='black',
-            linewidth=1,
-            legend=False  # Avoid duplicate legend entries
-        )
-
-    plt.title(f"t-SNE Visualization of Embeddings by {algo_name}")
-    plt.axis('off')
-
-    # if save_path:
-    #
-    #     print(f"Plot saved to {save_path}")
-    # else:
-    num_labeled_samples = len(labeled_indices)
-    save_full_path = os.path.join(REPO_BASE, f'results/t-sne-visual/{algo_name}_{dataset_name}_labeled_{num_labeled_samples}.png')
-    plt.savefig(save_full_path, bbox_inches='tight')
-    plt.show()
-
-    plt.close()
 
 
 # def save_embeddings_to_file(embeddings: np.ndarray, labels: np.ndarray, dataset_name: str):
