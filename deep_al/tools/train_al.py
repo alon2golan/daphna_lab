@@ -106,6 +106,21 @@ def argparser():
     parser.add_argument('--group', type=str, default=None, help='W&B group name')
     parser.add_argument('--collection', dest='job_type', type=str, default=None,
                         help='High-level grouping for the entire benchmark')
+    parser.add_argument('--visualize_features', action='store_true',
+                        help='After each AL round, save a 2D scatter of feature space colored by class '
+                             'with lSet and the new activeSet overlaid. Requires precomputed embeddings '
+                             '(run deep_al/tools/visualize_feature_space.py once per dataset first).')
+    parser.add_argument('--visualize_method', type=str, default='tsne',
+                        choices=['pca', 'tsne', 'umap'],
+                        help='Reduction method whose precomputed file the per-episode plot should read.')
+    parser.add_argument('--visualize_input_dir', type=str, default=None,
+                        help='Directory holding the precomputed {dataset}_{method}_embeddings.npy and '
+                             '{dataset}_labels.npy. Default: results/feature-space/ under repo root.')
+    parser.add_argument('--visualize_output_dir', type=str, default=None,
+                        help='Directory the per-episode PNGs are written to. Default: '
+                             'results/feature-space-visual/ under repo root. Set this to a per-run '
+                             'subfolder (e.g. the W&B collection name) to keep plots from different '
+                             'script runs separated on disk.')
     return parser
 
 
@@ -235,6 +250,20 @@ def main(cfg, args):
     data_obj, train_data, test_data, train_size, test_size = prepare_datasets(cfg, args)
 
     cfg.ACTIVE_LEARNING.INIT_L_RATIO = args.initial_size / train_size
+
+    cfg.VISUALIZATION.ENABLED = bool(getattr(args, 'visualize_features', False))
+    cfg.VISUALIZATION.METHOD = getattr(args, 'visualize_method', 'tsne')
+    cfg.VISUALIZATION.INPUT_DIR = getattr(args, 'visualize_input_dir', None) or ''
+    # OUTPUT_DIR resolution order:
+    #   1. --visualize_output_dir (explicit override)
+    #   2. results/feature-space-visual/{--collection}/ (auto per-run subfolder)
+    #   3. '' -> utils.py default (flat results/feature-space-visual/)
+    _viz_out = getattr(args, 'visualize_output_dir', None)
+    if not _viz_out and getattr(args, 'job_type', None):
+        _repo_base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        _viz_out = os.path.join(_repo_base, 'results', 'feature-space-visual', args.job_type)
+    cfg.VISUALIZATION.OUTPUT_DIR = _viz_out or ''
+
     print("\nDataset {} Loaded Sucessfully.\nTotal Train Size: {} and Total Test Size: {}\n".format(cfg.DATASET.NAME, train_size, test_size))
     logger.info("Dataset {} Loaded Sucessfully. Total Train Size: {} and Total Test Size: {}\n".format(cfg.DATASET.NAME, train_size, test_size))
 
@@ -384,6 +413,35 @@ def main(cfg, args):
     print("="*60 + "\n")
 
 
+def _maybe_plot_feature_space(cfg, cur_episode, lSet, activeSet):
+    if not getattr(cfg, "VISUALIZATION", None) or not cfg.VISUALIZATION.ENABLED:
+        return
+    try:
+        from deep_al.tools.utils import visualize_feature_space
+        in_dir = cfg.VISUALIZATION.INPUT_DIR or None
+        algo = f"{cfg.ACTIVE_LEARNING.SAMPLING_FN}_ep{cur_episode}"
+        out = visualize_feature_space(
+            method=cfg.VISUALIZATION.METHOD,
+            labeled_indices=np.asarray(lSet, dtype=np.int64),
+            sampled_indices=np.asarray(activeSet, dtype=np.int64),
+            dataset_name=cfg.DATASET.NAME,
+            algo_name=algo,
+            in_dir=in_dir,
+            out_dir=cfg.VISUALIZATION.OUTPUT_DIR or None,
+            seed=cfg.RNG_SEED,
+        )
+        print(f"Feature-space plot saved: {out}")
+        logger.info("Feature-space plot saved: %s", out)
+    except FileNotFoundError as e:
+        msg = (f"VISUALIZATION.ENABLED=True but precomputed 2D file missing ({e}). "
+               f"Run: python deep_al/tools/visualize_feature_space.py "
+               f"--dataset {cfg.DATASET.NAME} --method {cfg.VISUALIZATION.METHOD}")
+        print(msg)
+        logger.warning(msg)
+    except Exception as e:
+        logger.warning("Feature-space plot skipped: %s", e)
+
+
 def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet_loader, train_data, uSet, valSet,
                          valSet_loader, al_obj):
     print("======== ACTIVE SAMPLING ========\n")
@@ -395,6 +453,7 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
     )
     # Save current lSet, new_uSet and activeSet in the episode directory
     data_obj.saveSets(lSet, uSet, activeSet, cfg.EPISODE_DIR)
+    _maybe_plot_feature_space(cfg, cur_episode, lSet, activeSet)
     # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode
     lSet = np.append(lSet, activeSet)
     uSet = new_uSet

@@ -210,6 +210,24 @@ _C.ACTIVE_LEARNING.DELTA_RESOLUTION = 0.05 # Delta resolution for the binary sea
 _C.ACTIVE_LEARNING.FINE_TUNE = True # continue after AL from existing model or from scratch
 
 # ---------------------------------------------------------------------------- #
+# Feature-space visualization (per-episode 2D scatter colored by class,
+# with lSet / activeSet overlaid). Requires precomputed embeddings produced
+# by deep_al/tools/visualize_feature_space.py.
+# ---------------------------------------------------------------------------- #
+_C.VISUALIZATION = CN()
+_C.VISUALIZATION.ENABLED = False
+# One of 'pca', 'tsne', 'umap'. Files looked up at
+#   {INPUT_DIR}/{DATASET.NAME}_{METHOD}_embeddings.npy
+#   {INPUT_DIR}/{DATASET.NAME}_labels.npy
+_C.VISUALIZATION.METHOD = 'tsne'
+# Empty string = default (REPO_BASE/results/feature-space).
+_C.VISUALIZATION.INPUT_DIR = ''
+# Empty string = default (REPO_BASE/results/feature-space-visual). Set to a
+# per-run subfolder (e.g. the W&B collection name) to keep plots from
+# different .sh runs from mingling.
+_C.VISUALIZATION.OUTPUT_DIR = ''
+
+# ---------------------------------------------------------------------------- #
 # Common train/test data loader options
 # ---------------------------------------------------------------------------- #
 _C.DATA_LOADER = CN()
