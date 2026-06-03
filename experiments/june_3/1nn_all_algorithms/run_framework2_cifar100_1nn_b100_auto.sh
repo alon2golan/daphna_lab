@@ -3,7 +3,7 @@
 #SBATCH --mem=48g
 #SBATCH -c 8
 #SBATCH --time=2:00:00
-#SBATCH --gres=gpu:a5000:1
+#SBATCH --gres=gpu:l40s:1
 #SBATCH --array=0-19
 #SBATCH --output=slurm_logs/job_%A_%a.out
 #SBATCH --error=slurm_logs/job_%A_%a.err

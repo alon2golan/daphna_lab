@@ -3,7 +3,7 @@
 #SBATCH --mem=48g
 #SBATCH -c 8
 #SBATCH --time=2:00:00
-#SBATCH --gres=gpu:a5000:1
+#SBATCH --gres=gpu:l40s:1
 #SBATCH --array=0-14
 #SBATCH --output=slurm_logs/job_%A_%a.out
 #SBATCH --error=slurm_logs/job_%A_%a.err
@@ -17,13 +17,14 @@ mkdir -p "$START_DIR/logs/PROBCOVER_CIFAR100_B100_DELTA_CMP"
 # 2. Variant Mapping
 # Three (eval_mode, delta_mode) variants -> SLURM_ARRAY_TASK_ID / 5 picks the
 # variant, SLURM_ARRAY_TASK_ID % 5 picks the seed (1..5). Total tasks = 3 * 5 = 15.
+# Variants are ordered alphabetically (case-insensitive) by VARIANT_LABEL.
 #
-# Variant 0: NN1 + auto_delta        -> PROBCOVER_AUTO_DELTAS hit, delta=0.65
-# Variant 1: NN1 + knee_delta        -> knee algorithm on normalized features
-# Variant 2: from_images + auto_delta -> PROBCOVER_AUTO_DELTAS hit, delta=0.75
-EVAL_MODES=("NN1"        "NN1"        "from_images")
-DELTA_MODES=("auto_delta" "knee_delta" "auto_delta")
-VARIANT_LABELS=("NN1_auto" "NN1_knee" "from_images_auto")
+# Variant 0: from_images + auto_delta -> PROBCOVER_AUTO_DELTAS hit, delta=0.75
+# Variant 1: NN1 + auto_delta         -> PROBCOVER_AUTO_DELTAS hit, delta=0.65
+# Variant 2: NN1 + knee_delta         -> knee algorithm on normalized features
+EVAL_MODES=("from_images"      "NN1"        "NN1")
+DELTA_MODES=("auto_delta"      "auto_delta" "knee_delta")
+VARIANT_LABELS=("from_images_auto" "NN1_auto"   "NN1_knee")
 
 VAR_IDX=$((SLURM_ARRAY_TASK_ID / 5))
 EVAL_MODE=${EVAL_MODES[$VAR_IDX]}
@@ -79,22 +80,25 @@ python3 train_al.py \
 # ==============================================================================
 #
 # ProbCover delta-mode comparison on CIFAR100, budget 100. Three variants land
-# in one W&B collection so the mean+std curves plot together:
+# in one W&B collection so the mean+std curves plot together. Variants are
+# listed in the order they appear in EVAL_MODES / DELTA_MODES / VARIANT_LABELS
+# above (alphabetical, case-insensitive, by VARIANT_LABEL):
 #
+#   from_images + auto_delta -> PROBCOVER_AUTO_DELTAS hit, expected delta=0.75
+#                               (full ResNet retrained from raw images).
 #   NN1 + auto_delta         -> PROBCOVER_AUTO_DELTAS hit, expected delta=0.65
 #                               (1-NN on L2-normalized SimCLR features).
 #   NN1 + knee_delta         -> runs ds_utils.select_delta (KMeans pseudo-labels,
-#                               purity-curve knee). Same eval model as variant 0;
-#                               only the delta picker differs.
-#   from_images + auto_delta -> PROBCOVER_AUTO_DELTAS hit, expected delta=0.75
-#                               (full ResNet retrained from raw images).
+#                               purity-curve knee). Same eval model as the NN1
+#                               auto variant; only the delta picker differs.
 #
 # Why: the auto_delta keyword now resolves to a pinned per-(dataset, eval_mode)
-# value (0.65 / 0.75 for CIFAR100). This script measures how much the pinned
-# value differs from what the knee algorithm picks under the same eval model
-# (variants 0 vs 1) and how the entire eval pipeline shifts the result
-# (variants 0 vs 2). Both differences directly affect ProbCover's coverage
-# graph and the resulting test accuracy curve.
+# value (0.65 / 0.75 for CIFAR100). This script measures two distinct effects:
+# the NN1_auto vs NN1_knee pair isolates the "pinned 0.65 vs knee-picked delta"
+# difference under the same eval model, and the from_images_auto vs NN1_auto
+# pair shifts the entire eval pipeline (both deltas are pinned table hits).
+# Both differences directly affect ProbCover's coverage graph and the
+# resulting test accuracy curve.
 #
 # Settings:
 #   DATASET:        CIFAR100
