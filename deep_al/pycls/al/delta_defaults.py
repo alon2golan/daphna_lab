@@ -1,17 +1,22 @@
 """Resolves the initial delta for ProbCover / DCoM under one rule, used by
 all three call sites (prob_cover.py, coverage_matrix_methods.py, DCoM.py).
 
-Single CLI knob: --initial_delta. Three accepted forms (see _initial_delta_arg
-in deep_al/tools/train_al.py):
+Single CLI knob: --initial_delta. The user picks one of three modes (see
+_initial_delta_arg in deep_al/tools/train_al.py):
 
-    positive float      -> use this value as-is
-    'knee_delta'        -> run the data-driven knee-point algorithm
-                           (ds_utils.select_delta on a purity curve)
+    positive float      -> use this value as-is. END.
+    'knee_delta'        -> always run the data-driven knee-point algorithm
+                           (ds_utils.select_delta on a purity curve). END.
     'auto_delta'        -> look up the pinned (dataset, eval_mode) table;
                            fall back to the knee algorithm with a warning
-                           if no row matches.
-                           This is the default when --initial_delta is not
-                           passed.
+                           if the (dataset, method, eval_mode) row is
+                           missing. This is also the default when
+                           --initial_delta is omitted.
+
+A negative or otherwise invalid explicit float (e.g. --initial_delta -1) is
+treated as a malformed explicit; it routes to the auto_delta mode with a
+hint line explaining the fall-through. This is the same behavior as
+omitting --initial_delta entirely.
 
 The pinned tables live in this module. They are intentionally separate
 per method: ProbCover and DCoM have different optimal deltas for the
@@ -74,21 +79,28 @@ def resolve_initial_delta(cfg, features, num_classes, seed,
     """
     raw = cfg.ACTIVE_LEARNING.INITIAL_DELTA
 
-    # Branch 1: explicit positive float -> use as-is.
+    # Mode EXPLICIT-FLOAT: user gave a usable positive number.
     if isinstance(raw, (int, float)) and raw >= 0:
         delta = float(raw)
         print(f"[delta] {method_name}: using EXPLICIT delta={delta:.4f} "
               f"(from --initial_delta).")
         return delta
 
-    # Branch 2: 'knee_delta' -> always run the knee algorithm.
+    # Mode KNEE: user explicitly asked for the data-driven knee algorithm.
     if raw == 'knee_delta':
         delta, elapsed = _run_knee(cfg, features, num_classes, seed)
         print(f"[delta] {method_name}: using KNEE delta -> {delta:.4f} "
               f"(--initial_delta knee_delta, {elapsed:.2f}s).")
         return delta
 
-    # Branch 3: 'auto_delta' (or default) -> table lookup; fall back to knee.
+    # Bad explicit (e.g. --initial_delta -1): not a valid positive float, not
+    # a known keyword. Route to AUTO with a hint instead of silently using it.
+    if isinstance(raw, (int, float)):
+        print(f"[delta] {method_name}: --initial_delta={raw} is not a valid "
+              f"positive float; routing to auto_delta.")
+
+    # Mode AUTO: pinned table lookup; if (dataset, eval_mode) is missing,
+    # fall back to the knee algorithm with a warning.
     table_label = (
         'PROBCOVER_AUTO_DELTAS' if auto_table is PROBCOVER_AUTO_DELTAS
         else 'DCOM_AUTO_DELTAS' if auto_table is DCOM_AUTO_DELTAS
