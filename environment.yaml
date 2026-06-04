@@ -1,0 +1,27 @@
+name: daphna_lab_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - black==19.3b0
+    - flake8==3.8.4
+    - isort==4.3.21
+    - numpy==1.26.0
+    - parameterized
+    - setuptools
+    - simplejson
+    - yacs
+    - matplotlib
+    - torch==2.4.1
+    - torchvision==0.19.1
+    - tqdm
+    - faiss-gpu-cu12==1.8.0.0
+    - pandas
+    - scikit-learn
+    - scipy
+    - seaborn
+    - easydict
+    - termcolor
