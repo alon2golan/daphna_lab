@@ -300,7 +300,7 @@ with tab_sweeps:
                     _save_hidden_sweeps(set())
                     st.rerun()
 
-            for _, row in summary.iterrows():
+            for _row_i, (_, row) in enumerate(summary.iterrows()):
                 if row["running"] > 0:
                     _row_status = "🔄 running"
                 elif row["failed"] > 0:
@@ -328,6 +328,10 @@ with tab_sweeps:
                     st.success("🚀 Newly launched sweep")
                 if _is_hidden:
                     header = f"~~{header}~~ *(hidden)*"
+                # Unique per-row token for widget/session keys: sweep_id alone is
+                # NOT guaranteed unique (manual launches can collide), which would
+                # raise StreamlitDuplicateElementKey and crash the whole app.
+                _ukey = f"{row['sweep_id']}_{_row_i}"
                 with st.expander(header, expanded=_is_highlighted):
                     st.progress(pct, text=f"{row['completed']}/{row['total']} completed")
                     _meta_col, _btn_col = st.columns([5, 1])
@@ -338,7 +342,7 @@ with tab_sweeps:
                     if _is_hidden:
                         if _btn_col.button(
                             "👁 Restore",
-                            key=f"restore_{row['sweep_id']}",
+                            key=f"restore_{_ukey}",
                         ):
                             _hidden_sweeps.discard(row["sweep_id"])
                             _save_hidden_sweeps(_hidden_sweeps)
@@ -346,14 +350,20 @@ with tab_sweeps:
                     else:
                         if _btn_col.button(
                             "🙈 Hide",
-                            key=f"hide_{row['sweep_id']}",
+                            key=f"hide_{_ukey}",
                             help="Hide this sweep from the dashboard (non-destructive, files are kept)",
                         ):
                             _hidden_sweeps.add(row["sweep_id"])
                             _save_hidden_sweeps(_hidden_sweeps)
                             st.rerun()
 
-                    sweep_runs = df[df["sweep_id"] == row["sweep_id"]].copy()
+                    # Filter on both sweep_id AND sweep_name: sweep_id can collide
+                    # across manual launches, and filtering on it alone would mix
+                    # (and let you delete) runs from a different sweep.
+                    sweep_runs = df[
+                        (df["sweep_id"] == row["sweep_id"])
+                        & (df["sweep_name"] == row["sweep_name"])
+                    ].copy()
                     show = [
                         c for c in [
                             "config_label", "p_seed", "status",
@@ -377,7 +387,8 @@ with tab_sweeps:
                     )
 
                     st.divider()
-                    _sid = row["sweep_id"]
+                    # Real sweep_id for hidden-set semantics; _ukey for widget keys.
+                    _sid = _ukey
 
                     # ── Per-run deletion ──────────────────────────────────────
                     with st.expander("🗑 Delete individual runs", expanded=False):
@@ -469,7 +480,7 @@ with tab_sweeps:
                                     shutil.rmtree(_r["exp_dir"])
                                 except OSError as _exc:
                                     _errs.append(f"{_r['exp_dir']}: {_exc}")
-                            _hidden_sweeps.discard(_sid)
+                            _hidden_sweeps.discard(row["sweep_id"])
                             _save_hidden_sweeps(_hidden_sweeps)
                             st.session_state.pop(_confirm_sweep_key, None)
                             st.cache_data.clear()
@@ -858,7 +869,7 @@ with tab_nu:
                 margin=dict(t=40),
                 title=f"{_nu_dataset.upper()} — ν' vs τ",
             )
-            st.plotly_chart(_nu_fig, use_container_width=True)
+            st.plotly_chart(_nu_fig, width="stretch")
 
             # ── raw data table ───────────────────────────────────────────────
             with st.expander("Raw cache values", expanded=False):
@@ -885,7 +896,7 @@ with tab_nu:
                     st.dataframe(
                         pd.DataFrame(_rows).sort_values(["method", "budget", "tau"]),
                         hide_index=True,
-                        use_container_width=True,
+                        width="stretch",
                     )
 
 

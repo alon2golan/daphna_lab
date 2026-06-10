@@ -295,9 +295,16 @@ def _train(model: nn.Module,
            loader: DataLoader,
            device: torch.device,
            epochs: int = 5,
-           lr: float = 1e-3) -> None:
+           lr: float = 1e-3,
+           optimizer: str = "adam") -> None:
     model.to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    if optimizer == "sgd":
+        # Tomer-style optimizer (mirrors the oracle-teacher-proj port's
+        # construct_optimizer): SGD + Nesterov momentum + weight decay, BASE_LR=0.025.
+        opt = torch.optim.SGD(model.parameters(), lr=0.025, momentum=0.9,
+                              nesterov=True, weight_decay=5e-4)
+    else:
+        opt = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
     model.train()
     for epoch in range(epochs):
@@ -526,6 +533,7 @@ def estimate_nu(dataset: Dataset,
                 noise_mode: str = "random",    # "random" or "asymmetric"
                 al_method: str = "random",
                 dataset_name: str = "",
+                optimizer: str = "adam",
                 ) -> (int, float):
     """
     Estimate the noise fraction ν ∈ [0,1] by binary search.
@@ -621,7 +629,7 @@ def estimate_nu(dataset: Dataset,
 
         m_oracle = _build_model(img_shape, num_classes, model_name, representation_model=representation_model, dataset_name=dataset_name)
         oracle_epochs = 100 if model_name == "linear" else epochs
-        _train(m_oracle, dl_oracle, device, oracle_epochs, lr)
+        _train(m_oracle, dl_oracle, device, oracle_epochs, lr, optimizer=optimizer)
         oracle_accs.append(_accuracy(m_oracle, dl_test, device))
 
     acc_oracle = float(np.mean(oracle_accs))
@@ -689,7 +697,7 @@ def estimate_nu(dataset: Dataset,
             dl_noisy = DataLoader(ds_noisy, batch_size=batch_size, shuffle=True)
 
             m_noisy = _build_model(img_shape, num_classes, model_name, representation_model=representation_model, dataset_name=dataset_name)
-            _train(m_noisy, dl_noisy, device, epochs, lr)
+            _train(m_noisy, dl_noisy, device, epochs, lr, optimizer=optimizer)
             noisy_accs.append(_accuracy(m_noisy, dl_test, device))
 
         acc_noisy = float(np.mean(noisy_accs))
@@ -1126,6 +1134,8 @@ def run_estimated_nu():
     parser.add_argument("--dbscan_min_samples", type=int, default=10)
     parser.add_argument("--dbscan_metric", type=str, default="euclidean", choices=["euclidean", "manhattan", "cosine"])
     parser.add_argument("--representation_model", type=str, default="simclr", choices=["simclr", "vit", "resnet50"])
+    parser.add_argument("--optimizer", choices=["adam", "sgd"], default="adam",
+                        help="adam = daphna_lab default; sgd = Tomer-style SGD+Nesterov+WD (lr=0.025).")
     args = parser.parse_args()
 
 
@@ -1228,7 +1238,8 @@ def run_estimated_nu():
                                               cluster_method=args.cluster_method,
                                               noise_mode=args.noise_mode,
                                               al_method = args.al_method,
-                                              dataset_name=dataset_name
+                                              dataset_name=dataset_name,
+                                              optimizer=args.optimizer,
                                               )
         print(
             f"Estimated nu for tau={tau} with Clustered labels: {nu_hat_cluster_labels:.4f}, tries: {i}",
@@ -1288,6 +1299,8 @@ def run_estimated_nu():
             "tau":       tau_vals[0],
             "seed":      seed,
             "nu_prime":  nu_hats_kmeans_labels[0],
+            "optimizer": args.optimizer,
+            "oracle_acc": oracle_accs[0],
         }
         out_path = Path(args.output_file)
         out_path.parent.mkdir(parents=True, exist_ok=True)
