@@ -127,33 +127,46 @@ class   CoverageMatrixMethod:
         print(f'Start selecting {num_samples} samples.')
         selected = []
         for i in tqdm(range(num_samples), desc="Selecting Samp"):
-            curr_l_set = np.concatenate((np.arange(len(self.lSet)), selected)).astype(int)
+            self._select_one(selected, annotator_id)
 
-            max_vals, indices = torch.max(self.C, dim=1)
-            if self.use_sparse:
-                point_total_contribution = batched_diffs_sparse(self.K, max_vals, 0, self.num_of_classes,
-                                                         diff_method="abs_diff")
-            else:
-                point_total_contribution = batched_diffs(self.K, max_vals, 0, self.num_of_classes,
+        return self._finalize_selection(selected, num_samples)
+
+    def _select_one(self, selected, annotator_id):
+        """
+        One greedy step: pick the highest-out-degree point, annotate it in-loop
+        (label may be noisy), and fold its coverage into C. Mutates `selected`.
+        Returns (sampled_point_local, global_idx, chosen_label).
+        """
+        curr_l_set = np.concatenate((np.arange(len(self.lSet)), selected)).astype(int)
+
+        max_vals, indices = torch.max(self.C, dim=1)
+        if self.use_sparse:
+            point_total_contribution = batched_diffs_sparse(self.K, max_vals, 0, self.num_of_classes,
                                                      diff_method="abs_diff")
+        else:
+            point_total_contribution = batched_diffs(self.K, max_vals, 0, self.num_of_classes,
+                                                 diff_method="abs_diff")
 
 
-            point_total_contribution[curr_l_set] = -np.inf
-            
-            sampled_point = torch.argmax(point_total_contribution).item()
-            # sampled_point = np.argsort(-point_total_contribution.cpu().numpy(), kind='stable')[0].item()
-            global_idx = int(self.relevant_indices[sampled_point])
-            result = self.annotator_manager.annotate_samples([global_idx], annotator_id)
-            chosen_label = result['annotated_labels'][global_idx]
+        point_total_contribution[curr_l_set] = -np.inf
 
-            K_row_dense = self.K[sampled_point].to_dense().squeeze()
-            self.C[:, chosen_label] = torch.maximum(self.C[:, chosen_label], K_row_dense)
+        sampled_point = torch.argmax(point_total_contribution).item()
+        # sampled_point = np.argsort(-point_total_contribution.cpu().numpy(), kind='stable')[0].item()
+        global_idx = int(self.relevant_indices[sampled_point])
+        result = self.annotator_manager.annotate_samples([global_idx], annotator_id)
+        chosen_label = result['annotated_labels'][global_idx]
+
+        K_row_dense = self.K[sampled_point].to_dense().squeeze()
+        self.C[:, chosen_label] = torch.maximum(self.C[:, chosen_label], K_row_dense)
 
 
-            assert sampled_point not in selected, 'sample was already selected'
-            selected.append(sampled_point)
-            del K_row_dense
+        assert sampled_point not in selected, 'sample was already selected'
+        selected.append(sampled_point)
+        del K_row_dense
+        return sampled_point, global_idx, chosen_label
 
+    def _finalize_selection(self, selected, num_samples):
+        """Common tail: persist C, build activeSet/remainSet, free buffers."""
         assert len(selected) == num_samples, 'added a different number of samples'
         activeSet = self.relevant_indices[selected]
 
@@ -166,7 +179,7 @@ class   CoverageMatrixMethod:
         del self.C
 
         return activeSet, remainSet
-    
+
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
                         checkpoint_file=None, num_samples=None, annotator_id=None):
         """
@@ -183,6 +196,95 @@ class   CoverageMatrixMethod:
             f"num_samples cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and num_samples: {num_samples}"
 
         return self.select_samples(lSet, uSet, num_samples, annotator_id=annotator_id)
+
+
+class NoiseAwareCoverage(CoverageMatrixMethod):
+    """
+    NPC — Noise-aware ProbCover (Netta's thesis, the query-side contribution).
+
+    Wraps the greedy coverage selection in a Noise-Aware Sampling loop: select in
+    inner batches of `b`, and between batches re-run a noise filter over the
+    labeled set and rebuild the coverage matrix C from only the points predicted
+    clean. A noisy labeled point therefore stops "covering" its neighbourhood, so
+    that region re-opens and can be re-sampled.
+    """
+
+    def __init__(self, cfg, annotator_manager=None, noise_filter=None):
+        super().__init__(cfg, annotator_manager=annotator_manager)
+        self.noise_filter = noise_filter
+        b = getattr(cfg.NOISE_FILTER, 'INNER_BATCH_SIZE', -1)
+        self.inner_batch_size = self.num_of_classes if (b is None or int(b) < 0) else int(b)
+        # Set per-round in sample_from_uSet so the filter can train on noisy labels.
+        self.train_data = None
+
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                         checkpoint_file=None, num_samples=None, annotator_id=None):
+        # trainDataset must serve the (possibly noisy) annotated labels — i.e. the
+        # NoisyLabelDatasetWrapper — so the AUM filter sees what was actually labelled.
+        self.train_data = trainDataset
+        return super().sample_from_uSet(
+            clf_model, lSet, uSet, trainDataset, supportingModels=supportingModels,
+            checkpoint_file=checkpoint_file, num_samples=num_samples, annotator_id=annotator_id,
+        )
+
+    @torch.inference_mode()
+    def select_samples(self, lset, uset, num_samples, annotator_id=None):
+        assert self.noise_filter is not None, "NoiseAwareCoverage requires a noise_filter"
+        self.init_sampling_loop(lset, uset)
+
+        print(f'NPC | Start selecting {num_samples} samples (inner batch b={self.inner_batch_size}).')
+        n_lset = len(self.lSet)
+        selected = []
+        round_idx = 0
+        while len(selected) < num_samples:
+            k = min(self.inner_batch_size, num_samples - len(selected))
+
+            # Current labeled set = original lSet (locals 0..n_lset-1) + points
+            # already selected this episode (their local indices in relevant_indices).
+            labeled_local = list(range(n_lset)) + list(selected)
+            labeled_global = [int(self.relevant_indices[l]) for l in labeled_local]
+
+            self._rebuild_C_from_clean(labeled_local, labeled_global, annotator_id, round_idx)
+
+            for _ in range(k):
+                self._select_one(selected, annotator_id)
+            round_idx += 1
+
+        return self._finalize_selection(selected, num_samples)
+
+    def _rebuild_C_from_clean(self, labeled_local, labeled_global, annotator_id, round_idx):
+        """
+        Reset C and re-accumulate coverage from only the labeled points the noise
+        filter predicts clean. Noisy-predicted points contribute nothing, so their
+        coverage region re-opens for the next inner batch.
+        """
+        self.C = torch.full((len(self.relevant_indices), self.num_of_classes),
+                            self.alpha, device=self.device, dtype=self.matrices_type)
+
+        if len(labeled_global) == 0:
+            # Bootstrap round with an empty labeled set — plain coverage from scratch.
+            return
+
+        # select_samples runs under torch.inference_mode(); the AUM filter trains a
+        # model, so autograd must be re-enabled for the filter call.
+        with torch.inference_mode(False):
+            with torch.enable_grad():
+                clean_mask = self.noise_filter.predict_clean(
+                    self.cfg, self.train_data,
+                    np.asarray(labeled_global, dtype=int), np.asarray(self.uSet, dtype=int),
+                    self.annotator_manager,
+                )
+
+        n_clean = int(np.sum(clean_mask))
+        print(f'NPC | round {round_idx}: filter kept {n_clean}/{len(labeled_global)} labeled points clean.')
+
+        for local, g, is_clean in zip(labeled_local, labeled_global, clean_mask):
+            if not is_clean:
+                continue
+            label = int(self.annotator_manager.annotated_labels[int(g)])
+            K_row = self.K[local].to_dense().squeeze()
+            self.C[:, label] = torch.maximum(self.C[:, label], K_row)
+            del K_row
 
 
 

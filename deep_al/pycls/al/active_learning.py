@@ -10,7 +10,8 @@ from .prob_cover import ProbCover
 from .typiclust import TypiClust
 from .maxherding import MaxHerding
 from .DCoM import DCoM
-from .coverage_matrix_methods import CoverageMatrixMethod
+from .coverage_matrix_methods import CoverageMatrixMethod, NoiseAwareCoverage
+from .noise_filters import build_noise_filter
 import deep_al.pycls.utils.logging as lu
 import deep_al.pycls.datasets.utils as ds_utils
 
@@ -96,7 +97,23 @@ class ActiveLearning:
                 self.cfg['K_SPARSE'] = True
             cmm = CoverageMatrixMethod(self.cfg, annotator_manager=self.annotator_manager)
             return cmm
-                
+
+        # NPC — Noise-aware ProbCover (Netta's thesis). Same coverage graph as
+        # ProbCover (TopHat + sparse) wrapped in the Noise-Aware Sampling loop.
+        elif sampling_fn in ["npc", "noise_aware_probcover", "noise_aware_prob_cover"]:
+            if getattr(self.cfg, 'KERNEL_TYPE', None) != 'tophat':
+                logger.info('Warning!! for NPC the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+                print('Warning!! for NPC the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+
+                logger.info('Warning!! Running NPC as Sparse. Changing K_sparse to True')
+                print('Warning!! Running NPC as Sparse. Changing K_sparse to True')
+
+                self.cfg['KERNEL_TYPE'] = 'tophat'
+                self.cfg['K_SPARSE'] = True
+            noise_filter = build_noise_filter(self.cfg)
+            return NoiseAwareCoverage(self.cfg, annotator_manager=self.annotator_manager,
+                                      noise_filter=noise_filter)
+
         elif sampling_fn.startswith("typiclust"):
             is_scan = sampling_fn.endswith('dc')
             return TypiClust(self.cfg, lset if lset is not None else [], np.array([]),

@@ -15,6 +15,7 @@ import torch
 from copy import deepcopy
 
 from deep_al.pycls.al.active_learning import ActiveLearning
+from deep_al.pycls.al.noise_filters import build_noise_filter
 from deep_al.pycls.noise.estimating_delta_nu import estimate_nu
 from deep_al.pycls.noise.nu_prime_cache import lookup_nu_for_tau, lookup_tau_for_nu
 from deep_al.pycls.core.config import cfg, dump_cfg, setup_cfg
@@ -556,7 +557,8 @@ def main(cfg, args):
         initial_annotator_id = annotator_manager.select_annotator()
         result = annotator_manager.annotate_samples(lSet, annotator_id=initial_annotator_id)
         print(f"Initial labeled set ({len(lSet)} samples) annotated. Cost: {result['cost_spent']}")
-        lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data_wrapped)
+        train_idx = _clean_training_indices(cfg, lSet, uSet, train_data_wrapped, annotator_manager)
+        lSet_loader = data_obj.getIndexesDataLoader(indexes=train_idx, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data_wrapped)
         valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)  # ValSet always uses true labels
         if valSet_loader is None:
             valSet_loader = lSet_loader
@@ -666,6 +668,32 @@ def main(cfg, args):
     print("Total Experiment Time:       {:.2f}s ({:.2f} min)".format(total_time, total_time/60))
     print("="*60 + "\n")
 
+def _clean_training_indices(cfg, lSet, uSet, train_data_wrapped, annotator_manager):
+    """
+    Train-on-clean (Netta's thesis, training side): drop labeled points predicted
+    noisy before the supervised training step. Returns the subset of lSet to train
+    on. No-op (returns lSet unchanged) unless cfg.NOISE_FILTER.TRAIN_ON_CLEAN is set.
+    lSet itself is left intact for AL bookkeeping; only the training loader shrinks.
+    """
+    if not getattr(cfg.NOISE_FILTER, 'TRAIN_ON_CLEAN', False):
+        return lSet
+    lSet = np.asarray(lSet, dtype=int)
+    if len(lSet) == 0:
+        return lSet
+    nf = build_noise_filter(cfg)
+    clean_mask = np.asarray(
+        nf.predict_clean(cfg, train_data_wrapped, lSet, np.asarray(uSet, dtype=int), annotator_manager),
+        dtype=bool,
+    )
+    clean = lSet[clean_mask]
+    print(f"[train-on-clean] training on {len(clean)}/{len(lSet)} labeled points (filter={cfg.NOISE_FILTER.METHOD})")
+    logger.info(f"[train-on-clean] {len(clean)}/{len(lSet)} clean (filter={cfg.NOISE_FILTER.METHOD})")
+    if len(clean) == 0:
+        print("[train-on-clean] filter removed all points; falling back to full lSet")
+        return lSet
+    return clean
+
+
 def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet_loader, train_data, train_data_wrapped, uSet, valSet,
                          valSet_loader, al_obj, annotator_manager):
     print("======== ACTIVE SAMPLING ========\n")
@@ -677,8 +705,11 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
 
     # Algorithms that need labels during sampling (e.g. CoverageMatrixMethod) annotate
     # each point in-loop via annotator_manager; others ignore annotator_id entirely.
+    # Pass the noisy-label-wrapped dataset so noise-aware samplers (NPC) can run
+    # their filter on the labels that were actually assigned. Coverage/uncertainty
+    # methods ignore the labels, so this is a no-op for them.
     activeSet, new_uSet = al_obj.sample_from_uSet(
-        clf_model, lSet, uSet, train_data,
+        clf_model, lSet, uSet, train_data_wrapped,
         checkpoint_file=checkpoint_file,
         num_samples=num_samples,
         annotator_id=batch_annotator_id
@@ -710,7 +741,8 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
     # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode
     lSet = np.append(lSet, activeSet)
     uSet = new_uSet
-    lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data_wrapped)
+    train_idx = _clean_training_indices(cfg, lSet, uSet, train_data_wrapped, annotator_manager)
+    lSet_loader = data_obj.getIndexesDataLoader(indexes=train_idx, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data_wrapped)
     valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)  # ValSet always uses true labels
     if valSet_loader is None:
         valSet_loader = lSet_loader

@@ -10,15 +10,11 @@ from torch.optim import SGD
 from torch.utils.data import Dataset, Subset, DataLoader
 from torchvision.models import resnet18, resnet34
 from torch.utils.data.sampler import SubsetRandomSampler
-from pycls.datasets.data import MultiEpochsDataLoader
+from deep_al.pycls.datasets.data import MultiEpochsDataLoader
+from deep_al.pycls.core.builders import FeaturesNet
+import deep_al.pycls.utils.logging as lu
 
 from aum import AUMCalculator
-
-from pycls.core.builders import FeaturesNet
-try:
-    import pycls.utils.logging as lu
-except ImportError:
-    import pycls.utils.logging as lu
 
 logger = lu.get_logger(__name__)
 

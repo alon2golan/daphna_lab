@@ -215,6 +215,27 @@ _C.ANNOTATORS.COSTS = [1.0]  # List of costs for each annotator
 _C.ANNOTATORS.SELECTION_STRATEGY = 'random'  # 'random', 'most_accurate', 'least_cost', 'cost_accuracy_ratio'
 
 # ---------------------------------------------------------------------------- #
+# Noise filter options (NPC / Noise-Aware Sampling, Netta's thesis)
+# ---------------------------------------------------------------------------- #
+_C.NOISE_FILTER = CN()
+# Which filter flags labeled points as noisy.
+#   'aum'   -> LowBudgetAUM (linear classifier on SSL features + fake class)
+#   'ideal' -> oracle filter (uses true labels; upper-bound baseline)
+#   'none'  -> no-op (everything predicted clean)
+_C.NOISE_FILTER.METHOD = 'aum'
+# NPC inner batch size b: how many points to select between filter passes.
+# -1 => use num_classes (the thesis default b = C).
+_C.NOISE_FILTER.INNER_BATCH_SIZE = -1
+# Training-side hook: drop predicted-noisy labeled points before the supervised
+# training step (applies to ALL sampling methods, not just NPC). Off by default.
+_C.NOISE_FILTER.TRAIN_ON_CLEAN = False
+# LowBudgetAUM hyper-parameters (only used when METHOD == 'aum').
+_C.NOISE_FILTER.AUM_EPOCHS = 40
+_C.NOISE_FILTER.AUM_THR_PERCENTILE = 80
+_C.NOISE_FILTER.AUM_NUM_REPEATS = 1
+_C.NOISE_FILTER.AUM_BATCH_SIZE = 64
+
+# ---------------------------------------------------------------------------- #
 # Common train/test data loader options
 # ---------------------------------------------------------------------------- #
 _C.DATA_LOADER = CN()

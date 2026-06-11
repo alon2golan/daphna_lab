@@ -17,3 +17,4 @@ scipy
 seaborn
 easydict
 termcolor
+aum==1.0.2
