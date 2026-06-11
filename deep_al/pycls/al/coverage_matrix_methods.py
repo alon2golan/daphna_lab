@@ -1,6 +1,5 @@
 import time
 import numpy as np
-import pandas as pd
 import torch
 from tqdm import tqdm
 import deep_al.pycls.datasets.utils as ds_utils
@@ -140,17 +139,14 @@ class   CoverageMatrixMethod:
                 point_total_contribution = batched_diffs(self.K, max_vals, 0, self.num_of_classes,
                                                      diff_method="abs_diff")
 
-
             point_total_contribution[curr_l_set] = -np.inf
-            
+
             sampled_point = torch.argmax(point_total_contribution).item()
-            # sampled_point = np.argsort(-point_total_contribution.cpu().numpy(), kind='stable')[0].item()
             chosen_label = self.train_labels[sampled_point].item()
 
             K_row_dense = self.K[sampled_point].to_dense().squeeze()
 
             self.C[:, chosen_label] = torch.maximum(self.C[:, chosen_label], K_row_dense)
-
 
             assert sampled_point not in selected, 'sample was already selected'
             selected.append(sampled_point)
@@ -174,13 +170,13 @@ class   CoverageMatrixMethod:
         """
         Standard interface for active learning sampling.
         Adapts the algorithm to work with the unified AL interface.
-        
+
         Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
             f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
-        
+
         return self.select_samples(lSet, uSet)
 
 

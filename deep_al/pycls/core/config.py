@@ -73,11 +73,17 @@ _C.MODEL = CN()
 # Choose from vgg style ['vgg11', 'vgg11_bn', 'vgg13', 'vgg13_bn', 'vgg16', 'vgg16_bn', 'vgg19_bn', 'vgg19',]
 # or from resnet style ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152', 'resnext50_32x4d', 'resnext101_32x8d', 
 # 'wide_resnet50_2', 'wide_resnet101_2']
-_C.MODEL.TYPE = '' 
+_C.MODEL.TYPE = ''
 # Number of classes
 _C.MODEL.NUM_CLASSES = 10
 # Loss function (see pycls/models/loss.py for options)
 _C.MODEL.LOSS_FUN = 'cross_entropy'
+_C.MODEL.USE_1NN = False
+_C.MODEL.LINEAR_FROM_FEATURES = False
+_C.MODEL.LINEAR_FROM_IMAGES = False
+_C.MODEL.USE_MLP = False
+_C.MODEL.MLP_HIDDEN = 256
+_C.MODEL.MLP_DROPOUT = 0.3
 
 
 # ---------------------------------------------------------------------------- #
@@ -223,6 +229,7 @@ _C.DATASET = CN()
 _C.DATASET.NAME = None
 # Optional tag to specify which feature representation to use (e.g., 'alon', 'itai')
 _C.DATASET.FEATURES_TAG = None
+_C.DATASET.FEATURES_NORMALIZED = True
 # For Tiny ImageNet dataset, ROOT_DIR must be set to the dataset folder ("data/tiny-imagenet-200/"). For others, the outder "data" folder where all datasets can be stored is expected.
 _C.DATASET.ROOT_DIR = None
 # Specifies the proportion of data in train set that should be considered as the validation data
@@ -341,6 +348,7 @@ def get_config_aliases():
                 'MODEL.USE_1NN': False,
                 'MODEL.LINEAR_FROM_FEATURES': True,
                 'MODEL.LINEAR_FROM_IMAGES': False,
+                'MODEL.USE_MLP': False,
             },
             'from_images': {
                 'MODEL.USE_1NN': False,
@@ -445,14 +453,22 @@ def build_args_dict(args):
         'EVAL_MODEL_TYPE': args.eval_model_type,
         'ACTIVE_LEARNING.MAX_ITER': args.max_iter,
         'SPARSE_K': args.sparse_K,
+        'DATASET.FEATURES_NORMALIZED': args.features_normalized,
         'MATRIX_DTYPE': args.matrix_dtype,
         'DATASET.FEATURES_TAG': args.features_tag,
     }
-    
-    # Add max_epoch if provided
+
     if args.max_epoch is not None:
         args_dict['OPTIM.MAX_EPOCH'] = args.max_epoch
-    
+    if hasattr(args, 'base_lr') and args.base_lr is not None:
+        args_dict['OPTIM.BASE_LR'] = args.base_lr
+    if hasattr(args, 'use_mlp') and args.use_mlp:
+        args_dict['MODEL.USE_MLP'] = True
+    if hasattr(args, 'mlp_hidden') and args.mlp_hidden is not None:
+        args_dict['MODEL.MLP_HIDDEN'] = args.mlp_hidden
+    if hasattr(args, 'mlp_dropout') and args.mlp_dropout is not None:
+        args_dict['MODEL.MLP_DROPOUT'] = args.mlp_dropout
+
     # Get config aliases
     aliases = get_config_aliases()
     

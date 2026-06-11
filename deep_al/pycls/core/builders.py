@@ -9,7 +9,6 @@ from deep_al.pycls.models.alexnet import *
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from sklearn.neighbors import KNeighborsClassifier
 # Supported models
@@ -44,23 +43,25 @@ _loss_funs = {"cross_entropy": SoftCrossEntropyLoss}
 
 
 class FeaturesNet(nn.Module):
-    def __init__(self, in_layers, out_layers, use_mlp=False, penultimate_active=False):
+    def __init__(self, in_layers, out_layers, use_mlp=False, hidden=256, dropout=0.3):
         super().__init__()
         self.use_mlp = use_mlp
-        self.penultimate_active = penultimate_active
-        self.lin1 = nn.Linear(in_layers, in_layers)
-        self.lin2 = nn.Linear(in_layers, in_layers)
-        self.final = nn.Linear(in_layers, out_layers)
+        if use_mlp:
+            self.backbone = nn.Sequential(
+                nn.Linear(in_layers, hidden),
+                nn.BatchNorm1d(hidden),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout),
+            )
+            last_dim = hidden
+        else:
+            last_dim = in_layers
+        self.final = nn.Linear(last_dim, out_layers)
 
     def forward(self, x):
-        feats = x
         if self.use_mlp:
-            x = F.relu(self.lin1(x))
-            x = F.relu((self.lin2(x)))
-        out = self.final(x)
-        if self.penultimate_active:
-            return feats, out
-        return out
+            x = self.backbone(x)
+        return self.final(x)
 
 
 def get_model(cfg):
@@ -80,13 +81,18 @@ def get_loss_fun(cfg):
 def build_model(cfg):
     """Builds the model."""
     if cfg.MODEL.USE_1NN:
-        model = KNeighborsClassifier(n_neighbors=1)
-        return model
+        return KNeighborsClassifier(n_neighbors=1)
 
     elif cfg.MODEL.LINEAR_FROM_FEATURES:
         num_features = 384 if cfg.DATASET.NAME in ['IMAGENET50', 'IMAGENET100', 'IMAGENET200'] else 512
         num_features = 2 if cfg.DATASET.NAME in ['SCENARIO_A', 'HALF_MOON'] else num_features
-        return FeaturesNet(num_features, cfg.MODEL.NUM_CLASSES).cuda()
+        use_mlp = cfg.MODEL.USE_MLP
+        return FeaturesNet(
+            num_features, cfg.MODEL.NUM_CLASSES,
+            use_mlp=use_mlp,
+            hidden=cfg.MODEL.MLP_HIDDEN,
+            dropout=cfg.MODEL.MLP_DROPOUT,
+        ).cuda()
 
     model = get_model(cfg)(num_classes=cfg.MODEL.NUM_CLASSES, use_dropout=True)
     if cfg.DATASET.NAME == 'MNIST':

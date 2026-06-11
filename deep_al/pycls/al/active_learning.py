@@ -35,9 +35,6 @@ class ActiveLearning:
                         checkpoint_file=None):
         """
         Sample from uSet using the configured algorithm.
-        
-        Delegates to algorithm instance which has access to data_obj and plotting_manager
-        stored in its constructor.
 
         INPUT
         ------
@@ -54,9 +51,9 @@ class ActiveLearning:
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
             f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
-        
+
         logger.info(f"Using {self.cfg.ACTIVE_LEARNING.SAMPLING_FN} sampling function for active learning.")
-        
+
         # Delegate to the algorithm instance
         # Algorithms have data_obj and plotting_manager stored in constructor
         activeSet, new_uSet = self.al_algorithm.sample_from_uSet(
@@ -90,7 +87,7 @@ class ActiveLearning:
                 print('Warning!! Running ProbCover as Sparse. Changing K_sparse to True')
 
                 self.cfg['KERNEL_TYPE'] = 'tophat'
-                self.cfg['K_SPARSE'] = True
+                self.cfg['SPARSE_K'] = True
             cmm = CoverageMatrixMethod(self.cfg, train_labels=train_labels)
             return cmm
                 
@@ -99,9 +96,9 @@ class ActiveLearning:
             return TypiClust(self.cfg, lset if lset is not None else [], np.array([]),
                             budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, is_scan=is_scan)
         elif sampling_fn in ["maxherding_orig", "max_herding_orig"]:
-            delta = self.cfg.ACTIVE_LEARNING.INITIAL_DELTA
+            sigma = self.cfg.ACTIVE_LEARNING.INITIAL_SIGMA if 'INITIAL_SIGMA' in self.cfg.ACTIVE_LEARNING else 1.0
             return MaxHerding(self.cfg, lset if lset is not None else [], np.array([]),
-                            self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, delta=delta)
+                            self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, delta=sigma)
         
         elif sampling_fn in ["maxherding", "max_herding"]:
             if getattr(self.cfg, 'KERNEL_TYPE', None) != 'rbf':

@@ -58,8 +58,15 @@ def argparser():
     parser.add_argument('--max_iter', default=32, type=int)
     parser.add_argument('--initial_sigma', default=1.0, type=float)
     parser.add_argument('--sparse_K', action='store_true')
+    parser.add_argument('--features_normalized', default=True, action=argparse.BooleanOptionalAction,
+                        help='Whether to L2-normalize dataset features (default: True)')
     parser.add_argument('--matrix_dtype', type=str, default=None, choices=['float32', 'float16'], help="Choose torch dtype: float32 or float16")
     parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
+    parser.add_argument('--base_lr', default=None, type=float, help='Override base learning rate')
+    parser.add_argument('--use_mlp', action='store_true',
+                        help='Use MLP head instead of linear probe for from_features evaluation')
+    parser.add_argument('--mlp_hidden', default=None, type=int, help='MLP hidden layer size (default 256)')
+    parser.add_argument('--mlp_dropout', default=None, type=float, help='MLP dropout rate')
     return parser
 
 
@@ -110,20 +117,17 @@ def setup_experiment_directory(cfg):
         exp_dir: Path to the experiment directory
     """
     # Get the output directory ready (paths are already normalized from config.py)
-    if not os.path.exists(cfg.OUT_DIR):
-        os.mkdir(cfg.OUT_DIR)
-    
+    os.makedirs(cfg.OUT_DIR, exist_ok=True)
+
     # Create "DATASET/MODEL TYPE" specific directory
     dataset_out_dir = os.path.join(cfg.OUT_DIR, cfg.DATASET.NAME, cfg.MODEL.TYPE)
-    if not os.path.exists(dataset_out_dir):
-        os.makedirs(dataset_out_dir)
-    
+    os.makedirs(dataset_out_dir, exist_ok=True)
+
     # Create day-specific directory
     now = datetime.now()
     day_dir = f'{now.year}_{now.month}_{now.day}'
     full_day_dir = os.path.join(dataset_out_dir, day_dir)
-    if not os.path.exists(full_day_dir):
-        os.mkdir(full_day_dir)
+    os.makedirs(full_day_dir, exist_ok=True)
     
     # Generate experiment name with prefix
     if cfg.EXP_NAME == 'auto':
@@ -274,6 +278,7 @@ def main(cfg):
                                                                       valSet_loader, al_obj)
         al_time = time.time() - al_start_time
         episode_al_times.append(al_time)
+        print(f"AL_STATS ep={cur_episode} time={al_time:.2f}s lSet={len(lSet)} uSet={len(uSet)}")
         
         _, ep_y = plotting_manager.get_episode_data()
         print('Current accuracy values: ', ep_y)
