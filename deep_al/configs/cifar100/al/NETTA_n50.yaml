@@ -1,0 +1,53 @@
+# Netta NPC reproduction — CIFAR100, linear-on-SimCLR-features (framework 2),
+# single noisy annotator at 50% symmetric noise.
+# Sweep: --al {npc|probcover|random} --eval_model_type from_features
+#        --budget 100 --max_iter 10 --initial_delta 0.75
+RNG_SEED: 1
+DATASET:
+  NAME: CIFAR100
+  ROOT_DIR: './data'
+  VAL_RATIO: 0.1
+  AUG_METHOD: 'hflip'
+MODEL:
+  TYPE: resnet18          # ignored under eval_model_type=from_features (linear head on features)
+  NUM_CLASSES: 100
+OPTIM:
+  TYPE: 'sgd'
+  BASE_LR: 0.025
+  LR_POLICY: cos
+  LR_MULT: 0.1
+  MAX_EPOCH: 200
+  MOMENTUM: 0.9
+  NESTEROV: True
+  WEIGHT_DECAY: 0.0003
+  GAMMA: 0.1
+TRAIN:
+  SPLIT: train
+  BATCH_SIZE: 100
+  IM_SIZE: 32
+  EVAL_PERIOD: 2
+TEST:
+  SPLIT: test
+  BATCH_SIZE: 200
+  IM_SIZE: 32
+DATA_LOADER:
+  NUM_WORKERS: 8
+CUDNN:
+  BENCHMARK: True
+ANNOTATORS:
+  ENABLED: True
+  MODE: 'single'
+  NUM_ANNOTATORS: 1
+  NOISE_TYPE: 'sym'
+  NOISE_RATES: [0.5]
+  COSTS: [1]
+NOISE_FILTER:
+  METHOD: 'aum'
+  INNER_BATCH_SIZE: -1    # b = NUM_CLASSES (thesis default)
+  TRAIN_ON_CLEAN: True    # thesis applies filter-before-training to ALL strategies
+ACTIVE_LEARNING:
+  INIT_L_RATIO: 0.0
+  BUDGET_SIZE: 100
+  MAX_ITER: 32
+  DELTA_RESOLUTION: 0.05
+  MAX_DELTA: 1.1
