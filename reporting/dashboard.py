@@ -113,12 +113,12 @@ def _import_swt():
 
 
 with st.sidebar:
-    st.title("🧪 AL Dashboard (next)")
+    st.title("🧪 AL Dashboard")
     output_dir = st.text_input("Output directory", value=str(REPO_ROOT / "output"))
     if st.button("🔄 Refresh data", width="stretch"):
         st.cache_data.clear()
         st.rerun()
-    st.caption("Parallel to the current dashboard. Auto-refreshes every 30 s.")
+    st.caption("Auto-refreshes every 30 s.")
 
 
 # ── Data loading ────────────────────────────────────────────────────────────────

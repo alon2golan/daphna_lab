@@ -230,17 +230,21 @@ EOF
 ## Dashboard
 
 ```bash
-streamlit run reporting/dashboard.py
+streamlit run reporting/dashboard.py --server.port 8501
 ```
 
-| Tab | What it shows |
-|-----|--------------|
-| 📊 Sweeps | All sweep runs, status, hide stale sweeps |
-| 📈 Compare | Accuracy curves with ±σ bands. **Filters: Sweep, AL method, target_nu** |
-| 🔍 Run Details | Per-seed curves and logs for one run |
-| 📉 ν' Cache | Interactive ν'(τ) curves — select methods and budgets |
-| 📤 Export | Download result CSVs |
-| 🚀 Launch | Submit sweeps from browser |
+Three top-level **sections** (URL-synced segmented control), each with sub-tabs:
+
+| Section | Sub-tab | What it shows |
+|---------|---------|--------------|
+| 📋 Sweeps | 📒 Ledger | Registry-backed job ledger (all kinds), grouped by category, live progress, per-sweep category override; ⚠-flagged sweeps hidden by default. Seed with `python reporting/backfill_registry.py` |
+| | 🚀 Launch | Configure + fire new train_al sweeps (local or SLURM via phoenix-gw) and tail recent launches |
+| 📈 Graphs | 📈 Comparison | Seed-averaged test-acc curves with ±σ bands; full filter set (date, AL method, τ, ν, B…), selectable X/Y axes, facets, description cards, and a 🔁 Reproduce panel |
+| | 🧪 NPC Repro | Netta's noise-aware ProbCover panels (NPC vs ProbCover vs Random, one panel per noise level) |
+| | 🔍 Run Details | Per-run params, per-episode table/chart, live log viewer |
+| | 📤 Export | Download a self-contained HTML report |
+| 📊 Additional data | ν' cache | Interactive ν'(τ) curves — select methods and budgets |
+| | Artifact browser | Browse `results/**` (renders .png / .csv / .json) |
 
 ---
 
