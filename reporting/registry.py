@@ -16,13 +16,17 @@ Schema — logs/sweep/sweep_registry.json is a list of entries:
       "command":    "...",                          # representative command / script
       "created_at": "2026-06-03T10:45:38",          # ISO; "" if unknown
       "source":     "result_json",                  # result_json | sacct | logs | manual
-      "note":       ""                              # free text, never overwritten by backfill
+      "note":       "",                             # one-line free text, never wiped by backfill
+      "title":      "",                             # curated short title (Feature 0)
+      "context":    "",                             # curated multi-line markdown story (Feature 0)
+      "flags":      []                              # e.g. ["deprecated"], ["bug"] (Feature 1)
     }
 
 The (kind, category) pair is auto-derived by ``categorize()`` but is freely
 overridable — the dashboard writes user edits straight back here, and the
-backfill preserves any entry whose ``source == "manual"`` plus the ``note`` and
-``category`` of every existing entry.
+backfill preserves any entry whose ``source == "manual"`` plus the curated
+user fields (``note``, ``title``, ``context``, ``flags``, ``category``) of every
+existing entry.
 """
 
 from __future__ import annotations
@@ -44,6 +48,15 @@ REGISTRY_FILE = REPO_ROOT / "logs" / "sweep" / "sweep_registry.json"
 # coarse bucket the Sweeps ledger groups by when a job isn't a train_al run.
 
 KINDS = ["train_al", "nu_caching", "other_repo", "misc"]
+
+# Flag vocabulary (Feature 1). Fixed for now — the list field leaves room to add
+# free-form tags later. Flags in HIDDEN_FLAGS hide a sweep from the Graphs/Ledger
+# pickers by default (one toggle reveals them).
+FLAG_VOCAB = ["deprecated", "bug"]
+HIDDEN_FLAGS = {"deprecated", "bug"}
+
+# Curated, user-owned fields the backfill must never clobber.
+_USER_FIELDS = ("category", "note", "title", "context", "flags")
 
 # Purpose tags for train_al runs (the Graphs tab scopes on these).
 CATEGORY_RULES = [
@@ -117,8 +130,9 @@ def upsert(entry: dict, *, preserve_user_fields: bool = True) -> None:
     Insert or merge a single entry, keyed on sweep_id.
 
     When merging an existing entry, user-owned fields (``category``, ``note``,
-    and any entry whose ``source == "manual"``) are preserved by default so a
-    re-run of the backfill never clobbers hand edits.
+    ``title``, ``context``, ``flags`` — see ``_USER_FIELDS`` — and any entry whose
+    ``source == "manual"``) are preserved by default so a re-run of the backfill
+    never clobbers hand edits.
     """
     entries = load_registry()
     idx = _index(entries)
@@ -130,7 +144,7 @@ def upsert(entry: dict, *, preserve_user_fields: bool = True) -> None:
         if existing.get("source") == "manual":
             return  # fully user-owned; leave untouched
         merged = {**entry}
-        for k in ("category", "note"):
+        for k in _USER_FIELDS:
             if existing.get(k):
                 merged[k] = existing[k]
         idx[sid].update(merged)
@@ -141,14 +155,42 @@ def upsert(entry: dict, *, preserve_user_fields: bool = True) -> None:
     save_registry(entries)
 
 
-def set_category(sweep_id: str, category: str) -> None:
-    """Override the category of one sweep (called by the dashboard dropdown)."""
+def _set_fields(sweep_id: str, **fields) -> bool:
+    """Set arbitrary fields on one existing entry. Returns True if found."""
     entries = load_registry()
     for e in entries:
-        if e.get("sweep_id") == sweep_id:
-            e["category"] = category
+        if e.get("sweep_id") == str(sweep_id):
+            e.update(fields)
             save_registry(entries)
-            return
+            return True
+    return False
+
+
+def set_category(sweep_id: str, category: str) -> None:
+    """Override the category of one sweep (called by the dashboard dropdown)."""
+    _set_fields(sweep_id, category=category)
+
+
+def set_description(sweep_id: str, title: str = None, context: str = None) -> bool:
+    """Set the curated title and/or context (Feature 0). None = leave unchanged."""
+    fields = {}
+    if title is not None:
+        fields["title"] = title
+    if context is not None:
+        fields["context"] = context
+    return _set_fields(sweep_id, **fields) if fields else False
+
+
+def set_flags(sweep_id: str, flags: list, note: str = None) -> bool:
+    """
+    Replace the flags list of one sweep (Feature 1), optionally setting the note.
+    Pass flags=[] to clear ("restore"). Unknown flags are kept as-is so callers
+    can add free-form tags later.
+    """
+    fields = {"flags": list(dict.fromkeys(flags))}
+    if note is not None:
+        fields["note"] = note
+    return _set_fields(sweep_id, **fields)
 
 
 def make_entry(
@@ -158,6 +200,9 @@ def make_entry(
     created_at: str = "",
     source: str = "manual",
     note: str = "",
+    title: str = "",
+    context: str = "",
+    flags: list | None = None,
 ) -> dict:
     cat = categorize(sweep_name, command)
     return {
@@ -169,23 +214,65 @@ def make_entry(
         "created_at": created_at,
         "source": source,
         "note": note,
+        "title": title,
+        "context": context,
+        "flags": list(flags) if flags else [],
     }
 
 
 # ── CLI: hand-add an entry ───────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="Manually add/edit a sweep registry entry")
+    p = argparse.ArgumentParser(
+        description="Manually add a sweep entry, or edit fields of an existing one.\n"
+        "Examples:\n"
+        "  # add/replace an entry\n"
+        "  python reporting/registry.py --id 30811243 --name my_sweep --note '...'\n"
+        "  # edit just the curated story of an existing sweep\n"
+        "  python reporting/registry.py --id 30797616 --edit \\\n"
+        "      --title \"ν' cache dense sweep\" --context 'PC+random, fixed cache'\n"
+        "  # deprecate / flag an existing sweep, with a reason\n"
+        "  python reporting/registry.py --id 30811243 --edit --flag deprecated --note 'buggy noise seed'\n"
+        "  # clear all flags (restore)\n"
+        "  python reporting/registry.py --id 30811243 --edit --unflag",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--id", required=True, help="sweep_id (SLURM array job id or any unique id)")
-    p.add_argument("--name", required=True, help="human-readable sweep name")
+    p.add_argument("--name", help="human-readable sweep name (required unless --edit)")
     p.add_argument("--command", default="", help="representative command / script")
     p.add_argument("--created-at", default="", help="ISO timestamp (optional)")
     p.add_argument("--category", default=None, help="override auto-category")
-    p.add_argument("--note", default="", help="free-text note")
+    p.add_argument("--note", default=None, help="one-line free-text note")
+    p.add_argument("--title", default=None, help="curated short title (Feature 0)")
+    p.add_argument("--context", default=None, help="curated multi-line story (Feature 0)")
+    p.add_argument("--flag", action="append", default=None, metavar="FLAG",
+                   help=f"add a flag (repeatable); known: {FLAG_VOCAB}")
+    p.add_argument("--unflag", action="store_true", help="clear all flags (restore)")
+    p.add_argument("--edit", action="store_true",
+                   help="edit fields of an EXISTING entry instead of adding a new one")
     a = p.parse_args()
 
-    e = make_entry(a.id, a.name, a.command, a.created_at, source="manual", note=a.note)
-    if a.category:
-        e["category"] = a.category
-    upsert(e, preserve_user_fields=False)
-    print(f"Registry now has {len(load_registry())} entries → {REGISTRY_FILE}")
+    if a.edit:
+        if a.unflag:
+            set_flags(a.id, [], note=a.note)
+        elif a.flag:
+            entry = next((e for e in load_registry() if e.get("sweep_id") == str(a.id)), {})
+            merged = list(dict.fromkeys((entry.get("flags") or []) + a.flag))
+            set_flags(a.id, merged, note=a.note)
+        if a.title is not None or a.context is not None:
+            set_description(a.id, title=a.title, context=a.context)
+        if a.category:
+            set_category(a.id, a.category)
+        if a.note is not None and not (a.unflag or a.flag):
+            _set_fields(a.id, note=a.note)
+        print(f"Edited entry `{a.id}` → {REGISTRY_FILE}")
+    else:
+        if not a.name:
+            p.error("--name is required when adding a new entry (use --edit to modify an existing one)")
+        e = make_entry(a.id, a.name, a.command, a.created_at, source="manual",
+                       note=a.note or "", title=a.title or "", context=a.context or "",
+                       flags=a.flag)
+        if a.category:
+            e["category"] = a.category
+        upsert(e, preserve_user_fields=False)
+        print(f"Registry now has {len(load_registry())} entries → {REGISTRY_FILE}")

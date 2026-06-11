@@ -191,34 +191,50 @@ def get_sweeps_summary(df: pd.DataFrame) -> pd.DataFrame:
 # ── Per-config aggregation ────────────────────────────────────────────────────
 
 
+def _resolve_tau(group_df: pd.DataFrame) -> float:
+    """
+    The effective annotator τ for a config, defaulting to 1.0 (oracle / clean).
+    Used to derive the oracle-cost axis: budget_units = labeled_size * τ.
+    """
+    tau = group_df.iloc[0].get("p_tau")
+    try:
+        tau = float(tau)
+    except (TypeError, ValueError):
+        return 1.0
+    return tau if tau and tau > 0 else 1.0
+
+
 def aggregate_config_episodes(group_df: pd.DataFrame) -> dict:
     """
-    Given a group of runs sharing (sweep_id, config_key), compute mean ± std
-    of per-episode test_acc across seeds.
+    Given a group of runs sharing (sweep_id, config_key), compute mean ± std of
+    EVERY numeric per-episode field across seeds (test/val/train acc, duration, …).
 
     Returns a dict with keys:
-        config_label, config_key, sweep_name, n_seeds,
-        agg (DataFrame with episode/test_acc_mean/test_acc_std/val_acc_mean/labeled_size/n_seeds),
+        config_label, config_key, sweep_name, n_seeds, tau,
+        agg (DataFrame with: episode, <field>_mean/<field>_std for each numeric
+             per-episode field, labeled_size [#examples], budget_units
+             [=labeled_size*τ, oracle cost], n_seeds),
         final_test_acc_mean, final_test_acc_std
+
+    The aggregator is generic so newly-logged per-episode metrics surface
+    automatically (Feature 2's Y-axis dropdown discovers the *_mean columns).
     """
     episode_rows = []
     for _, row in group_df.iterrows():
         seed = row.get("p_seed")
         for ep in row.get("episodes", []):
-            episode_rows.append(
-                {
-                    "episode": ep.get("episode"),
-                    "test_acc": ep.get("test_acc"),
-                    "val_acc": ep.get("val_acc"),
-                    "labeled_size": ep.get("labeled_size"),
-                    "seed": seed,
-                }
-            )
+            if not isinstance(ep, dict):
+                continue
+            rec = {k: v for k, v in ep.items()}
+            rec["seed"] = seed
+            episode_rows.append(rec)
 
     base = {
         "config_label": group_df.iloc[0]["config_label"],
         "config_key": group_df.iloc[0]["config_key"],
         "sweep_name": group_df.iloc[0]["sweep_name"],
+        "sweep_id": str(group_df.iloc[0].get("sweep_id", "")),
+        "tau": _resolve_tau(group_df),
     }
 
     if not episode_rows:
@@ -230,18 +246,31 @@ def aggregate_config_episodes(group_df: pd.DataFrame) -> dict:
         return {**base, "n_seeds": 0, "agg": pd.DataFrame(),
                 "final_test_acc_mean": None, "final_test_acc_std": None}
 
-    agg = (
-        ep_df.groupby("episode")
-        .agg(
-            test_acc_mean=("test_acc", "mean"),
-            test_acc_std=("test_acc", "std"),
-            val_acc_mean=("val_acc", "mean"),
-            labeled_size=("labeled_size", "first"),
-            n_seeds=("seed", "nunique"),
-        )
-        .reset_index()
-    )
-    agg["test_acc_std"] = agg["test_acc_std"].fillna(0.0)
+    # Every numeric per-episode field gets mean/std; labeled_size is kept as a
+    # single deterministic value (#examples) rather than averaged, and the group
+    # keys (episode, seed) are excluded.
+    numeric_fields = [
+        c for c in ep_df.columns
+        if c not in ("episode", "seed", "labeled_size")
+        and pd.api.types.is_numeric_dtype(ep_df[c])
+    ]
+    agg_spec = {}
+    for f in numeric_fields:
+        agg_spec[f"{f}_mean"] = (f, "mean")
+        agg_spec[f"{f}_std"] = (f, "std")
+    if "labeled_size" in ep_df.columns:
+        agg_spec["labeled_size"] = ("labeled_size", "first")
+    agg_spec["n_seeds"] = ("seed", "nunique")
+
+    agg = ep_df.groupby("episode").agg(**agg_spec).reset_index()
+    for c in agg.columns:
+        if c.endswith("_std"):
+            agg[c] = agg[c].fillna(0.0)
+
+    # Derived oracle-cost axis: budget units consumed = #examples * τ
+    # (oracle τ=1 → budget_units == #examples; noisy τ<1 → fewer units per example).
+    if "labeled_size" in agg.columns:
+        agg["budget_units"] = agg["labeled_size"] * base["tau"]
 
     last = agg.iloc[-1]
     return {
@@ -249,7 +278,7 @@ def aggregate_config_episodes(group_df: pd.DataFrame) -> dict:
         "n_seeds": int(agg["n_seeds"].max()),
         "agg": agg,
         "final_test_acc_mean": float(last["test_acc_mean"]),
-        "final_test_acc_std": float(last["test_acc_std"]),
+        "final_test_acc_std": float(last.get("test_acc_std", 0.0)),
     }
 
 
@@ -261,6 +290,71 @@ def get_all_aggregated(df: pd.DataFrame) -> list:
         aggregate_config_episodes(g)
         for _, g in df.groupby(["sweep_id", "config_key"], sort=False)
     ]
+
+
+# ── Sweep auto-facts (Feature 0: description cards) ────────────────────────────
+
+# Params surfaced in a sweep's auto-fact grid (varying ones highlighted).
+_DESCRIBE_PARAM_KEYS = [
+    "p_al_method", "p_tau", "p_target_nu", "p_nu_prime", "p_budget", "p_max_iter",
+    "p_dataset", "p_model", "p_eval_model_type", "p_features_tag",
+    "p_initial_delta", "p_kernel_type", "p_diff_method", "p_alpha",
+    "p_sparse_K", "p_seed",
+]
+
+
+def describe_sweep(df_subset: pd.DataFrame) -> dict:
+    """
+    Compute the live auto-facts for a sweep (or any run subset) — never stored,
+    always fresh. Reused by the Ledger card and the Graphs "About this curve"
+    panel (Feature 0).
+
+    Returns: n_runs, date_min/date_max, status_counts, varying {param: [vals]},
+             constant {param: val}, command, commit_hash, exp_dir, sweep_names.
+    """
+    if df_subset is None or df_subset.empty:
+        return {}
+
+    dates = (
+        df_subset["created_at"].dropna()
+        if "created_at" in df_subset.columns else pd.Series([], dtype="datetime64[ns]")
+    )
+    status_counts = (
+        df_subset["status"].value_counts().to_dict()
+        if "status" in df_subset.columns else {}
+    )
+
+    varying, constant = {}, {}
+    for c in _DESCRIBE_PARAM_KEYS:
+        if c not in df_subset.columns:
+            continue
+        vals = sorted(df_subset[c].dropna().unique().tolist(), key=str)
+        if not vals:
+            continue
+        if len(vals) > 1:
+            varying[c[2:]] = vals
+        else:
+            constant[c[2:]] = vals[0]
+
+    # Representative run = most recent (best command/commit to show).
+    if "created_at" in df_subset.columns and df_subset["created_at"].notna().any():
+        rep = df_subset.sort_values("created_at").iloc[-1]
+    else:
+        rep = df_subset.iloc[0]
+
+    return {
+        "n_runs": int(len(df_subset)),
+        "date_min": dates.min() if not dates.empty else None,
+        "date_max": dates.max() if not dates.empty else None,
+        "status_counts": status_counts,
+        "varying": varying,
+        "constant": constant,
+        "command": rep.get("command", ""),
+        "commit_hash": rep.get("commit_hash", ""),
+        "exp_dir": rep.get("exp_dir", ""),
+        "sweep_names": sorted(df_subset["sweep_name"].dropna().unique().tolist())
+        if "sweep_name" in df_subset.columns else [],
+    }
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
