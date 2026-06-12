@@ -7,13 +7,10 @@
 #SBATCH --mail-type=FAIL,TIME_LIMIT
 #SBATCH --output=gpu_train_al_%j.out
 
-# Move to project dir and activate virtualenv like the original sbatch script
 
 dir=/cs/labs/daphna/$USER/projects/daphna_lab/
 cd $dir
-if [ -f "$dir/venv/bin/activate" ]; then
-    source $dir/venv/bin/activate
-fi
+source $dir/venv/bin/activate
 cd $dir/deep_al/tools
 
 # Example config file (adjust path as needed)
@@ -33,7 +30,7 @@ MAX_EPOCH=2
 
 
 # Run the noisy AL pipeline similar to the original training command style
-python3 ../tools/run_noise_al_pipeline.py \
+python3 run_noise_al_pipeline.py \
   --cfg $CFG_PATH \
   --noise_type sym \
   --noise_rate 0.2 \

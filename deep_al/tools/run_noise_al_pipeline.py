@@ -23,6 +23,7 @@ noise-handling steps.
 
 import argparse
 import os
+import sys
 import json
 import logging
 import numpy as np
@@ -30,18 +31,15 @@ import time
 from copy import deepcopy
 from typing import Optional
 
-# Try to import repository utilities when available
-try:
-    from deep_al.pycls.datasets.noisy_dataset import NoisyDataset
-    from deep_al.pycls.al.active_learning import ActiveLearning
-    from deep_al.pycls.core.config import initialize_cfg, normalize_cfg_paths
-    from deep_al.pycls.datasets.data import Data
-except Exception:
-    NoisyDataset = None
-    ActiveLearning = None
-    initialize_cfg = None
-    normalize_cfg_paths = None
-    Data = None
+# Ensure repo root is in sys.path for clean imports
+_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
+from deep_al.pycls.datasets.noisy_dataset import NoisyDataset
+from deep_al.pycls.al.active_learning import ActiveLearning
+from deep_al.pycls.core.config import initialize_cfg, normalize_cfg_paths
+from deep_al.pycls.datasets.data import Data
 
 logger = logging.getLogger("run_noise_al_pipeline")
 logging.basicConfig(level=logging.INFO)
@@ -49,10 +47,11 @@ logging.basicConfig(level=logging.INFO)
 
 def build_pipeline(noise_type: Optional[str], noise_rate: float, noise_transition_path: Optional[str],
                    al_method: Optional[str], noise_method: Optional[str], cfg_path: Optional[str],
-                   seed: Optional[int]=None, budget: Optional[int]=None, initial_size: Optional[int]=None,
-                   max_iter: Optional[int]=None, exp_name: Optional[str]=None, features_tag: Optional[str]=None,
-                   initial_delta: Optional[float]=None, kernel_type: Optional[str]=None, eval_model_type: Optional[str]=None,
-                   max_epoch: Optional[int]=None):
+                   seed: Optional[int] = None, budget: Optional[int] = None, initial_size: Optional[int] = None,
+                   max_iter: Optional[int] = None, exp_name: Optional[str] = None, features_tag: Optional[str] = None,
+                   initial_delta: Optional[float] = None, kernel_type: Optional[str] = None,
+                   eval_model_type: Optional[str] = None,
+                   max_epoch: Optional[int] = None):
     """Builds a pipeline dict describing the requested experiment.
 
     This function is intentionally lightweight and refrains from executing heavy
@@ -106,11 +105,6 @@ def example_run(pipeline: dict):
     It does NOT run training or full AL rounds; those should be implemented where noted.
     """
 
-    # Verify required repo utilities are available
-    if initialize_cfg is None or Data is None:
-        logger.warning("Repository config/dataset utilities not importable. Run inside repo environment to enable wiring.")
-        return {"status": "no_repo", "notes": "Repo utilities unavailable"}
-
     # 1) Build config
     cfg_file = pipeline.get("cfg")
 
@@ -139,6 +133,20 @@ def example_run(pipeline: dict):
     cfg = initialize_cfg(cfg_file, args_dict)
     cfg = normalize_cfg_paths(cfg)
 
+    # Ensure some optional config keys exist with safe defaults (avoid AttributeError in downstream code)
+    try:
+        _ = cfg.MODEL.LINEAR_FROM_FEATURES
+    except Exception:
+        cfg.MODEL.LINEAR_FROM_FEATURES = False
+    try:
+        _ = cfg.MODEL.LINEAR_FROM_IMAGES
+    except Exception:
+        cfg.MODEL.LINEAR_FROM_IMAGES = False
+    try:
+        _ = cfg.MODEL.USE_1NN
+    except Exception:
+        cfg.MODEL.USE_1NN = False
+
     # Ensure output directories
     if not cfg.OUT_DIR:
         cfg.OUT_DIR = os.path.join(os.getcwd(), "output")
@@ -161,13 +169,14 @@ def example_run(pipeline: dict):
 
     # 3) Determine initial labeled ratio from initial_size if provided, then create L/U/V splits
     initial_size = pipeline.get('run_args', {}).get('initial_size')
-    if initial_size is not None:
-        try:
-            initial_size = int(initial_size)
-            cfg.ACTIVE_LEARNING.INIT_L_RATIO = float(initial_size) / float(train_size)
-            logger.info("Setting ACTIVE_LEARNING.INIT_L_RATIO to %s (initial_size=%d, train_size=%d)", cfg.ACTIVE_LEARNING.INIT_L_RATIO, initial_size, train_size)
-        except Exception:
-            logger.exception("Failed to set initial labeled ratio from initial_size; using cfg default %s", cfg.ACTIVE_LEARNING.INIT_L_RATIO)
+    try:
+        initial_size = int(initial_size)
+        cfg.ACTIVE_LEARNING.INIT_L_RATIO = float(initial_size) / float(train_size)
+        logger.info("Setting ACTIVE_LEARNING.INIT_L_RATIO to %s (initial_size=%d, train_size=%d)",
+                    cfg.ACTIVE_LEARNING.INIT_L_RATIO, initial_size, train_size)
+    except Exception:
+        logger.exception("Failed to set initial labeled ratio from initial_size; using cfg default %s",
+                         cfg.ACTIVE_LEARNING.INIT_L_RATIO)
 
     lSet_path, uSet_path, valSet_path = data_obj.makeLUVSets(
         train_split_ratio=cfg.ACTIVE_LEARNING.INIT_L_RATIO,
@@ -188,7 +197,7 @@ def example_run(pipeline: dict):
         else:
             if pipeline["noise"].get("transition_matrix"):
                 try:
-                    transition = np.load(pipeline["noise"]["transition_matrix"]) 
+                    transition = np.load(pipeline["noise"]["transition_matrix"])
                 except Exception:
                     logger.exception("Failed to load transition matrix; ignoring it")
             logger.info("Applying noise wrapper: type=%s rate=%s", pipeline["noise"]["type"], pipeline["noise"]["rate"])
@@ -272,7 +281,7 @@ def example_run(pipeline: dict):
         batch_size = cfg.TRAIN.BATCH_SIZE
         with torch.no_grad():
             for start in range(0, len(lSet), batch_size):
-                batch_indices = lSet[start:start+batch_size]
+                batch_indices = lSet[start:start + batch_size]
                 inputs_list = []
                 labels_list = []
                 for idx in batch_indices:
@@ -281,7 +290,8 @@ def example_run(pipeline: dict):
                     labels_list.append(lbl)
                 # Stack inputs into tensor batch
                 try:
-                    inputs = torch.stack([inp if isinstance(inp, torch.Tensor) else torch.tensor(inp) for inp in inputs_list]).to(device)
+                    inputs = torch.stack(
+                        [inp if isinstance(inp, torch.Tensor) else torch.tensor(inp) for inp in inputs_list]).to(device)
                 except Exception:
                     # fallback: convert to float tensor
                     inputs = torch.tensor(np.stack([np.array(inp) for inp in inputs_list])).to(device)
@@ -350,7 +360,8 @@ def example_run(pipeline: dict):
     final_train_acc = final_val_acc = final_test_acc = 0.0
 
     # Demo combo defaults: if pipeline entries empty, set demo (sym + typiclust + label_cleaning)
-    if pipeline.get('noise', {}).get('type') is None and pipeline.get('active_learning', {}).get('method') is None and pipeline.get('noise_handling', {}).get('method') is None:
+    if pipeline.get('noise', {}).get('type') is None and pipeline.get('active_learning', {}).get(
+            'method') is None and pipeline.get('noise_handling', {}).get('method') is None:
         logger.info("No selections provided - using demo combo: sym + typiclust + label_cleaning")
         pipeline['noise']['type'] = 'sym'
         pipeline['noise']['rate'] = 0.2
@@ -369,7 +380,8 @@ def example_run(pipeline: dict):
         # Train and evaluate
         try:
             checkpoint_file, episode_train_time, epoch_times, best_train_acc, best_val_acc, test_acc = \
-                train_al_module.train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader, valSet_loader, plotting_manager)
+                train_al_module.train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader,
+                                                     valSet_loader, plotting_manager)
         except Exception:
             logger.exception("train_and_eval_model failed; aborting AL loop")
             return {'status': 'failed', 'reason': 'train_and_eval_model failure'}
@@ -389,10 +401,11 @@ def example_run(pipeline: dict):
         # Active sampling
         al_start_time = time.time()
         try:
-            lSet, lSet_loader, uSet, valSet_loader = train_al_module.active_sampling_part(cfg, checkpoint_file, cur_episode,
-                                                                                        data_obj, lSet, lSet_loader,
-                                                                                        train_data, uSet, valSet,
-                                                                                        valSet_loader, al_obj)
+            lSet, lSet_loader, uSet, valSet_loader = train_al_module.active_sampling_part(cfg, checkpoint_file,
+                                                                                          cur_episode,
+                                                                                          data_obj, lSet, lSet_loader,
+                                                                                          train_data, uSet, valSet,
+                                                                                          valSet_loader, al_obj)
         except Exception:
             logger.exception("active_sampling_part failed; aborting AL loop")
             return {'status': 'failed', 'reason': 'active_sampling_part failure'}
@@ -403,7 +416,8 @@ def example_run(pipeline: dict):
         if pipeline.get('noise_handling', {}).get('method') == 'label_cleaning':
             logger.info("Running label-cleaning on labeled set after sampling (threshold=0.9)")
             try:
-                res = run_label_cleaning(data_obj, train_data, lSet, cfg, checkpoint_file=checkpoint_file, threshold=0.9)
+                res = run_label_cleaning(data_obj, train_data, lSet, cfg, checkpoint_file=checkpoint_file,
+                                         threshold=0.9)
                 logger.info("Label cleaning result: %s", res)
             except Exception:
                 logger.exception("Label cleaning failed; continuing")
@@ -452,12 +466,14 @@ def parse_args():
     parser.add_argument('--noise_transition', help='Path to noise transition matrix (npz/npy)', default=None, type=str)
 
     # Active learning method
-    parser.add_argument('--al_method', help='Active learning method (e.g. typiclust, probcover, misp)', default=None, type=str)
+    parser.add_argument('--al_method', help='Active learning method (e.g. typiclust, probcover, misp)', default=None,
+                        type=str)
     parser.add_argument('--budget', help='Budget per AL round', default=None, type=int)
     parser.add_argument('--max_iter', help='Max AL iterations', default=None, type=int)
 
     # Noise handling method
-    parser.add_argument('--noise_method', help='Noise handling method (e.g. cleaning, robust_loss)', default=None, type=str)
+    parser.add_argument('--noise_method', help='Noise handling method (e.g. cleaning, robust_loss)', default=None,
+                        type=str)
 
     # Additional run parameters
     parser.add_argument('--seed', help='Random seed', default=None, type=int)
