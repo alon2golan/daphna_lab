@@ -126,7 +126,14 @@ class ActiveLearning:
             return CoreSetMIPSampling(cfg=self.cfg, dataObj=dataObj)
         elif sampling_fn == "vaal":
             return AdversarySampler(dataObj=dataObj, cfg=self.cfg)
-        
+
+        # MISP family methods - use existing Prob_Misp.ALL_MISP implementation as a fallback
+        elif sampling_fn in ["misp", "max_misp", "all_misp", "bayes_misp"]:
+            from .Prob_Misp import ALL_MISP
+            # ALL_MISP constructor expects train_labels and lset; pass them when available
+            return ALL_MISP(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
+                            train_labels=train_labels, lset=lset, delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
+
         else:
             raise NotImplementedError(f"{sampling_fn} is either not implemented or there is some spelling mistake.")
 

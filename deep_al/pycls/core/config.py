@@ -35,6 +35,8 @@ _C.CFG_DEST = 'config.yaml'
 _C.RNG_SEED = None
 # Folder name where best model logs etc are saved. "auto" creates a timestamp based folder 
 _C.EXP_NAME = 'auto' 
+# Eval model type used for downstream evaluation (options: 'NN1', 'from_features', 'from_images')
+_C.EVAL_MODEL_TYPE = 'from_features'
 # Which GPU to run on
 _C.GPU_ID = 0
 # Log destination ('stdout' or 'file')
