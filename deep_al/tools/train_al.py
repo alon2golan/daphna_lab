@@ -417,21 +417,22 @@ def setup_experiment_directory(cfg):
     Returns:
         exp_dir: Path to the experiment directory
     """
-    # Get the output directory ready (paths are already normalized from config.py)
-    if not os.path.exists(cfg.OUT_DIR):
-        os.mkdir(cfg.OUT_DIR)
-    
+    # Get the output directory ready (paths are already normalized from config.py).
+    # Use makedirs(exist_ok=True) throughout: when an array sweep starts several
+    # tasks at once they race to create these shared parent dirs, and a bare
+    # check-then-mkdir is a TOCTOU race that crashes the losers with
+    # FileExistsError. exist_ok=True is atomic-safe.
+    os.makedirs(cfg.OUT_DIR, exist_ok=True)
+
     # Create "DATASET/MODEL TYPE" specific directory
     dataset_out_dir = os.path.join(cfg.OUT_DIR, cfg.DATASET.NAME, cfg.MODEL.TYPE)
-    if not os.path.exists(dataset_out_dir):
-        os.makedirs(dataset_out_dir)
-    
+    os.makedirs(dataset_out_dir, exist_ok=True)
+
     # Create day-specific directory
     now = datetime.now()
     day_dir = f'{now.year}_{now.month}_{now.day}'
     full_day_dir = os.path.join(dataset_out_dir, day_dir)
-    if not os.path.exists(full_day_dir):
-        os.mkdir(full_day_dir)
+    os.makedirs(full_day_dir, exist_ok=True)
     
     # Generate experiment name with prefix
     if cfg.EXP_NAME == 'auto':
