@@ -62,6 +62,12 @@ _USER_FIELDS = ("category", "note", "title", "context", "flags")
 CATEGORY_RULES = [
     ("fig55",           re.compile(r"fig55")),
     ("oracle_vs_noisy", re.compile(r"probcover_random|oracle_vs_noisy")),
+    # The 3000-oracle-cost-cap family (probcover/random × noisy-τ AND oracle arms,
+    # ν'-cache decoupled from budget). Matched on the shared "3000cap" sweep-name
+    # token so both the noisy and oracle trainings land in one category. Placed
+    # before nu_estimation because these commands carry "--nu_prime"/"nucache..."
+    # tokens that rule could otherwise grab.
+    ("train_noise_nu_prime", re.compile(r"3000cap")),
     # noise_mechanism before nu_estimation: "bypass_noise_mechanism" sweeps embed
     # a "_nu0.3" in their command, which the nu_estimation rule would match first.
     ("noise_mechanism", re.compile(r"bypass_noise|noise_mechanism")),

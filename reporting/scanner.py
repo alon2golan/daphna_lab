@@ -16,6 +16,7 @@ Usage
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -27,6 +28,10 @@ _EXCLUDE_FROM_KEY = {
     "seed",
     "exp_name",
     "exp-name",
+    # Derived for display only (see load_all_results). It is 1:1 with nu_prime
+    # within a (strategy, tau), so excluding it keeps config_key — and any
+    # bookmarked about=<hash> URLs — stable while still grouping seeds together.
+    "nu_cache_budget",
 }
 
 # Display order for human-readable config labels.
@@ -38,6 +43,7 @@ _LABEL_KEY_ORDER = [
     "budget",
     "max_iter",
     "tau",
+    "nu_cache_budget",
     "target_nu",
     "initial_delta",
     "sparse_K",
@@ -86,6 +92,11 @@ def compute_config_label(params: dict) -> str:
     for k, v in sorted(params.items()):
         if k in seen or v is None or v == -1 or v is False:
             continue
+        # When the run carries a nu_cache_budget (rendered above), it conveys the
+        # provenance of nu_prime far more readably than the raw float, so drop the
+        # redundant nu_prime from the compact legend.
+        if k == "nu_prime" and params.get("nu_cache_budget") is not None:
+            continue
         parts.append(f"{k}={v}" if v is not True else k)
     return " | ".join(parts) if parts else "unknown"
 
@@ -104,7 +115,11 @@ def load_all_results(output_root=None) -> pd.DataFrame:
     output_root = Path(output_root) if output_root else REPO_ROOT / "output"
     records = []
 
-    for result_file in sorted(output_root.rglob("result.json")):
+    # result.json always sits at <dataset>/<model>/<date>/<run>/result.json.
+    # A fixed-depth glob avoids descending into the ~thousands of episode_*/
+    # subdirs (.npy/.pyth checkpoints) that rglob would needlessly stat-walk —
+    # ~100x faster on NFS (1.9s -> 0.02s) for an identical result set.
+    for result_file in sorted(output_root.glob("*/*/*/*/result.json")):
         try:
             with open(result_file) as fh:
                 data = json.load(fh)
@@ -124,6 +139,14 @@ def load_all_results(output_root=None) -> pd.DataFrame:
                         params[_arg] = _cast(_m.group(1))
                     except (ValueError, TypeError):
                         pass
+        # Budget at which nu_prime was estimated, encoded in the exp-name as
+        # "...nucache<N>..." (e.g. the train_al 3000-cap sweep, where AL batch
+        # and the nu'-cache budget are decoupled). Derived for a readable legend
+        # ("nu_cache_budget=300" instead of the raw "nu_prime=0.40"); display
+        # only, so it is excluded from config_key.
+        _nm = re.search(r"nucache(\d+)", data.get("command", "") or str(result_file.parent))
+        if _nm:
+            params["nu_cache_budget"] = int(_nm.group(1))
         record = {
             "exp_dir": data.get("exp_dir", str(result_file.parent)),
             "result_file": str(result_file),

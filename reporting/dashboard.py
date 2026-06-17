@@ -803,29 +803,60 @@ def _render_comparison():
             qp_out["dlo"] = "" if dr[0] == dmin else dr[0].isoformat()
             qp_out["dhi"] = "" if dr[1] == dmax else dr[1].isoformat()
 
-    # ── Dynamic param filters: only params that vary inside the scope ─────
-    # NOTE: p_seed is intentionally NOT here — curves are seed-averaged, so seed
-    # is handled by the dedicated "Seeds" selector below (average vs individual).
-    FILTERABLE = [
-        "p_al_method", "p_tau", "p_target_nu", "p_budget", "p_dataset",
-        "p_model", "p_eval_model_type", "p_features_tag", "p_max_iter",
-        "p_kernel_type", "p_diff_method", "p_alpha", "p_initial_delta",
-        "p_sparse_K", "status",
+    # ── Dynamic param filters: any config param that VARIES inside the current
+    #    scope becomes a filter — so each category automatically surfaces exactly
+    #    the knobs that distinguish its curves (e.g. train_noise_nu_prime →
+    #    al_method, tau, budget, nu_cache_budget). Two columns are never offered:
+    #    p_seed (curves are seed-averaged; handled by the "Seeds" selector below)
+    #    and exp_name (a per-run label, not a config dimension). Preferred display
+    #    order is below; any other varying param is appended alphabetically.
+    NON_FILTER = {"p_seed", "p_exp_name", "p_exp-name"}
+    FILTER_ORDER = [
+        "p_al_method", "p_tau", "p_budget", "p_nu_cache_budget", "p_nu_prime",
+        "p_target_nu", "p_max_iter", "p_dataset", "p_model", "p_eval_model_type",
+        "p_features_tag", "p_kernel_type", "p_diff_method", "p_alpha",
+        "p_initial_delta", "p_sparse_K", "status",
     ]
-    candidates = [c for c in FILTERABLE if c in scoped.columns and scoped[c].nunique(dropna=True) > 1]
+
+    # A param "varies" when its curves don't all share one value — and crucially,
+    # a run *lacking* the param is itself a distinct value: the oracle arm carries
+    # no τ (p_tau is NaN) while noisy arms do, so τ must stay filterable to tell
+    # them apart even though the present τ values might be identical. We therefore
+    # count distinct non-null values PLUS whether any value is missing.
+    NA_OPT = "—"  # filter option representing "runs without this parameter"
+
+    def _varies(col):
+        try:  # list/dict-valued params are unhashable → never a filter
+            n = scoped[col].nunique(dropna=True)
+        except TypeError:
+            return False
+        return n + (1 if scoped[col].isna().any() else 0) > 1
+
+    varying = [c for c in scoped.columns
+               if (c.startswith("p_") or c == "status")
+               and c not in NON_FILTER and _varies(c)]
+    candidates = ([c for c in FILTER_ORDER if c in varying]
+                  + sorted(c for c in varying if c not in FILTER_ORDER))
     if candidates:
         st.markdown("**Filters**")
         cols = st.columns(min(4, len(candidates)))
         for i, col in enumerate(candidates):
             vals = sorted(scoped[col].dropna().unique().tolist(), key=str)
+            has_na = bool(scoped[col].isna().any())
+            opts = vals + ([NA_OPT] if has_na else [])
             seed = set(_qp_list(f"f_{col}"))
-            default = [v for v in vals if str(v) in seed]
+            default = [v for v in opts if str(v) in seed]
             pick = cols[i % len(cols)].multiselect(
-                col[2:] if col.startswith("p_") else col, options=vals,
-                default=default, key=f"flt_{col}")
+                col[2:] if col.startswith("p_") else col, options=opts,
+                default=default, key=f"flt_{col}",
+                help=(f"'{NA_OPT}' = runs without this parameter "
+                      "(e.g. the oracle arm has no τ)." if has_na else None))
             qp_out[f"f_{col}"] = ",".join(str(v) for v in pick)
             if pick:
-                scoped = scoped[scoped[col].isin(pick)]
+                mask = scoped[col].isin([v for v in pick if v != NA_OPT])
+                if NA_OPT in pick:
+                    mask = mask | scoped[col].isna()
+                scoped = scoped[mask]
 
     # ── Aggregate + chart (reuses scanner pipeline) ──────────────────────
     agg_list = [a for a in get_all_aggregated(scoped) if a["n_seeds"] > 0]
