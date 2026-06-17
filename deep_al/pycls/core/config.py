@@ -222,13 +222,19 @@ _C.NOISE_FILTER = CN()
 #   'aum'   -> LowBudgetAUM (linear classifier on SSL features + fake class)
 #   'ideal' -> oracle filter (uses true labels; upper-bound baseline)
 #   'none'  -> no-op (everything predicted clean)
-_C.NOISE_FILTER.METHOD = 'aum'
+# Default 'none': no noise handling unless a run explicitly asks for it (so plain
+# probcover/random baselines are untouched). Noise-aware runs set METHOD='aum'.
+_C.NOISE_FILTER.METHOD = 'none'
 # NPC inner batch size b: how many points to select between filter passes.
 # -1 => use num_classes (the thesis default b = C).
 _C.NOISE_FILTER.INNER_BATCH_SIZE = -1
 # Training-side hook: drop predicted-noisy labeled points before the supervised
-# training step (applies to ALL sampling methods, not just NPC). Off by default.
-_C.NOISE_FILTER.TRAIN_ON_CLEAN = False
+# training step (applies to ALL sampling methods, not just NPC).
+# None => auto: enabled whenever a filter is configured (METHOD != 'none'), so a
+# noise-aware run filters both the query side (NPC) and the training side by
+# default, matching the thesis. Set explicitly True/False to override (e.g. False
+# to isolate the query-side contribution in an ablation).
+_C.NOISE_FILTER.TRAIN_ON_CLEAN = None
 # LowBudgetAUM hyper-parameters (only used when METHOD == 'aum').
 _C.NOISE_FILTER.AUM_EPOCHS = 40
 _C.NOISE_FILTER.AUM_THR_PERCENTILE = 80

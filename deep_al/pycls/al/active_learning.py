@@ -110,6 +110,11 @@ class ActiveLearning:
 
                 self.cfg['KERNEL_TYPE'] = 'tophat'
                 self.cfg['K_SPARSE'] = True
+            if str(self.cfg.NOISE_FILTER.METHOD).lower() in ('none', 'noop', ''):
+                raise ValueError(
+                    "NPC requires a noise filter, but NOISE_FILTER.METHOD is 'none'. "
+                    "Set NOISE_FILTER.METHOD=aum (or ideal); with 'none' NPC degenerates "
+                    "to plain ProbCover.")
             noise_filter = build_noise_filter(self.cfg)
             return NoiseAwareCoverage(self.cfg, annotator_manager=self.annotator_manager,
                                       noise_filter=noise_filter)

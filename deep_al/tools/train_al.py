@@ -672,10 +672,15 @@ def _clean_training_indices(cfg, lSet, uSet, train_data_wrapped, annotator_manag
     """
     Train-on-clean (Netta's thesis, training side): drop labeled points predicted
     noisy before the supervised training step. Returns the subset of lSet to train
-    on. No-op (returns lSet unchanged) unless cfg.NOISE_FILTER.TRAIN_ON_CLEAN is set.
-    lSet itself is left intact for AL bookkeeping; only the training loader shrinks.
+    on. lSet itself is left intact for AL bookkeeping; only the training loader shrinks.
+
+    TRAIN_ON_CLEAN is tri-state: None => auto (enabled iff a filter is configured,
+    i.e. NOISE_FILTER.METHOD != 'none'); True/False force it on/off explicitly.
     """
-    if not getattr(cfg.NOISE_FILTER, 'TRAIN_ON_CLEAN', False):
+    train_on_clean = getattr(cfg.NOISE_FILTER, 'TRAIN_ON_CLEAN', None)
+    if train_on_clean is None:  # auto: follow whether a filter is configured
+        train_on_clean = str(cfg.NOISE_FILTER.METHOD).lower() not in ('none', 'noop', '')
+    if not train_on_clean:
         return lSet
     lSet = np.asarray(lSet, dtype=int)
     if len(lSet) == 0:
