@@ -64,6 +64,42 @@ _COLORS = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
     "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
 ]
+# Line-dash patterns ordered for ordinal params (τ, noise): smallest value =
+# solid, larger values get progressively "looser" dashes.
+_DASH_CYCLE = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"]
+_ENC_NA_COLOR = "#666666"  # color for a curve missing the color-encoded param
+
+
+def _value_domain(scoped, col):
+    """Stable, sorted list of a column's distinct values across the WHOLE scope.
+
+    Encoding (color/dash) is keyed to a value's position in this domain, computed
+    over the full category scope rather than just the plotted curves — so toggling
+    a filter never reshuffles which color/dash a value gets (the user's #1 ask).
+    Numeric domains sort numerically (τ=0.1 before 0.25); else lexicographically.
+    """
+    vals = scoped[col].dropna().unique().tolist()
+    try:
+        return sorted(vals, key=lambda v: float(v))
+    except (TypeError, ValueError):
+        return sorted(vals, key=str)
+
+
+def _color_for_value(col, val, domain):
+    """Deterministic color for a param value. al_method uses the fixed semantic
+    palette (npc green / probcover blue / random grey) shared with the NPC tab."""
+    if col == "p_al_method" and val in _NPC_METHOD_COLOR:
+        return _NPC_METHOD_COLOR[val]
+    if val is None or val not in domain:
+        return _ENC_NA_COLOR
+    return _COLORS[domain.index(val) % len(_COLORS)]
+
+
+def _dash_for_value(val, domain):
+    """Deterministic dash pattern for an (ordinal) param value."""
+    if val is None or val not in domain:
+        return "solid"
+    return _DASH_CYCLE[domain.index(val) % len(_DASH_CYCLE)]
 _RESULTS_DIR = REPO_ROOT / "results"
 
 _STATUS_EMOJI = {"completed": "✅", "running": "🔄", "failed": "❌"}
@@ -268,8 +304,15 @@ def _build_comparison_chart(agg_list, x_field="episode", y_field="test_acc",
         if a.empty or x_field not in a.columns or y_mean not in a.columns:
             continue
         a = a.reset_index(drop=True)
-        color = _COLORS[(i + color_offset) % len(_COLORS)]
-        flagged = bool(styles[i].get("flagged")) if styles else False
+        sty = styles[i] if styles else {}
+        flagged = bool(sty.get("flagged"))
+        # Encoded color/dash (set when the user maps a param to a visual channel)
+        # take precedence over the positional palette; flagged curves always
+        # override to grey+dashed regardless of encoding.
+        color = (sty.get("color") or _COLORS[(i + color_offset) % len(_COLORS)])
+        dash = sty.get("dash") or None
+        if flagged:
+            color, dash = "#999999", "dash"
         x = list(a[x_field])
         mean = list(a[y_mean])
         std = list(a[y_std]) if y_std in a.columns else [0.0] * len(mean)
@@ -281,13 +324,12 @@ def _build_comparison_chart(agg_list, x_field="episode", y_field="test_acc",
         lower = [m - s for m, s in zip(mean, std)]
         fig.add_trace(go.Scatter(
             x=x + x[::-1], y=upper + lower[::-1], fill="toself",
-            fillcolor=("#999999" if flagged else color),
+            fillcolor=color,
             opacity=0.10 if flagged else 0.15, line=dict(color="rgba(0,0,0,0)"),
             showlegend=False, hoverinfo="skip"))
         fig.add_trace(go.Scatter(
             x=x, y=mean, mode="lines+markers", name=f"{label} (n={agg['n_seeds']})",
-            line=dict(color=("#999999" if flagged else color), width=2.5,
-                      dash="dash" if flagged else None),
+            line=dict(color=color, width=2.5, dash=dash),
             marker=dict(size=7),
             hovertemplate=(
                 f"<b>{label}</b><br>{_X_TITLE.get(x_field, x_field)}: %{{x}}<br>"
@@ -654,6 +696,8 @@ _GROUPABLE = [
     ("nu_prime", "p_nu_prime"), ("budget", "p_budget"), ("max_iter", "p_max_iter"),
     ("dataset", "p_dataset"), ("model", "p_model"),
     ("eval_model_type", "p_eval_model_type"), ("features_tag", "p_features_tag"),
+    ("noise", "p_noise_rate"), ("train_on_clean", "p_train_on_clean"),
+    ("noise_filter", "p_noise_filter"),
     ("category", "category"),
 ]
 
@@ -978,6 +1022,57 @@ def _render_comparison():
     if x_field == "budget_units":
         st.caption("ℹ️ Oracle budget units = #labeled examples × τ "
                    "(oracle τ=1 → equals #examples).")
+
+    # ── Visual encoding: map params to color/dash so the same value always gets
+    #    the same look (npc=green, τ=0.1=solid…) — stable across filter changes,
+    #    rather than the positional palette that reshuffles when curves come and
+    #    go. Default: color=al_method; dash=τ for the nu_prime category else noise.
+    enc_opts = ["(none)"] + _groupable_options(scoped, chosen)
+    name2col = dict(_GROUPABLE)
+
+    def _enc_idx(qp_key, prefs):
+        seeded = _qp_get(qp_key)
+        if seeded in enc_opts:
+            return enc_opts.index(seeded)
+        for n in prefs:
+            if n in enc_opts:
+                return enc_opts.index(n)
+        return 0
+
+    dash_prefs = (["tau", "noise"] if sel_cat == "train_noise_nu_prime"
+                  else ["noise", "tau"])
+    ec1, ec2, _ = st.columns(3)
+    color_sel = ec1.selectbox("Color by", enc_opts,
+                              index=_enc_idx("color", ["al_method"]), key="cmp_color")
+    dash_sel = ec2.selectbox("Dash by", enc_opts,
+                             index=_enc_idx("dash", dash_prefs), key="cmp_dash")
+    qp_out.update(color="" if color_sel == "(none)" else color_sel,
+                  dash="" if dash_sel == "(none)" else dash_sel)
+
+    color_col = name2col.get(color_sel) if color_sel != "(none)" else None
+    dash_col = name2col.get(dash_sel) if dash_sel != "(none)" else None
+    color_dom = _value_domain(scoped, color_col) if color_col else []
+    dash_dom = _value_domain(scoped, dash_col) if dash_col else []
+    ck2color = _cfgkey_value_map(scoped, color_col) if color_col else {}
+    ck2dash = _cfgkey_value_map(scoped, dash_col) if dash_col else {}
+    if color_col or dash_col:
+        enc = []
+        for a, sty in zip(r_aggs, r_styles):
+            s = dict(sty)
+            if color_col:
+                s["color"] = _color_for_value(
+                    color_col, ck2color.get(a["config_key"]), color_dom)
+            if dash_col:
+                s["dash"] = _dash_for_value(ck2dash.get(a["config_key"]), dash_dom)
+            enc.append(s)
+        r_styles = enc
+        bits = []
+        if color_col:
+            bits.append(f"🎨 color = **{color_sel}**")
+        if dash_col:
+            order = " < ".join(str(v) for v in dash_dom) or "—"
+            bits.append(f"〰️ dash = **{dash_sel}** (solid→dotted as {order})")
+        st.caption(" · ".join(bits))
 
     if group_label == "(none)":
         fig = _build_comparison_chart(r_aggs, x_field, y_field,
