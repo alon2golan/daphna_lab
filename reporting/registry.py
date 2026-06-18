@@ -61,6 +61,9 @@ _USER_FIELDS = ("category", "note", "title", "context", "flags")
 # Purpose tags for train_al runs (the Graphs tab scopes on these).
 CATEGORY_RULES = [
     ("fig55",           re.compile(r"fig55")),
+    # NPC / probcover / random × {train-on-clean on,off} × noise × seeds, all
+    # sharing the AUM noise filter. Matched on the "AUMFILTER" sweep-name token.
+    ("aum_filter",      re.compile(r"aumfilter|aum_filter", re.IGNORECASE)),
     ("oracle_vs_noisy", re.compile(r"probcover_random|oracle_vs_noisy")),
     # The 3000-oracle-cost-cap family (probcover/random × noisy-τ AND oracle arms,
     # ν'-cache decoupled from budget). Matched on the shared "3000cap" sweep-name

@@ -47,6 +47,20 @@ class ResultWriter:
         # Git commit hash -------------------------------------------------------
         commit_hash = _get_commit_hash()
 
+        # Noise / noise-filter knobs (from cfg, not CLI) -----------------------
+        # Recorded so the dashboard can facet curves by noise level and by
+        # whether predicted-noisy points are dropped before training. TRAIN_ON_CLEAN
+        # is tri-state (None => auto: on iff a filter is configured); resolve it to
+        # the effective bool the same way train_al._clean_training_indices does.
+        _nf = getattr(cfg, "NOISE_FILTER", None)
+        _nf_method = str(getattr(_nf, "METHOD", "none")).lower() if _nf is not None else "none"
+        _toc = getattr(_nf, "TRAIN_ON_CLEAN", None) if _nf is not None else None
+        if _toc is None:
+            _toc = _nf_method not in ("none", "noop", "")
+        _annot = getattr(cfg, "ANNOTATORS", None)
+        _noise_rates = list(getattr(_annot, "NOISE_RATES", []) or []) if _annot is not None else []
+        _noise_rate = _noise_rates[0] if _noise_rates else None
+
         # Params from args + cfg -----------------------------------------------
         params = {
             "al_method": getattr(args, "al", None),
@@ -68,6 +82,9 @@ class ResultWriter:
             "features_tag": getattr(args, "features_tag", None),
             "nu_prime": getattr(args, "nu_prime", None),
             "matrix_dtype": getattr(args, "matrix_dtype", None),
+            "noise_rate": _noise_rate,
+            "noise_filter": _nf_method,
+            "train_on_clean": bool(_toc),
         }
 
         sweep_name = getattr(args, "sweep_name", None) or sweep_id
