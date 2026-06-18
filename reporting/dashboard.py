@@ -95,11 +95,19 @@ def _color_for_value(col, val, domain):
     return _COLORS[domain.index(val) % len(_COLORS)]
 
 
-def _dash_for_value(val, domain):
-    """Deterministic dash pattern for an (ordinal) param value."""
-    if val is None or val not in domain:
+def _dash_for_value(val, domain, na_present=False):
+    """Deterministic dash pattern for an (ordinal) param value.
+
+    When the param is MISSING for some curves (na_present, e.g. the oracle arm
+    has no ν'/τ), absent-value gets its OWN dash slot appended after the real
+    values — otherwise it would collide with the first real value on 'solid' and
+    the two curves would be indistinguishable (the reported nu_prime case)."""
+    order = list(domain) + ([None] if na_present else [])
+    try:
+        i = order.index(val)
+    except ValueError:
         return "solid"
-    return _DASH_CYCLE[domain.index(val) % len(_DASH_CYCLE)]
+    return _DASH_CYCLE[i % len(_DASH_CYCLE)]
 _RESULTS_DIR = REPO_ROOT / "results"
 
 _STATUS_EMOJI = {"completed": "✅", "running": "🔄", "failed": "❌"}
@@ -721,6 +729,25 @@ def _groupable_options(scoped, chosen) -> list[str]:
     return opts
 
 
+def _encodable_options(scoped, chosen, active_filter_cols=()) -> list[str]:
+    """Group keys offered for the Color-by / Dash-by channels.
+
+    Like _groupable_options, but ALSO offers any param the user has an active
+    filter on — even if that filter narrowed it to a single value among the
+    plotted curves. Rationale: filtering a param signals you care about it, so
+    you should still be able to lock its color/dash (e.g. filter noise to {.2,.5}
+    yet keep colouring by noise). Encoding by a single-valued param is harmless
+    (one color/dash); faceting on it would make a pointless lone panel, so the
+    permissive set is reserved for encoding, not _render_facets.
+    """
+    opts = _groupable_options(scoped, chosen)
+    forced = active_filter_cols or set()
+    for name, col in _GROUPABLE:
+        if name not in opts and col in forced and col in scoped.columns:
+            opts.append(name)
+    return opts
+
+
 def _cfgkey_value_map(scoped, col) -> dict:
     """config_key → that config's value of *col* (constant within a config_key)."""
     out = {}
@@ -881,6 +908,7 @@ def _render_comparison():
                and c not in NON_FILTER and _varies(c)]
     candidates = ([c for c in FILTER_ORDER if c in varying]
                   + sorted(c for c in varying if c not in FILTER_ORDER))
+    active_filter_cols: set = set()  # params the user narrowed (offered for encoding)
     if candidates:
         st.markdown("**Filters**")
         cols = st.columns(min(4, len(candidates)))
@@ -897,6 +925,7 @@ def _render_comparison():
                       "(e.g. the oracle arm has no τ)." if has_na else None))
             qp_out[f"f_{col}"] = ",".join(str(v) for v in pick)
             if pick:
+                active_filter_cols.add(col)
                 mask = scoped[col].isin([v for v in pick if v != NA_OPT])
                 if NA_OPT in pick:
                     mask = mask | scoped[col].isna()
@@ -1027,7 +1056,7 @@ def _render_comparison():
     #    the same look (npc=green, τ=0.1=solid…) — stable across filter changes,
     #    rather than the positional palette that reshuffles when curves come and
     #    go. Default: color=al_method; dash=τ for the nu_prime category else noise.
-    enc_opts = ["(none)"] + _groupable_options(scoped, chosen)
+    enc_opts = ["(none)"] + _encodable_options(scoped, chosen, active_filter_cols)
     name2col = dict(_GROUPABLE)
 
     def _enc_idx(qp_key, prefs):
@@ -1053,6 +1082,7 @@ def _render_comparison():
     dash_col = name2col.get(dash_sel) if dash_sel != "(none)" else None
     color_dom = _value_domain(scoped, color_col) if color_col else []
     dash_dom = _value_domain(scoped, dash_col) if dash_col else []
+    dash_na = bool(dash_col and scoped[dash_col].isna().any())
     ck2color = _cfgkey_value_map(scoped, color_col) if color_col else {}
     ck2dash = _cfgkey_value_map(scoped, dash_col) if dash_col else {}
     if color_col or dash_col:
@@ -1063,14 +1093,16 @@ def _render_comparison():
                 s["color"] = _color_for_value(
                     color_col, ck2color.get(a["config_key"]), color_dom)
             if dash_col:
-                s["dash"] = _dash_for_value(ck2dash.get(a["config_key"]), dash_dom)
+                s["dash"] = _dash_for_value(
+                    ck2dash.get(a["config_key"]), dash_dom, na_present=dash_na)
             enc.append(s)
         r_styles = enc
         bits = []
         if color_col:
             bits.append(f"🎨 color = **{color_sel}**")
         if dash_col:
-            order = " < ".join(str(v) for v in dash_dom) or "—"
+            seq = [str(v) for v in dash_dom] + (["(none/oracle)"] if dash_na else [])
+            order = " < ".join(seq) or "—"
             bits.append(f"〰️ dash = **{dash_sel}** (solid→dotted as {order})")
         st.caption(" · ".join(bits))
 
