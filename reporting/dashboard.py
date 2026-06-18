@@ -98,11 +98,12 @@ def _color_for_value(col, val, domain):
 def _dash_for_value(val, domain, na_present=False):
     """Deterministic dash pattern for an (ordinal) param value.
 
-    When the param is MISSING for some curves (na_present, e.g. the oracle arm
-    has no ν'/τ), absent-value gets its OWN dash slot appended after the real
-    values — otherwise it would collide with the first real value on 'solid' and
-    the two curves would be indistinguishable (the reported nu_prime case)."""
-    order = list(domain) + ([None] if na_present else [])
+    When the param is MISSING for some curves (na_present, e.g. the oracle arm,
+    whose ν' is effectively 0), absent-value gets its OWN dash slot PREPENDED
+    before the real values — so the oracle reads as the baseline 'solid' and the
+    real ν'/τ values shift to dash/dot/… (otherwise oracle would collide with the
+    first real value on 'solid' and the two curves would be indistinguishable)."""
+    order = ([None] if na_present else []) + list(domain)
     try:
         i = order.index(val)
     except ValueError:
@@ -1101,7 +1102,7 @@ def _render_comparison():
         if color_col:
             bits.append(f"🎨 color = **{color_sel}**")
         if dash_col:
-            seq = [str(v) for v in dash_dom] + (["(none/oracle)"] if dash_na else [])
+            seq = (["oracle(ν'=0)"] if dash_na else []) + [str(v) for v in dash_dom]
             order = " < ".join(seq) or "—"
             bits.append(f"〰️ dash = **{dash_sel}** (solid→dotted as {order})")
         st.caption(" · ".join(bits))
