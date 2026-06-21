@@ -256,10 +256,12 @@ def example_run(pipeline: dict):
 
     # small helper: label-cleaning stub
     def run_label_cleaning(data_obj, train_data, lSet, cfg, checkpoint_file=None, threshold=0.9, max_fix=None):
-        """Simple label-cleaning stub.
+        """Simple label-cleaning stub with advanced noise tracking.
 
-        - Loads model from checkpoint_file (if provided)
-        - Predicts labels for current labeled set and replaces labels where model is confident
+        - Loads model from checkpoint_file
+        - Predicts labels for current labeled set
+        - Replaces labels where model is confident
+        - Logs detailed statistics about noise detection accuracy
         """
         if checkpoint_file is None:
             logger.info("No checkpoint provided - skipping label_cleaning.")
@@ -274,7 +276,21 @@ def example_run(pipeline: dict):
             logger.exception("Failed to load model for cleaning; skipping")
             return {'fixed': 0, 'changed_indices': []}
 
-        # Process labeled indices in deterministic batches (don't rely on DataLoader sampling order)
+        # --- NOISE TRACKING METRICS ---
+        total_noisy_in_lSet = 0
+        correctly_fixed = 0  # Noisy label changed to true clean label
+        clean_corrupted = 0  # Clean label accidentally changed to a wrong label
+        wrong_to_wrong = 0  # Noisy label changed to a DIFFERENT wrong label
+
+        has_clean_labels = hasattr(train_data, 'clean_labels') and hasattr(train_data, 'noisy_labels')
+
+        # Count actual noisy samples currently in the labeled set
+        if has_clean_labels:
+            for idx in lSet:
+                if int(train_data.clean_labels[int(idx)]) != int(train_data.noisy_labels[int(idx)]):
+                    total_noisy_in_lSet += 1
+
+        # Process labeled indices in deterministic batches
         import torch
         fixed = 0
         changed = []
@@ -283,18 +299,18 @@ def example_run(pipeline: dict):
             for start in range(0, len(lSet), batch_size):
                 batch_indices = lSet[start:start + batch_size]
                 inputs_list = []
-                labels_list = []
                 for idx in batch_indices:
-                    sample, lbl = train_data[int(idx)]
+                    sample, _ = train_data[int(idx)]
                     inputs_list.append(sample)
-                    labels_list.append(lbl)
+
                 # Stack inputs into tensor batch
                 try:
                     inputs = torch.stack(
-                        [inp if isinstance(inp, torch.Tensor) else torch.tensor(inp) for inp in inputs_list]).to(device)
+                        [inp if isinstance(inp, torch.Tensor) else torch.tensor(inp) for inp in inputs_list]).to(
+                        device)
                 except Exception:
-                    # fallback: convert to float tensor
                     inputs = torch.tensor(np.stack([np.array(inp) for inp in inputs_list])).to(device)
+
                 outputs = model(inputs)
                 probs = torch.nn.functional.softmax(outputs, dim=1)
                 confs, preds = probs.max(dim=1)
@@ -305,8 +321,8 @@ def example_run(pipeline: dict):
                     cur_idx = int(batch_indices[i])
                     pred = int(preds[i])
                     conf = float(confs[i])
+
                     cur_label = None
-                    # read current label from dataset (support NoisyDataset and common attr targets)
                     if hasattr(train_data, 'noisy_labels'):
                         cur_label = int(train_data.noisy_labels[cur_idx])
                     elif hasattr(train_data, 'targets'):
@@ -314,29 +330,59 @@ def example_run(pipeline: dict):
                     else:
                         continue
 
+                    # If model is highly confident and disagrees with current label
                     if pred != cur_label and conf >= threshold:
-                        # fix label in-place
+
+                        # Tracking logic
+                        if has_clean_labels:
+                            true_label = int(train_data.clean_labels[cur_idx])
+                            if cur_label != true_label and pred == true_label:
+                                correctly_fixed += 1
+                            elif cur_label == true_label and pred != true_label:
+                                clean_corrupted += 1
+                            elif cur_label != true_label and pred != true_label:
+                                wrong_to_wrong += 1
+
+                        # Fix label in-place
                         if hasattr(train_data, 'noisy_labels'):
                             train_data.noisy_labels[cur_idx] = pred
-                            if hasattr(train_data, 'clean_labels'):
+                            if hasattr(train_data, 'is_noisy'):
                                 train_data.is_noisy[cur_idx] = (train_data.clean_labels[cur_idx] != pred)
                         elif hasattr(train_data, 'targets'):
-                            # update targets stored in dataset; many dataset implementations expect list
                             try:
                                 train_data.targets[cur_idx] = pred
                             except Exception:
-                                # if list, convert
                                 tlist = list(train_data.targets)
                                 tlist[cur_idx] = pred
                                 train_data.targets = tlist
+
                         fixed += 1
                         changed.append(cur_idx)
                         if max_fix and fixed >= max_fix:
                             break
                 if max_fix and fixed >= max_fix:
                     break
-        logger.info("Label cleaning: fixed %d labels", fixed)
-        return {'fixed': fixed, 'changed_indices': changed}
+
+        # Log the detailed findings
+        logger.info(f"--- Label Cleaning Stats (Threshold: {threshold}) ---")
+        if has_clean_labels:
+            logger.info(f"Total labeled set size: {len(lSet)}")
+            logger.info(f"Actual noisy samples in labeled set: {total_noisy_in_lSet}")
+            logger.info(f"Successfully fixed (Noisy -> Clean): {correctly_fixed}")
+            logger.info(f"Accidentally corrupted (Clean -> Noisy): {clean_corrupted}")
+            logger.info(f"Failed attempts (Noisy -> Different Noisy): {wrong_to_wrong}")
+        logger.info(f"Total labels altered this round: {fixed}")
+        logger.info("-----------------------------------------------------")
+
+        return {
+            'fixed': fixed,
+            'changed_indices': changed,
+            'stats': {
+                'total_noisy_in_lSet': total_noisy_in_lSet,
+                'correctly_fixed': correctly_fixed,
+                'clean_corrupted': clean_corrupted
+            }
+        }
 
     # Prepare dataloaders
     lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)

@@ -19,13 +19,13 @@ CFG_PATH="../configs/cifar10/al/RESNET18.yaml"
 # Run parameters (adjust as needed)
 SEED=0
 BUDGET=100
-INITIAL_SIZE=0
-MAX_ITER=3
+INITIAL_SIZE=100
+MAX_ITER=5
 EXP_NAME="first_NAL"
 INITIAL_DELTA=0.6
 KERNEL_TYPE="rbf"
 EVAL_MODEL_TYPE="from_images"
-MAX_EPOCH=2
+MAX_EPOCH=20
 
 
 # Run the noisy AL pipeline similar to the original training command style
