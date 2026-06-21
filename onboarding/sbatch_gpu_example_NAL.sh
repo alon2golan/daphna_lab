@@ -20,13 +20,16 @@ CFG_PATH="../configs/cifar10/al/RESNET18.yaml"
 SEED=0
 BUDGET=100
 INITIAL_SIZE=100
-MAX_ITER=5
+MAX_ITER=8
 EXP_NAME="first_NAL"
 INITIAL_DELTA=0.6
 KERNEL_TYPE="rbf"
 EVAL_MODEL_TYPE="from_images"
-MAX_EPOCH=20
+MAX_EPOCH=50
 
+# Noise handling parameters
+WARMUP_EPISODE=3
+WARMUP_MIN_ACC=30.0
 
 # Run the noisy AL pipeline similar to the original training command style
 python3 run_noise_al_pipeline.py \
@@ -44,4 +47,5 @@ python3 run_noise_al_pipeline.py \
   --kernel_type ${KERNEL_TYPE} \
   --eval_model_type ${EVAL_MODEL_TYPE} \
   --max_epoch ${MAX_EPOCH} \
-
+  --warmup_episode ${WARMUP_EPISODE} \
+  --warmup_min_acc ${WARMUP_MIN_ACC}

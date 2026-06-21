@@ -51,7 +51,9 @@ def build_pipeline(noise_type: Optional[str], noise_rate: float, noise_transitio
                    max_iter: Optional[int] = None, exp_name: Optional[str] = None, features_tag: Optional[str] = None,
                    initial_delta: Optional[float] = None, kernel_type: Optional[str] = None,
                    eval_model_type: Optional[str] = None,
-                   max_epoch: Optional[int] = None):
+                   max_epoch: Optional[int] = None,
+                   warmup_episode: Optional[int] = 3,
+                   warmup_min_acc: Optional[float] = 60.0):
     """Builds a pipeline dict describing the requested experiment.
 
     This function is intentionally lightweight and refrains from executing heavy
@@ -73,6 +75,8 @@ def build_pipeline(noise_type: Optional[str], noise_rate: float, noise_transitio
         },
         "noise_handling": {
             "method": noise_method,
+            "warmup_episode": warmup_episode,
+            "warmup_min_acc": warmup_min_acc,
         },
         "run_args": {
             "seed": seed,
@@ -93,17 +97,7 @@ def build_pipeline(noise_type: Optional[str], noise_rate: float, noise_transitio
 
 
 def example_run(pipeline: dict):
-    """Wired example run that uses the repository's config and dataset loaders.
-
-    This function performs light-weight wiring only:
-      - loads the config using initialize_cfg
-      - prepares datasets via Data.getDataset
-      - creates L/U/V splits via Data.makeLUVSets
-      - wraps the training dataset with NoisyDataset (if requested)
-      - instantiates the ActiveLearning orchestrator
-
-    It does NOT run training or full AL rounds; those should be implemented where noted.
-    """
+    """Wired example run that uses the repository's config and dataset loaders."""
 
     # 1) Build config
     cfg_file = pipeline.get("cfg")
@@ -133,7 +127,7 @@ def example_run(pipeline: dict):
     cfg = initialize_cfg(cfg_file, args_dict)
     cfg = normalize_cfg_paths(cfg)
 
-    # Ensure some optional config keys exist with safe defaults (avoid AttributeError in downstream code)
+    # Ensure some optional config keys exist with safe defaults
     try:
         _ = cfg.MODEL.LINEAR_FROM_FEATURES
     except Exception:
@@ -209,7 +203,7 @@ def example_run(pipeline: dict):
                                       noise_transition_matrix=transition)
             noisy_applied = True
 
-    # 5) Prepare train labels for AL constructor (use clean labels when available)
+    # 5) Prepare train labels for AL constructor
     if hasattr(train_data, 'clean_labels'):
         train_labels = train_data.clean_labels
     elif hasattr(train_data, 'targets'):
@@ -232,8 +226,7 @@ def example_run(pipeline: dict):
         except Exception:
             logger.exception("Failed to instantiate ActiveLearning")
 
-    # 8) Run Active Learning episodes (training + sampling)
-    # Import train_al utilities for training/eval loop
+    # 8) Run Active Learning episodes
     try:
         from deep_al.tools import train_al as train_al_module
         PlottingManager = train_al_module.PlottingManager
@@ -254,15 +247,8 @@ def example_run(pipeline: dict):
         }
         return {'status': 'wired', 'summary': summary}
 
-    # small helper: label-cleaning stub
+    # Helper: label-cleaning
     def run_label_cleaning(data_obj, train_data, lSet, cfg, checkpoint_file=None, threshold=0.9, max_fix=None):
-        """Simple label-cleaning stub with advanced noise tracking.
-
-        - Loads model from checkpoint_file
-        - Predicts labels for current labeled set
-        - Replaces labels where model is confident
-        - Logs detailed statistics about noise detection accuracy
-        """
         if checkpoint_file is None:
             logger.info("No checkpoint provided - skipping label_cleaning.")
             return {'fixed': 0, 'changed_indices': []}
@@ -276,21 +262,19 @@ def example_run(pipeline: dict):
             logger.exception("Failed to load model for cleaning; skipping")
             return {'fixed': 0, 'changed_indices': []}
 
-        # --- NOISE TRACKING METRICS ---
+        # Noise tracking
         total_noisy_in_lSet = 0
-        correctly_fixed = 0  # Noisy label changed to true clean label
-        clean_corrupted = 0  # Clean label accidentally changed to a wrong label
-        wrong_to_wrong = 0  # Noisy label changed to a DIFFERENT wrong label
+        correctly_fixed = 0
+        clean_corrupted = 0
+        wrong_to_wrong = 0
 
         has_clean_labels = hasattr(train_data, 'clean_labels') and hasattr(train_data, 'noisy_labels')
 
-        # Count actual noisy samples currently in the labeled set
         if has_clean_labels:
             for idx in lSet:
                 if int(train_data.clean_labels[int(idx)]) != int(train_data.noisy_labels[int(idx)]):
                     total_noisy_in_lSet += 1
 
-        # Process labeled indices in deterministic batches
         import torch
         fixed = 0
         changed = []
@@ -303,7 +287,6 @@ def example_run(pipeline: dict):
                     sample, _ = train_data[int(idx)]
                     inputs_list.append(sample)
 
-                # Stack inputs into tensor batch
                 try:
                     inputs = torch.stack(
                         [inp if isinstance(inp, torch.Tensor) else torch.tensor(inp) for inp in inputs_list]).to(
@@ -330,10 +313,7 @@ def example_run(pipeline: dict):
                     else:
                         continue
 
-                    # If model is highly confident and disagrees with current label
                     if pred != cur_label and conf >= threshold:
-
-                        # Tracking logic
                         if has_clean_labels:
                             true_label = int(train_data.clean_labels[cur_idx])
                             if cur_label != true_label and pred == true_label:
@@ -343,7 +323,6 @@ def example_run(pipeline: dict):
                             elif cur_label != true_label and pred != true_label:
                                 wrong_to_wrong += 1
 
-                        # Fix label in-place
                         if hasattr(train_data, 'noisy_labels'):
                             train_data.noisy_labels[cur_idx] = pred
                             if hasattr(train_data, 'is_noisy'):
@@ -363,7 +342,6 @@ def example_run(pipeline: dict):
                 if max_fix and fixed >= max_fix:
                     break
 
-        # Log the detailed findings
         logger.info(f"--- Label Cleaning Stats (Threshold: {threshold}) ---")
         if has_clean_labels:
             logger.info(f"Total labeled set size: {len(lSet)}")
@@ -384,19 +362,16 @@ def example_run(pipeline: dict):
             }
         }
 
-    # Prepare dataloaders
     lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
     valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
     test_loader = data_obj.getTestLoader(data=test_data, test_batch_size=cfg.TRAIN.BATCH_SIZE, seed_id=cfg.RNG_SEED)
 
-    # Handle empty labeled set gracefully without forced single-sample injection which breaks batch norm
     if lSet_loader is None and len(lSet) == 0:
         logger.warning("Initial labeled set is empty. The pipeline will cold-start by skipping training in Episode 0.")
 
     if valSet_loader is None:
         valSet_loader = lSet_loader
 
-    # Initialize model, optimizer and plotting
     model = train_al_module.mh.get_model(cfg)
     optimizer = train_al_module.optim.construct_optimizer(cfg, model)
     opt_init_state = deepcopy(optimizer.state_dict()) if not getattr(cfg.MODEL, 'USE_1NN', False) else None
@@ -404,13 +379,11 @@ def example_run(pipeline: dict):
 
     plotting_manager = PlottingManager()
 
-    # Keep simple timing/metric trackers
     episode_training_times = []
     episode_al_times = []
     all_epoch_times = []
     final_train_acc = final_val_acc = final_test_acc = 0.0
 
-    # Demo combo defaults: if pipeline entries empty, set demo (sym + typiclust + label_cleaning)
     if pipeline.get('noise', {}).get('type') is None and pipeline.get('active_learning', {}).get(
             'method') is None and pipeline.get('noise_handling', {}).get('method') is None:
         logger.info("No selections provided - using demo combo: sym + typiclust + label_cleaning")
@@ -420,7 +393,6 @@ def example_run(pipeline: dict):
         pipeline['active_learning']['method'] = 'typiclust'
         pipeline['noise_handling']['method'] = 'label_cleaning'
 
-    # Run episodes
     checkpoint_file = None
     for cur_episode in range(0, cfg.ACTIVE_LEARNING.MAX_ITER + 1):
         logger.info("======== EPISODE %d BEGINS ========", cur_episode)
@@ -428,14 +400,12 @@ def example_run(pipeline: dict):
         os.makedirs(episode_dir, exist_ok=True)
         cfg.EPISODE_DIR = episode_dir
 
-        # --- FIX: Check for cold start (empty lSet) ---
         if cur_episode == 0 and len(lSet) == 0:
             logger.info("Cold start detected (0 initial labels). Skipping training for Episode 0.")
             checkpoint_file = None
             episode_training_times.append(0)
             final_train_acc = final_val_acc = final_test_acc = 0.0
         else:
-            # Train and evaluate
             try:
                 checkpoint_file, episode_train_time, epoch_times, best_train_acc, best_val_acc, test_acc = \
                     train_al_module.train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader,
@@ -450,16 +420,13 @@ def example_run(pipeline: dict):
             final_val_acc = best_val_acc
             final_test_acc = test_acc
 
-        # If last episode, save sets and finish
         if cur_episode == cfg.ACTIVE_LEARNING.MAX_ITER:
             data_obj.saveSet(lSet, 'lSet', cfg.EPISODE_DIR)
             data_obj.saveSet(uSet, 'uSet', cfg.EPISODE_DIR)
             break
 
-        # Active sampling
         al_start_time = time.time()
         try:
-            # For cold start, active_sampling_part will use the unsupervised features (since checkpoint_file is None)
             lSet, lSet_loader, uSet, valSet_loader = train_al_module.active_sampling_part(cfg, checkpoint_file,
                                                                                           cur_episode,
                                                                                           data_obj, lSet, lSet_loader,
@@ -471,30 +438,36 @@ def example_run(pipeline: dict):
         al_time = time.time() - al_start_time
         episode_al_times.append(al_time)
 
-        # Apply noise-handling method if requested (label_cleaning demo)
+        # Apply noise-handling method using extracted arguments
         if pipeline.get('noise_handling', {}).get('method') == 'label_cleaning':
-            logger.info("Running label-cleaning on labeled set after sampling (threshold=0.9)")
-            try:
-                res = run_label_cleaning(data_obj, train_data, lSet, cfg, checkpoint_file=checkpoint_file,
-                                         threshold=0.9)
-                logger.info("Label cleaning result: %s", res)
-            except Exception:
-                logger.exception("Label cleaning failed; continuing")
 
-        # Reinitialize model if not fine-tuning
+            # --- DYNAMIC WARM-UP LOGIC ---
+            warmup_episode = pipeline['noise_handling'].get('warmup_episode', 3)
+            warmup_min_acc = pipeline['noise_handling'].get('warmup_min_acc', 60.0)
+
+            if cur_episode >= warmup_episode or final_val_acc >= warmup_min_acc:
+                logger.info(
+                    f"Warm-up passed (Episode {cur_episode} >= {warmup_episode} OR Val Acc {final_val_acc:.2f}% >= {warmup_min_acc}%). Running label-cleaning...")
+                try:
+                    res = run_label_cleaning(data_obj, train_data, lSet, cfg, checkpoint_file=checkpoint_file,
+                                             threshold=0.9)
+                except Exception:
+                    logger.exception("Label cleaning failed; continuing")
+            else:
+                logger.info(
+                    f"Warm-up phase: Skipping label-cleaning. (Episode {cur_episode} < {warmup_episode} AND Val Acc {final_val_acc:.2f}% < {warmup_min_acc}%)")
+
         if not cfg.ACTIVE_LEARNING.FINE_TUNE:
             logger.info('Starting model from scratch for next episode')
             model = train_al_module.mh.get_model(cfg, model_init_state=model_init_state)
             optimizer = train_al_module.optim.construct_optimizer(cfg, model, opt_init_state=opt_init_state)
 
-        # Remove checkpoint file
         if checkpoint_file is not None:
             try:
                 os.remove(checkpoint_file)
             except Exception:
                 pass
 
-    # Summary
     summary = {
         'train_size': int(train_size),
         'test_size': int(test_size),
@@ -516,7 +489,7 @@ def example_run(pipeline: dict):
 def parse_args():
     parser = argparse.ArgumentParser(description="Run noise x AL x noise-handling pipeline (skeleton)")
 
-    # Core experiment config (reuse existing cfg format if desired)
+    # Core experiment config
     parser.add_argument('--cfg', dest='cfg_file', help='Config file', required=True, type=str)
 
     # Noise specification
@@ -530,9 +503,11 @@ def parse_args():
     parser.add_argument('--budget', help='Budget per AL round', default=None, type=int)
     parser.add_argument('--max_iter', help='Max AL iterations', default=None, type=int)
 
-    # Noise handling method
-    parser.add_argument('--noise_method', help='Noise handling method (e.g. cleaning, robust_loss)', default=None,
+    # Noise handling method & Params
+    parser.add_argument('--noise_method', help='Noise handling method (e.g. label_cleaning, robust_loss)', default=None,
                         type=str)
+    parser.add_argument('--warmup_episode', help='Episode to start label cleaning', default=3, type=int)
+    parser.add_argument('--warmup_min_acc', help='Min validation accuracy to start label cleaning', default=60.0, type=float)
 
     # Additional run parameters
     parser.add_argument('--seed', help='Random seed', default=None, type=int)
@@ -569,6 +544,8 @@ def main():
         kernel_type=args.kernel_type,
         eval_model_type=args.eval_model_type,
         max_epoch=args.max_epoch,
+        warmup_episode=args.warmup_episode,
+        warmup_min_acc=args.warmup_min_acc
     )
 
     results = example_run(pipeline)
