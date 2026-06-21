@@ -342,6 +342,11 @@ def example_run(pipeline: dict):
     lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
     valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
     test_loader = data_obj.getTestLoader(data=test_data, test_batch_size=cfg.TRAIN.BATCH_SIZE, seed_id=cfg.RNG_SEED)
+
+    # Handle empty labeled set gracefully without forced single-sample injection which breaks batch norm
+    if lSet_loader is None and len(lSet) == 0:
+        logger.warning("Initial labeled set is empty. The pipeline will cold-start by skipping training in Episode 0.")
+
     if valSet_loader is None:
         valSet_loader = lSet_loader
 
@@ -377,20 +382,27 @@ def example_run(pipeline: dict):
         os.makedirs(episode_dir, exist_ok=True)
         cfg.EPISODE_DIR = episode_dir
 
-        # Train and evaluate
-        try:
-            checkpoint_file, episode_train_time, epoch_times, best_train_acc, best_val_acc, test_acc = \
-                train_al_module.train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader,
-                                                     valSet_loader, plotting_manager)
-        except Exception:
-            logger.exception("train_and_eval_model failed; aborting AL loop")
-            return {'status': 'failed', 'reason': 'train_and_eval_model failure'}
+        # --- FIX: Check for cold start (empty lSet) ---
+        if cur_episode == 0 and len(lSet) == 0:
+            logger.info("Cold start detected (0 initial labels). Skipping training for Episode 0.")
+            checkpoint_file = None
+            episode_training_times.append(0)
+            final_train_acc = final_val_acc = final_test_acc = 0.0
+        else:
+            # Train and evaluate
+            try:
+                checkpoint_file, episode_train_time, epoch_times, best_train_acc, best_val_acc, test_acc = \
+                    train_al_module.train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_loader,
+                                                         valSet_loader, plotting_manager)
+            except Exception:
+                logger.exception("train_and_eval_model failed; aborting AL loop")
+                return {'status': 'failed', 'reason': 'train_and_eval_model failure'}
 
-        episode_training_times.append(episode_train_time)
-        all_epoch_times.extend(epoch_times or [])
-        final_train_acc = best_train_acc
-        final_val_acc = best_val_acc
-        final_test_acc = test_acc
+            episode_training_times.append(episode_train_time)
+            all_epoch_times.extend(epoch_times or [])
+            final_train_acc = best_train_acc
+            final_val_acc = best_val_acc
+            final_test_acc = test_acc
 
         # If last episode, save sets and finish
         if cur_episode == cfg.ACTIVE_LEARNING.MAX_ITER:
@@ -401,6 +413,7 @@ def example_run(pipeline: dict):
         # Active sampling
         al_start_time = time.time()
         try:
+            # For cold start, active_sampling_part will use the unsupervised features (since checkpoint_file is None)
             lSet, lSet_loader, uSet, valSet_loader = train_al_module.active_sampling_part(cfg, checkpoint_file,
                                                                                           cur_episode,
                                                                                           data_obj, lSet, lSet_loader,
