@@ -30,6 +30,11 @@ import numpy as np
 import time
 from copy import deepcopy
 from typing import Optional
+import itertools
+import urllib.request
+import zipfile
+import tempfile
+import shutil
 
 # Ensure repo root is in sys.path for clean imports
 _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,6 +50,92 @@ logger = logging.getLogger("run_noise_al_pipeline")
 logging.basicConfig(level=logging.INFO)
 
 
+def _download_and_extract_cifar_n(save_dir: str):
+    """Download and extract CIFAR-10/100N archive into save_dir. Returns extracted folder or None."""
+
+    try:
+        os.makedirs(save_dir, exist_ok=True)
+        url = "http://ucsc-real.soe.ucsc.edu:1995/files/cifar-10-100n-main.zip"
+        tmp_zip = os.path.join(tempfile.gettempdir(), 'cifar10n.zip')
+        logger.info(f"Downloading CIFAR-N archive from {url} to {tmp_zip}")
+        try:
+            urllib.request.urlretrieve(url, tmp_zip)
+        except Exception:
+            logger.exception("Failed to download CIFAR-N archive via urllib; aborting download step")
+            return None
+        try:
+            with zipfile.ZipFile(tmp_zip, 'r') as zf:
+                zf.extractall(save_dir)
+        except Exception:
+            logger.exception("Failed to extract CIFAR-N zipfile")
+            return None
+        # Common extracted folder name
+        extracted = os.path.join(save_dir, 'cifar-10-100n-main')
+        if os.path.exists(extracted):
+            return extracted
+        # Fallback: return save_dir
+        return save_dir
+    except Exception:
+        logger.exception("Unexpected error in download/extract CIFAR-N")
+        return None
+
+
+def _find_cifar_n_pt(extracted_dir: str, dataset_name: str):
+    """Search for a .pt file matching CIFAR-10/100 within extracted_dir."""
+    import glob
+    patterns = []
+    ds_lower = dataset_name.lower()
+    if '10' in ds_lower:
+        patterns = ['**/*CIFAR-10*.pt', '**/*CIFAR10*.pt']
+    else:
+        patterns = ['**/*CIFAR-100*.pt', '**/*CIFAR100*.pt']
+    for pat in patterns:
+        matches = glob.glob(os.path.join(extracted_dir, pat), recursive=True)
+        if matches:
+            return matches[0]
+    # fallback any .pt
+    matches = glob.glob(os.path.join(extracted_dir, '**', '*.pt'), recursive=True)
+    return matches[0] if matches else None
+
+
+def _load_cifar_n_labels(pt_path: str, variant: str = 'auto'):
+    """Load labels dict from pt file and select a noisy-label vector.
+    variant: 'aggre_label', 'worst_label', 'clean_label', 'random_label1' etc., or 'auto' to pick preference order.
+    Returns numpy array of labels or None."""
+    try:
+        import torch
+        data = torch.load(pt_path, map_location='cpu')
+
+        if variant and variant != 'auto':
+            # exact requested key
+            if variant in data:
+                return np.array(data[variant])
+            # allow variants without suffix
+            alt = variant.replace('-', '_')
+            if alt in data:
+                return np.array(data[alt])
+
+        # Preferred keys order for auto
+        preferred = ['aggre_label', 'worst_label', 'clean_label', 'random_label1', 'random_label2', 'random_label3']
+        for key in preferred:
+            if key in data:
+                arr = np.array(data[key])
+                return arr
+        # fallback: any key that is list/ndarray/tensor of length > 0
+        for k, v in dict(data).items():
+            if isinstance(v, (list, np.ndarray)) and len(v) > 0:
+                return np.array(v)
+            try:
+                if isinstance(v, torch.Tensor) and v.numel() > 0:
+                    return v.numpy()
+            except Exception:
+                pass
+        return None
+    except Exception:
+        logger.exception("Failed to load pt file for CIFAR-N")
+        return None
+
+
 def build_pipeline(noise_type: Optional[str], noise_rate: float, noise_transition_path: Optional[str],
                    al_method: Optional[str], noise_method: Optional[str], cfg_path: Optional[str],
                    seed: Optional[int] = None, budget: Optional[int] = None, initial_size: Optional[int] = None,
@@ -53,7 +144,13 @@ def build_pipeline(noise_type: Optional[str], noise_rate: float, noise_transitio
                    eval_model_type: Optional[str] = None,
                    max_epoch: Optional[int] = None,
                    warmup_episode: Optional[int] = 3,
-                   warmup_min_acc: Optional[float] = 60.0):
+                   warmup_min_acc: Optional[float] = 60.0,
+                   cifar_n_variant: Optional[str] = 'auto'):
+    # Validate CIFAR-N variant explicitly
+    allowed_variants = {'auto','aggre_label','worst_label','clean_label','random_label1','random_label2','random_label3'}
+    if cifar_n_variant not in allowed_variants:
+        raise ValueError(f"Invalid cifar_n_variant '{cifar_n_variant}'. Allowed: {sorted(allowed_variants)}")
+
     """Builds a pipeline dict describing the requested experiment.
 
     This function is intentionally lightweight and refrains from executing heavy
@@ -67,6 +164,7 @@ def build_pipeline(noise_type: Optional[str], noise_rate: float, noise_transitio
             "type": noise_type,
             "rate": noise_rate,
             "transition_matrix": noise_transition_path,
+            "variant": cifar_n_variant,
         },
         "active_learning": {
             "method": al_method,
@@ -185,23 +283,58 @@ def example_run(pipeline: dict):
     # 4) Apply noise wrapper to the training dataset if requested
     noisy_applied = False
     transition = None
-    if pipeline.get("noise", {}).get("type") and pipeline.get("noise", {}).get("type") != "clean":
-        if NoisyDataset is None:
-            logger.warning("NoisyDataset not available; skipping noise injection")
-        else:
-            if pipeline["noise"].get("transition_matrix"):
-                try:
-                    transition = np.load(pipeline["noise"]["transition_matrix"])
-                except Exception:
-                    logger.exception("Failed to load transition matrix; ignoring it")
-            logger.info("Applying noise wrapper: type=%s rate=%s", pipeline["noise"]["type"], pipeline["noise"]["rate"])
-            train_data = NoisyDataset(train_data,
-                                      noise_type=pipeline["noise"]["type"],
-                                      noise_rate=pipeline["noise"]["rate"],
-                                      num_classes=getattr(cfg.MODEL, 'NUM_CLASSES', None),
-                                      seed=cfg.RNG_SEED,
-                                      noise_transition_matrix=transition)
-            noisy_applied = True
+    noise_t = pipeline.get("noise", {}).get("type")
+    if noise_t and noise_t != "clean":
+        if noise_t.lower().startswith('cifar'):
+            # Handle CIFAR-10N / CIFAR-100N human-noise datasets
+            try:
+                extracted = _download_and_extract_cifar_n(cfg.DATASET.ROOT_DIR)
+                if extracted is None:
+                    logger.warning("Failed to obtain CIFAR-N archive; falling back to synthetic noise")
+                else:
+                    pt_path = _find_cifar_n_pt(extracted, noise_t)
+                    if pt_path is None:
+                        logger.warning("No CIFAR-N .pt file found in %s; falling back to synthetic noise", extracted)
+                    else:
+                        noisy_labels = _load_cifar_n_labels(pt_path, variant=pipeline.get('noise', {}).get('variant', 'auto'))
+                        if noisy_labels is None:
+                            logger.warning("Failed to parse labels from %s; falling back to synthetic noise", pt_path)
+                        else:
+                            # Attach clean/noisy labels to train_data in-place
+                            try:
+                                orig_clean = np.array(getattr(train_data, 'targets'))
+                                if len(noisy_labels) != len(orig_clean):
+                                    logger.warning("CIFAR-N labels length (%d) does not match dataset size (%d); skipping CIFAR-N injection",
+                                                   len(noisy_labels), len(orig_clean))
+                                else:
+                                    train_data.clean_labels = orig_clean.copy()
+                                    train_data.noisy_labels = np.array(noisy_labels, dtype=np.int64)
+                                    train_data.is_noisy = train_data.noisy_labels != train_data.clean_labels
+                                    noisy_applied = True
+                                    logger.info("Applied CIFAR-N noisy labels from %s (type=%s)", pt_path, noise_t)
+                            except Exception:
+                                logger.exception("Failed to attach CIFAR-N labels to dataset; falling back to synthetic noise")
+            except Exception:
+                logger.exception("Error while handling CIFAR-N data; falling back to synthetic noise")
+
+        # If CIFAR-N path failed or not requested, fall back to generic NoisyDataset behavior
+        if not noisy_applied:
+            if NoisyDataset is None:
+                logger.warning("NoisyDataset not available; skipping noise injection")
+            else:
+                if pipeline["noise"].get("transition_matrix"):
+                    try:
+                        transition = np.load(pipeline["noise"]["transition_matrix"])
+                    except Exception:
+                        logger.exception("Failed to load transition matrix; ignoring it")
+                logger.info("Applying noise wrapper: type=%s rate=%s", pipeline["noise"]["type"], pipeline["noise"]["rate"])
+                train_data = NoisyDataset(train_data,
+                                          noise_type=pipeline["noise"]["type"],
+                                          noise_rate=pipeline["noise"]["rate"],
+                                          num_classes=getattr(cfg.MODEL, 'NUM_CLASSES', None),
+                                          seed=cfg.RNG_SEED,
+                                          noise_transition_matrix=transition)
+                noisy_applied = True
 
     # 5) Prepare train labels for AL constructor
     if hasattr(train_data, 'clean_labels'):
@@ -439,7 +572,8 @@ def example_run(pipeline: dict):
         episode_al_times.append(al_time)
 
         # Apply noise-handling method using extracted arguments
-        if pipeline.get('noise_handling', {}).get('method') == 'label_cleaning':
+        method = pipeline.get('noise_handling', {}).get('method')
+        if method == 'label_cleaning':
 
             # --- DYNAMIC WARM-UP LOGIC ---
             warmup_episode = pipeline['noise_handling'].get('warmup_episode', 3)
@@ -456,6 +590,80 @@ def example_run(pipeline: dict):
             else:
                 logger.info(
                     f"Warm-up phase: Skipping label-cleaning. (Episode {cur_episode} < {warmup_episode} AND Val Acc {final_val_acc:.2f}% < {warmup_min_acc}%)")
+
+        elif method == 'aum':
+            # Compute AUM statistics for labeled set using current model logits
+            warmup_episode = pipeline['noise_handling'].get('warmup_episode', 0)
+            warmup_min_acc = pipeline['noise_handling'].get('warmup_min_acc', 0.0)
+
+            if cur_episode >= warmup_episode or final_val_acc >= warmup_min_acc:
+                logger.info(f"Running AUM analysis (Episode {cur_episode})...")
+                try:
+                    try:
+                        from aum import AUMCalculator
+                    except Exception:
+                        logger.exception("AUM package not available. Please install via: pip install -r deep_al/requirements.txt; skipping AUM analysis")
+                        AUMCalculator = None
+
+                    if AUMCalculator is not None:
+                        aum_dir = os.path.join(cfg.EPISODE_DIR, 'aum_stats')
+                        os.makedirs(aum_dir, exist_ok=True)
+                        aum_calc = AUMCalculator(save_dir=aum_dir)
+
+                        if checkpoint_file is None:
+                            logger.info("No checkpoint available - skipping AUM computation for this episode")
+                        else:
+                            try:
+                                model = train_al_module.mh.get_model(cfg, checkpoint_file)
+                                import torch
+                                device = 'cuda' if (getattr(cfg, 'NUM_GPUS', 0) > 0 and torch.cuda.is_available()) else 'cpu'
+                                model.to(device)
+                                model.eval()
+                                batch_size = cfg.TRAIN.BATCH_SIZE
+                                with torch.no_grad():
+                                    for start in range(0, len(lSet), batch_size):
+                                        batch_indices = lSet[start:start + batch_size]
+                                        inputs_list = []
+                                        for idx in batch_indices:
+                                            sample, _ = train_data[int(idx)]
+                                            inputs_list.append(sample)
+
+                                        try:
+                                            inputs = torch.stack(
+                                                [inp if isinstance(inp, torch.Tensor) else torch.tensor(inp) for inp in inputs_list]).to(
+                                                device)
+                                        except Exception:
+                                            inputs = torch.tensor(np.stack([np.array(inp) for inp in inputs_list])).to(device)
+
+                                        outputs = model(inputs)
+                                        logits = outputs.cpu().numpy()
+
+                                        # targets: prefer noisy_labels then targets
+                                        if hasattr(train_data, 'noisy_labels'):
+                                            targets = np.array([int(train_data.noisy_labels[int(i)]) for i in batch_indices])
+                                        else:
+                                            targets = np.array([int(train_data.targets[int(i)]) for i in batch_indices])
+
+                                        sample_ids = np.array(batch_indices)
+                                        try:
+                                            aum_calc.update(logits, targets, sample_ids)
+                                        except Exception:
+                                            logger.exception("AUMCalculator.update failed for a batch; continuing")
+
+                                # Try to save or finalize aum stats
+                                try:
+                                    if hasattr(aum_calc, 'save'):
+                                        aum_calc.save()
+                                except Exception:
+                                    logger.exception("Failed to save AUM stats")
+
+                                logger.info("AUM analysis completed and stored in %s", aum_dir)
+                            except Exception:
+                                logger.exception("AUM computation failed; continuing")
+                except Exception:
+                    logger.exception("AUM analysis orchestration failed; continuing")
+            else:
+                logger.info(f"Skipping AUM analysis due to warmup (Episode {cur_episode} < {warmup_episode} and val acc {final_val_acc:.2f} < {warmup_min_acc})")
 
         if not cfg.ACTIVE_LEARNING.FINE_TUNE:
             logger.info('Starting model from scratch for next episode')
@@ -493,21 +701,34 @@ def parse_args():
     parser.add_argument('--cfg', dest='cfg_file', help='Config file', required=True, type=str)
 
     # Noise specification
-    parser.add_argument('--noise_type', help='Noise type (e.g. sym, asym, clean)', default=None, type=str)
+    parser.add_argument('--noise_type', help='Noise type (e.g. sym, asym, clean, cifar10n, cifar100n)', default=None, type=str)
     parser.add_argument('--noise_rate', help='Noise rate (0.0-1.0)', default=0.0, type=float)
     parser.add_argument('--noise_transition', help='Path to noise transition matrix (npz/npy)', default=None, type=str)
+    parser.add_argument(
+        '--cifar_n_variant',
+        help='Which CIFAR-N label variant to use',
+        choices=['auto','aggre_label','worst_label','clean_label','random_label1','random_label2','random_label3'],
+        default='auto',
+        type=str,
+    )
 
     # Active learning method
-    parser.add_argument('--al_method', help='Active learning method (e.g. typiclust, probcover, misp)', default=None,
-                        type=str)
+    parser.add_argument('--al_method', help='Active learning method (e.g. typiclust, probcover, misp, margin, dcom, maxhearding)',
+                        default=None, type=str)
     parser.add_argument('--budget', help='Budget per AL round', default=None, type=int)
     parser.add_argument('--max_iter', help='Max AL iterations', default=None, type=int)
 
     # Noise handling method & Params
-    parser.add_argument('--noise_method', help='Noise handling method (e.g. label_cleaning, robust_loss)', default=None,
+    parser.add_argument('--noise_method', help='Noise handling method (e.g. label_cleaning, aum, crossval, dividemix)', default=None,
                         type=str)
     parser.add_argument('--warmup_episode', help='Episode to start label cleaning', default=3, type=int)
     parser.add_argument('--warmup_min_acc', help='Min validation accuracy to start label cleaning', default=60.0, type=float)
+
+    # Grid / sweep options (comma-separated)
+    parser.add_argument('--grid_noise_types', help='Comma-separated noise types for grid runs', default=None, type=str)
+    parser.add_argument('--grid_al_methods', help='Comma-separated AL methods for grid runs', default=None, type=str)
+    parser.add_argument('--grid_noise_methods', help='Comma-separated noise methods for grid runs', default=None, type=str)
+    parser.add_argument('--grid_out_dir', help='Directory to write per-run JSON outputs for grid', default=None, type=str)
 
     # Additional run parameters
     parser.add_argument('--seed', help='Random seed', default=None, type=int)
@@ -524,38 +745,77 @@ def parse_args():
     return parser.parse_args()
 
 
+def _split_list_arg(s):
+    if s is None:
+        return None
+    return [x.strip() for x in s.split(',') if x.strip()]
+
+
 def main():
     args = parse_args()
 
-    pipeline = build_pipeline(
-        noise_type=args.noise_type,
-        noise_rate=args.noise_rate,
-        noise_transition_path=args.noise_transition,
-        al_method=args.al_method,
-        noise_method=args.noise_method,
-        cfg_path=args.cfg_file,
-        seed=args.seed,
-        budget=args.budget,
-        initial_size=args.initial_size,
-        max_iter=args.max_iter,
-        exp_name=args.exp_name,
-        features_tag=args.features_tag,
-        initial_delta=args.initial_delta,
-        kernel_type=args.kernel_type,
-        eval_model_type=args.eval_model_type,
-        max_epoch=args.max_epoch,
-        warmup_episode=args.warmup_episode,
-        warmup_min_acc=args.warmup_min_acc
-    )
+    # Resolve grid inputs (if provided) or fall back to single options
+    grid_noise = _split_list_arg(args.grid_noise_types) or ([args.noise_type] if args.noise_type is not None else [None])
+    grid_al = _split_list_arg(args.grid_al_methods) or ([args.al_method] if args.al_method is not None else [None])
+    grid_noise_methods = _split_list_arg(args.grid_noise_methods) or ([args.noise_method] if args.noise_method is not None else [None])
 
-    results = example_run(pipeline)
+    # Output directory for per-run results
+    grid_out_dir = args.grid_out_dir or os.path.join(os.getcwd(), 'grid_runs')
+    os.makedirs(grid_out_dir, exist_ok=True)
 
-    if args.out:
-        with open(args.out, 'w') as f:
-            json.dump(results, f, indent=2)
-        logger.info("Wrote results to %s", args.out)
-    else:
-        logger.info("Run finished. Results: %s", results)
+    all_results = {}
+    run_count = 0
+
+    for noise_t, al_m, nmethod in itertools.product(grid_noise, grid_al, grid_noise_methods):
+        run_count += 1
+        combo_name = f"noise={noise_t or 'None'}__al={al_m or 'None'}__nm={nmethod or 'None'}__seed={args.seed or 'NA'}"
+        logger.info("Starting grid run %d/%d: %s", run_count, (len(grid_noise) * len(grid_al) * len(grid_noise_methods)), combo_name)
+
+        pipeline = build_pipeline(
+            noise_type=noise_t,
+            noise_rate=args.noise_rate,
+            noise_transition_path=args.noise_transition,
+            al_method=al_m,
+            noise_method=nmethod,
+            cfg_path=args.cfg_file,
+            seed=args.seed,
+            budget=args.budget,
+            initial_size=args.initial_size,
+            max_iter=args.max_iter,
+            exp_name=args.exp_name or combo_name,
+            features_tag=args.features_tag,
+            initial_delta=args.initial_delta,
+            kernel_type=args.kernel_type,
+            eval_model_type=args.eval_model_type,
+            max_epoch=args.max_epoch,
+            warmup_episode=args.warmup_episode,
+            warmup_min_acc=args.warmup_min_acc,
+            cifar_n_variant=args.cifar_n_variant
+        )
+
+        results = example_run(pipeline)
+
+        out_fname = os.path.join(grid_out_dir, f"{combo_name}.json")
+        try:
+            with open(out_fname, 'w') as f:
+                json.dump({'pipeline': pipeline, 'results': results}, f, indent=2)
+            logger.info("Wrote run results to %s", out_fname)
+        except Exception:
+            logger.exception("Failed to write results for %s", combo_name)
+
+        all_results[combo_name] = {'pipeline': pipeline, 'results': results}
+
+    # Write aggregate summary
+    aggregate_file = os.path.join(grid_out_dir, 'aggregate_results.json')
+    try:
+        with open(aggregate_file, 'w') as f:
+            json.dump(all_results, f, indent=2)
+        logger.info("Wrote aggregate results to %s", aggregate_file)
+    except Exception:
+        logger.exception("Failed to write aggregate results")
+
+    logger.info("Completed %d grid runs", run_count)
+    return all_results
 
 
 if __name__ == "__main__":

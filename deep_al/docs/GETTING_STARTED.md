@@ -12,6 +12,15 @@ Install dependencies:
 
 ```
 pip install -r requirements.txt
+
+Note: 'aum' (Area Under the Margin) is included in requirements for optional noisy-label analysis.
+
+Important: the script no longer attempts to install 'aum' at runtime. Make sure to install dependencies before running:
+
+pip install -r deep_al/requirements.txt
+
+Allowed CIFAR-N variants (for --cifar_n_variant): auto, aggre_label, worst_label, clean_label, random_label1, random_label2, random_label3
+
 ```
 
 ## Understanding the Config File
