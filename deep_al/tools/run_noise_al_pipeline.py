@@ -584,6 +584,243 @@ def _jsonify(obj: Any) -> Any:
     return obj
 
 
+
+
+def _cfg_get(cfg: Any, dotted_key: str, default: Any = None) -> Any:
+    node = cfg
+    for part in dotted_key.split('.'):
+        try:
+            node = getattr(node, part)
+        except Exception:
+            return default
+    return node
+
+
+def _maybe_bool(value: Any) -> Any:
+    if isinstance(value, (np.bool_, bool)):
+        return bool(value)
+    return value
+
+
+def _method_runtime_details(cfg: Any, pipeline: Dict[str, Any], lSet: Optional[np.ndarray] = None,
+                            uSet: Optional[np.ndarray] = None, activeSet: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    al_name = _normalize_al_name(_cfg_get(cfg, 'ACTIVE_LEARNING.SAMPLING_FN', pipeline.get('active_learning', {}).get('method')))
+    budget = int(_cfg_get(cfg, 'ACTIVE_LEARNING.BUDGET_SIZE', pipeline.get('active_learning', {}).get('budget') or 0))
+    details: Dict[str, Any] = {
+        'method': al_name,
+        'budget': budget,
+        'max_iter': _cfg_get(cfg, 'ACTIVE_LEARNING.MAX_ITER'),
+        'fine_tune': _maybe_bool(_cfg_get(cfg, 'ACTIVE_LEARNING.FINE_TUNE')),
+    }
+
+    if lSet is not None:
+        details['lSet_size_before_sampling'] = int(len(lSet))
+    if uSet is not None:
+        details['uSet_size_before_sampling'] = int(len(uSet))
+    if activeSet is not None:
+        details['activeSet_size'] = int(len(activeSet))
+
+    if al_name.startswith('typiclust'):
+        details.update({
+            'family': 'TypiClust',
+            'features': 'ds_utils.load_features(..., normalized=True) unless typiclust_dc/SCAN path',
+            'distance': 'KMeans + FAISS IndexFlatL2 KNN over features',
+            'k_nn': 20,
+            'max_num_clusters': 500,
+            'min_cluster_size': 5,
+            'is_scan_dc': al_name.endswith('dc'),
+        })
+        if lSet is not None:
+            details['expected_num_clusters_this_round'] = int(min(len(lSet) + budget, 500))
+
+    elif al_name in {'probcover', 'prob_cover', 'probcover_orig', 'prob_cover_orig', 'maxherding', 'max_herding'}:
+        details.update({
+            'family': 'CoverageMatrixMethod',
+            'features': 'ds_utils.load_features(..., normalized=True)',
+            'kernel_type': _cfg_get(cfg, 'KERNEL_TYPE'),
+            'sparse_K': _maybe_bool(_cfg_get(cfg, 'SPARSE_K')),
+            'initial_delta': _cfg_get(cfg, 'ACTIVE_LEARNING.INITIAL_DELTA'),
+            'initial_sigma': _cfg_get(cfg, 'ACTIVE_LEARNING.INITIAL_SIGMA'),
+            'matrix_dtype': _cfg_get(cfg, 'MATRIX_DTYPE'),
+            'kernel_build_batch_size': _cfg_get(cfg, 'KERNEL_BUILD_BATCH_SIZE'),
+        })
+
+    elif al_name in {'maxherding_orig', 'max_herding_orig'}:
+        details.update({
+            'family': 'MaxHerding original',
+            'features': 'ds_utils.load_features(..., normalized=True)',
+            'kernel_type': _cfg_get(cfg, 'KERNEL_TYPE'),
+            'delta_or_lengthscale': _cfg_get(cfg, 'ACTIVE_LEARNING.INITIAL_DELTA'),
+            'initial_sigma': _cfg_get(cfg, 'ACTIVE_LEARNING.INITIAL_SIGMA'),
+        })
+
+    elif al_name == 'dcom':
+        details.update({
+            'family': 'DCoM',
+            'features': 'ds_utils.load_features(..., normalized=True)',
+            'initial_delta': _cfg_get(cfg, 'ACTIVE_LEARNING.INITIAL_DELTA'),
+            'max_delta': _cfg_get(cfg, 'ACTIVE_LEARNING.MAX_DELTA'),
+            'delta_resolution': _cfg_get(cfg, 'ACTIVE_LEARNING.DELTA_RESOLUTION'),
+            'k_logistic': _cfg_get(cfg, 'ACTIVE_LEARNING.K_LOGISTIC'),
+            'a_logistic': _cfg_get(cfg, 'ACTIVE_LEARNING.A_LOGISTIC'),
+        })
+
+    elif al_name in {'misp', 'mispc', 'misp_plus', 'all_misp'}:
+        details.update({
+            'family': 'MISP local',
+            'features': 'ds_utils.load_features(..., normalized=True)',
+            'kernel_type': _cfg_get(cfg, 'KERNEL_TYPE'),
+            'initial_delta': _cfg_get(cfg, 'ACTIVE_LEARNING.INITIAL_DELTA'),
+            'alpha': _cfg_get(cfg, 'ALPHA'),
+            'diff_method': _cfg_get(cfg, 'DIFF_METHOD'),
+            'confidence_method': _cfg_get(cfg, 'CONFIDENCE_METHOD'),
+            'cont_method': _cfg_get(cfg, 'CONT_METHOD'),
+            'soft_border_val': _cfg_get(cfg, 'SOFT_BORDER_VAL'),
+            'norm_importance': _maybe_bool(_cfg_get(cfg, 'NORM_IMPORTANCE')),
+        })
+
+    elif al_name == 'coreset':
+        details.update({
+            'family': 'CoreSet/k-center',
+            'features': 'model penultimate features from current checkpoint',
+            'distance': 'squared L2 in Sampling.py',
+            'explicit_feature_l2_norm': False,
+        })
+
+    elif al_name in {'uncertainty', 'entropy', 'margin'}:
+        details.update({
+            'family': 'prediction uncertainty',
+            'score_space': 'model probabilities/logits',
+            'feature_normalization_used': False,
+        })
+
+    elif al_name in {'bald', 'dbal'}:
+        details.update({
+            'family': 'MC-dropout uncertainty',
+            'dropout_iterations': _cfg_get(cfg, 'ACTIVE_LEARNING.DROPOUT_ITERATIONS'),
+            'score_space': 'model probabilities with dropout',
+        })
+
+    elif al_name == 'vaal':
+        details.update({
+            'family': 'VAAL',
+            'z_dim': _cfg_get(cfg, 'VAAL.Z_DIM'),
+            'vae_bs': _cfg_get(cfg, 'VAAL.VAE_BS'),
+            'vae_epochs': _cfg_get(cfg, 'VAAL.VAE_EPOCHS'),
+            'vae_lr': _cfg_get(cfg, 'VAAL.VAE_LR'),
+            'disc_lr': _cfg_get(cfg, 'VAAL.DISC_LR'),
+            'beta': _cfg_get(cfg, 'VAAL.BETA'),
+            'adversary_param': _cfg_get(cfg, 'VAAL.ADVERSARY_PARAM'),
+        })
+
+    return details
+
+
+def build_run_summary(cfg: Any, pipeline: Dict[str, Any], extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    summary: Dict[str, Any] = {
+        'created_at': datetime.now().isoformat(timespec='seconds'),
+        'command': ' '.join(sys.argv),
+        'cwd': os.getcwd(),
+        'pid': os.getpid(),
+        'cfg_file': pipeline.get('cfg'),
+        'experiment': {
+            'exp_dir': _cfg_get(cfg, 'EXP_DIR'),
+            'episode_dir': _cfg_get(cfg, 'EPISODE_DIR'),
+            'out_dir': _cfg_get(cfg, 'OUT_DIR'),
+            'exp_name': _cfg_get(cfg, 'EXP_NAME'),
+            'seed': _cfg_get(cfg, 'RNG_SEED'),
+        },
+        'dataset': {
+            'name': _cfg_get(cfg, 'DATASET.NAME'),
+            'root_dir': _cfg_get(cfg, 'DATASET.ROOT_DIR'),
+            'features_tag': _cfg_get(cfg, 'DATASET.FEATURES_TAG'),
+            'val_ratio': _cfg_get(cfg, 'DATASET.VAL_RATIO'),
+            'eval_model_type': _cfg_get(cfg, 'EVAL_MODEL_TYPE'),
+        },
+        'model': {
+            'type': _cfg_get(cfg, 'MODEL.TYPE'),
+            'num_classes': _cfg_get(cfg, 'MODEL.NUM_CLASSES'),
+            'loss_fun': _cfg_get(cfg, 'MODEL.LOSS_FUN'),
+            'use_1nn': _maybe_bool(_cfg_get(cfg, 'MODEL.USE_1NN')),
+            'linear_from_features': _maybe_bool(_cfg_get(cfg, 'MODEL.LINEAR_FROM_FEATURES')),
+            'linear_from_images': _maybe_bool(_cfg_get(cfg, 'MODEL.LINEAR_FROM_IMAGES')),
+        },
+        'training': {
+            'optimizer': _cfg_get(cfg, 'OPTIM.TYPE'),
+            'max_epoch': _cfg_get(cfg, 'OPTIM.MAX_EPOCH'),
+            'base_lr': _cfg_get(cfg, 'OPTIM.BASE_LR'),
+            'min_lr': _cfg_get(cfg, 'OPTIM.MIN_LR'),
+            'lr_policy': _cfg_get(cfg, 'OPTIM.LR_POLICY'),
+            'weight_decay': _cfg_get(cfg, 'OPTIM.WEIGHT_DECAY'),
+            'momentum': _cfg_get(cfg, 'OPTIM.MOMENTUM'),
+            'nesterov': _maybe_bool(_cfg_get(cfg, 'OPTIM.NESTEROV')),
+            'train_batch_size': _cfg_get(cfg, 'TRAIN.BATCH_SIZE'),
+            'test_batch_size': _cfg_get(cfg, 'TEST.BATCH_SIZE'),
+            'num_workers': _cfg_get(cfg, 'DATA_LOADER.NUM_WORKERS'),
+            'pin_memory': _maybe_bool(_cfg_get(cfg, 'DATA_LOADER.PIN_MEMORY')),
+        },
+        'active_learning': _method_runtime_details(cfg, pipeline),
+        'noise': {
+            'type': pipeline.get('noise', {}).get('type'),
+            'rate': pipeline.get('noise', {}).get('rate'),
+            'transition_matrix': pipeline.get('noise', {}).get('transition_matrix'),
+            'cifar_n_variant': pipeline.get('noise', {}).get('variant'),
+        },
+        'noise_handling': pipeline.get('noise_handling', {}),
+        'paper_hparams': {
+            'enabled': bool(pipeline.get('paper_hparams', False)),
+            'applied': pipeline.get('paper_hparams_applied', {}),
+        },
+        'raw_pipeline': pipeline,
+    }
+    if extra:
+        summary['runtime'] = _jsonify(extra)
+    return _jsonify(summary)
+
+
+def _single_run_log_path(cfg: Any) -> str:
+    return os.path.join(cfg.EXP_DIR, "run_full_log.txt")
+
+
+def append_to_single_run_log(cfg: Any, title: str, obj: Any) -> None:
+    """Append one structured section to the single experiment log."""
+    path = _single_run_log_path(cfg)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    text = json.dumps(_jsonify(obj), indent=2, sort_keys=True)
+    header = "=" * 30 + f" {title} " + "=" * 30
+    with open(path, "a") as f:
+        f.write("\n" + header + "\n")
+        f.write(text + "\n")
+        f.write("=" * 80 + "\n")
+    logger.info("\n%s\n%s\n%s", header, text, "=" * 80)
+
+
+def log_run_summary(cfg: Any, pipeline: Dict[str, Any], title: str,
+                    extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    summary = build_run_summary(cfg, pipeline, extra=extra)
+    append_to_single_run_log(cfg, title, summary)
+    print(f"Updated single run log: {_single_run_log_path(cfg)}", flush=True)
+    return summary
+
+
+def log_episode_state(cfg: Any, pipeline: Dict[str, Any], cur_episode: int, lSet: np.ndarray,
+                      uSet: np.ndarray, valSet: Optional[np.ndarray], stage: str,
+                      activeSet: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    state = {
+        'episode': int(cur_episode),
+        'stage': stage,
+        'lSet_size': int(len(lSet)),
+        'uSet_size': int(len(uSet)),
+        'valSet_size': int(len(valSet)) if valSet is not None else None,
+        'method_details': _method_runtime_details(cfg, pipeline, lSet=lSet, uSet=uSet, activeSet=activeSet),
+    }
+    if activeSet is not None and len(activeSet) > 0:
+        state['activeSet_preview'] = [int(x) for x in np.asarray(activeSet[:10]).tolist()]
+    state = _jsonify(state)
+    logger.info("EPISODE_STATE %s", json.dumps(state, sort_keys=True))
+    append_to_single_run_log(cfg, f"EPISODE_STATE_{cur_episode}_{stage}", state)
+    return state
+
 def get_current_train_labels(train_data: Any) -> np.ndarray:
     labels = _get_targets(train_data)
     if labels is None:
@@ -600,8 +837,9 @@ def make_loaders(data_obj: Any, cfg: Any, lSet: np.ndarray, valSet: np.ndarray, 
     return lSet_loader, valSet_loader, test_loader
 
 
-def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, train_data, uSet, valSet, clean_val_data, al_obj, train_al_module):
+def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, train_data, uSet, valSet, clean_val_data, al_obj, train_al_module, pipeline):
     logger.info("======== ACTIVE SAMPLING ========")
+    log_episode_state(cfg, pipeline, cur_episode, lSet, uSet, valSet, "before_active_sampling")
     clf_model = train_al_module.mh.get_model(cfg, checkpoint_file)
     activeSet, new_uSet = al_obj.sample_from_uSet(clf_model, lSet, uSet, train_data, checkpoint_file=checkpoint_file)
 
@@ -621,6 +859,7 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, trai
         len(uSet),
         len(activeSet),
     )
+    log_episode_state(cfg, pipeline, cur_episode, lSet, uSet, valSet, "after_active_sampling", activeSet=activeSet)
     return lSet, lSet_loader, uSet, valSet_loader
 
 
@@ -819,11 +1058,17 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
     train_al_module.lu.setup_logging(cfg)
 
     logger.info("Experiment dir: %s", cfg.EXP_DIR)
-    with open(os.path.join(cfg.EXP_DIR, "paper_hparams_applied.json"), "w") as f:
-        json.dump(_jsonify(pipeline.get("paper_hparams_applied", {})), f, indent=2)
+    append_to_single_run_log(cfg, "PAPER HPARAMS APPLIED", pipeline.get("paper_hparams_applied", {}))
+
+    # First summary: exact config/HPs before data loading.
+    log_run_summary(cfg, pipeline, "RUN CONFIG SUMMARY - PRE DATA")
+
     data_obj = Data(cfg)
+    logger.info("Loading datasets from %s", cfg.DATASET.ROOT_DIR)
+    print("Loading datasets...", flush=True)
     clean_train_data, train_size = data_obj.getDataset(save_dir=cfg.DATASET.ROOT_DIR, isTrain=True, isDownload=True)
     test_data, test_size = data_obj.getDataset(save_dir=cfg.DATASET.ROOT_DIR, isTrain=False, isDownload=True)
+    logger.info("Datasets loaded | train_size=%d test_size=%d", train_size, test_size)
 
     initial_size = pipeline["run_args"].get("initial_size")
     if initial_size is not None:
@@ -844,6 +1089,26 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
     train_data, noisy_applied = apply_noise(clean_train_data, cfg, pipeline)
     train_labels = get_current_train_labels(train_data)
 
+    clean_labels = _get_targets(clean_train_data)
+    noisy_rate_actual = None
+    if clean_labels is not None and train_labels is not None:
+        noisy_rate_actual = float(np.mean(np.asarray(clean_labels) != np.asarray(train_labels)))
+
+    run_extra = {
+        "train_size": int(train_size),
+        "test_size": int(test_size),
+        "initial_lSet_size": int(len(lSet)),
+        "initial_uSet_size": int(len(uSet)),
+        "valSet_size": int(len(valSet)),
+        "lSet_path": lSet_path,
+        "uSet_path": uSet_path,
+        "valSet_path": valSet_path,
+        "initial_label_noise_rate_actual": noisy_rate_actual,
+        "noisy_wrapper_applied": bool(noisy_applied),
+        "method_details_with_initial_pool": _method_runtime_details(cfg, pipeline, lSet=lSet, uSet=uSet),
+    }
+    log_run_summary(cfg, pipeline, "RUN CONFIG SUMMARY", extra=run_extra)
+
     plotting_manager = train_al_module.PlottingManager()
     al_obj = ActiveLearning(data_obj, cfg, train_labels, lSet, plotting_manager)
 
@@ -860,10 +1125,13 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
     final_train_acc = final_val_acc = final_test_acc = 0.0
     checkpoint_file = None
 
+    episode_states = []
+
     for cur_episode in range(0, cfg.ACTIVE_LEARNING.MAX_ITER + 1):
         logger.info("======== EPISODE %d BEGINS ========", cur_episode)
         cfg.EPISODE_DIR = os.path.join(cfg.EXP_DIR, f"episode_{cur_episode}")
         os.makedirs(cfg.EPISODE_DIR, exist_ok=True)
+        episode_states.append(log_episode_state(cfg, pipeline, cur_episode, lSet, uSet, valSet, "episode_start"))
 
         if cur_episode == 0 and len(lSet) == 0:
             logger.info("Cold start with 0 labels: skipping episode-0 training")
@@ -889,7 +1157,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         start = time.time()
         try:
             lSet, lSet_loader, uSet, valSet_loader = active_sampling_part(
-                cfg, checkpoint_file, cur_episode, data_obj, lSet, train_data, uSet, valSet, clean_train_data, al_obj, train_al_module
+                cfg, checkpoint_file, cur_episode, data_obj, lSet, train_data, uSet, valSet, clean_train_data, al_obj, train_al_module, pipeline
             )
         except Exception:
             logger.exception("Active sampling failed")
@@ -923,6 +1191,23 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
             except OSError:
                 pass
 
+    final_extra = {
+        "train_size": int(train_size),
+        "test_size": int(test_size),
+        "final_lSet_len": int(len(lSet)),
+        "final_uSet_len": int(len(uSet)),
+        "final_valSet_len": int(len(valSet)),
+        "noisy_wrapper_applied": bool(noisy_applied),
+        "final_train_acc": float(final_train_acc),
+        "final_val_acc": float(final_val_acc),
+        "final_test_acc": float(final_test_acc),
+        "episode_training_times": episode_training_times,
+        "episode_al_times": episode_al_times,
+        "noise_method_results": noise_method_results,
+        "episode_states": episode_states,
+    }
+    log_run_summary(cfg, pipeline, "FINAL RUN SUMMARY", extra=final_extra)
+
     return {
         "status": "completed",
         "exp_dir": cfg.EXP_DIR,
@@ -939,6 +1224,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
             "episode_training_times": episode_training_times,
             "episode_al_times": episode_al_times,
             "noise_method_results": noise_method_results,
+            "episode_states": episode_states,
             "paper_hparams_applied": pipeline.get("paper_hparams_applied", {}),
         },
     }
@@ -1047,15 +1333,20 @@ def main() -> Dict[str, Any]:
             pipeline = {"error": "pipeline construction failed"}
             results = {"status": "failed", "reason": repr(exc)}
 
-        out_file = os.path.join(grid_out_dir, f"{_safe_name(combo_name)}.json")
-        with open(out_file, "w") as f:
-            json.dump(_jsonify({"pipeline": pipeline, "results": results}), f, indent=2)
-        all_results[combo_name] = {"pipeline": pipeline, "results": results, "out_file": out_file}
+        all_results[combo_name] = {"pipeline": pipeline, "results": results}
+        grid_log_file = os.path.join(grid_out_dir, "grid_full_log.txt")
+        with open(grid_log_file, "a") as f:
+            f.write("\n" + "=" * 30 + f" GRID RESULT: {combo_name} " + "=" * 30 + "\n")
+            f.write(json.dumps(_jsonify(all_results[combo_name]), indent=2, sort_keys=True) + "\n")
+            f.write("=" * 80 + "\n")
+        logger.info("Updated single grid log at %s", grid_log_file)
 
-    aggregate_file = os.path.join(grid_out_dir, "aggregate_results.json")
-    with open(aggregate_file, "w") as f:
-        json.dump(_jsonify(all_results), f, indent=2)
-    logger.info("Wrote aggregate results to %s", aggregate_file)
+    grid_log_file = os.path.join(grid_out_dir, "grid_full_log.txt")
+    with open(grid_log_file, "a") as f:
+        f.write("\n" + "=" * 30 + " GRID AGGREGATE RESULTS " + "=" * 30 + "\n")
+        f.write(json.dumps(_jsonify(all_results), indent=2, sort_keys=True) + "\n")
+        f.write("=" * 80 + "\n")
+    logger.info("Wrote all grid results to single log: %s", grid_log_file)
     return all_results
 
 
