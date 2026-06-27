@@ -1,13 +1,24 @@
 """
 run_noise_al_pipeline.py
 
-Run Active Learning under noisy labels.
+Generic onboarding script skeleton to run experiments combining:
+ - a label-noise type (symmetric/asymmetric/clean/etc.)
+ - an active learning method (TypiClust, ProbCover, MISP, etc.)
+ - a noise-handling method (label cleaning, robust loss, abstain, etc.)
 
-Main choices:
-- clean validation/test labels are kept clean;
-- only the labeled training pool receives noisy labels;
-- label-aware AL methods receive the current noisy labels, not clean labels;
-- unsupported noise-handling methods fail clearly instead of silently doing nothing.
+This script intentionally leaves the three selection arguments empty by default
+so they can be filled later during the onboarding experiments.
+
+Inspiration: deep_al/tools/train_al.py, deep_al/tools/train_al_old.py, batch_utils/sweep_train_al.py
+
+Usage (example):
+    python run_noise_al_pipeline.py --cfg configs/cifar10.yaml \
+        --noise_type sym --noise_rate 0.2 --al_method typiclust --noise_method placeholder
+
+The script builds a simple pipeline and shows where to insert dataset loading,
+noisy label injection (NoisyDataset), AL sampling, model training/evaluation and
+noise-handling steps.
+
 """
 
 import argparse
@@ -49,6 +60,259 @@ CIFAR_N_VARIANTS = {
     "random_label2",
     "random_label3",
 }
+
+
+# Paper/GitHub defaults used when --paper_hparams is enabled and a value was not
+# explicitly supplied from the command line.
+COLD_START_AL_METHODS = {
+    "typiclust", "typiclust_rp", "typiclust_dc",
+    "probcover", "prob_cover", "probcover_orig", "prob_cover_orig",
+    "dcom",
+    "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
+    "misp", "mispc", "misp_plus", "all_misp",
+}
+
+MODEL_DEPENDENT_AL_METHODS = {
+    "uncertainty", "entropy", "margin", "coreset", "bald", "dbal", "vaal", "ensemble_var_r", "ensemble_var_R",
+}
+
+
+DCOM_DELTA_TABLE = {
+    "STL10": 0.55,
+    "SVHN": 0.40,
+    "CIFAR10": 0.75,
+    "CIFAR100": 0.65,
+    "IMAGENET50": 0.75,
+    "IMAGENET100": 0.70,
+    "IMAGENET200": 0.65,
+}
+
+# These are from the MaxHerding/uherding public script. They are useful fallback
+# values for datasets that are missing from the DCoM table.
+PROBCOVER_CODE_DELTA_TABLE = {
+    "CIFAR10": 0.55,
+    "CIFAR100": 0.50,
+    "STL10": 0.60,
+    "TINYIMAGENET": 0.55,
+    "IMAGENET": 0.55,
+    "IMAGENET100": 0.55,
+}
+
+MISP_LOCAL_DEFAULTS = {
+    "ALPHA": 0.5,
+    "DIFF_METHOD": "abs_diff",
+    "CONFIDENCE_METHOD": "margin",
+    "CONT_METHOD": "positive",
+    "SOFT_BORDER_VAL": 0.5,
+}
+
+
+def _normalize_al_name(name: Optional[str]) -> str:
+    return "" if name is None else str(name).lower().replace("-", "_")
+
+
+def _dataset_key(cfg: Any) -> str:
+    name = str(getattr(cfg.DATASET, "NAME", "")).upper()
+    name = name.replace("-", "").replace("_", "")
+    if "CIFAR100" in name:
+        return "CIFAR100"
+    if "CIFAR10" in name:
+        return "CIFAR10"
+    if "TINY" in name and "IMAGENET" in name:
+        return "TINYIMAGENET"
+    if "IMAGENET50" in name:
+        return "IMAGENET50"
+    if "IMAGENET100" in name:
+        return "IMAGENET100"
+    if "IMAGENET200" in name:
+        return "IMAGENET200"
+    if "IMAGENET" in name:
+        return "IMAGENET"
+    if "STL10" in name:
+        return "STL10"
+    if "SVHN" in name:
+        return "SVHN"
+    return name
+
+
+def _is_imagenet_family(dataset_key: str) -> bool:
+    return dataset_key.startswith("IMAGENET")
+
+
+def _default_budget(cfg: Any) -> int:
+    return int(getattr(cfg.MODEL, "NUM_CLASSES", 10))
+
+
+def _set_default_cfg(
+    cfg: Any,
+    pipeline: Dict[str, Any],
+    applied: Dict[str, Dict[str, Any]],
+    cfg_key: str,
+    value: Any,
+    reason: str,
+    *,
+    run_arg: Optional[str] = None,
+    active_arg: Optional[str] = None,
+    force: bool = False,
+) -> None:
+    if run_arg is not None and pipeline["run_args"].get(run_arg) is not None and not force:
+        return
+    if active_arg is not None and pipeline["active_learning"].get(active_arg) is not None and not force:
+        return
+    _set_cfg(cfg, cfg_key, value)
+    if run_arg is not None:
+        pipeline["run_args"][run_arg] = value
+    if active_arg is not None:
+        pipeline["active_learning"][active_arg] = value
+    applied[cfg_key] = {"value": value, "reason": reason}
+
+
+def _set_default_run_arg(
+    pipeline: Dict[str, Any],
+    applied: Dict[str, Dict[str, Any]],
+    run_arg: str,
+    value: Any,
+    reason: str,
+    *,
+    force: bool = False,
+) -> None:
+    if pipeline["run_args"].get(run_arg) is not None and not force:
+        return
+    pipeline["run_args"][run_arg] = value
+    applied[f"run_args.{run_arg}"] = {"value": value, "reason": reason}
+
+
+def _delta_from_table(cfg: Any, *, prefer_dcom_table: bool = True) -> tuple[Optional[float], str]:
+    ds_key = _dataset_key(cfg)
+    features_tag = str(getattr(cfg.DATASET, "FEATURES_TAG", "") or "").lower()
+
+    if ds_key == "CIFAR100" and "moco" in features_tag:
+        return 0.50, "DCoM appendix: CIFAR-100 MOCOv2+ delta"
+    if ds_key == "CIFAR100" and "byol" in features_tag:
+        return 0.50, "DCoM appendix: CIFAR-100 BYOL delta"
+    if ds_key == "CIFAR100" and "barlow" in features_tag:
+        return 0.55, "DCoM appendix: CIFAR-100 Barlow Twins delta"
+
+    if prefer_dcom_table and ds_key in DCOM_DELTA_TABLE:
+        return DCOM_DELTA_TABLE[ds_key], "DCoM appendix / ProbCover CIFAR deltas"
+    if ds_key in PROBCOVER_CODE_DELTA_TABLE:
+        return PROBCOVER_CODE_DELTA_TABLE[ds_key], "uherding GitHub fallback delta"
+    return None, "no sourced delta found"
+
+
+def _apply_training_paper_defaults(cfg: Any, pipeline: Dict[str, Any], applied: Dict[str, Dict[str, Any]], al_name: str) -> None:
+    ds_key = _dataset_key(cfg)
+
+    if al_name == "dcom":
+        if ds_key == "IMAGENET50":
+            max_epoch, base_lr, batch_size = 50, 0.01, 50
+        elif ds_key in {"IMAGENET100", "IMAGENET200"}:
+            max_epoch, base_lr, batch_size = 100, 0.01, 50
+        else:
+            max_epoch, base_lr, batch_size = 200, 0.025, 100
+
+        _set_default_cfg(cfg, pipeline, applied, "OPTIM.MAX_EPOCH", max_epoch, "DCoM supervised training", run_arg="max_epoch")
+        _set_default_cfg(cfg, pipeline, applied, "OPTIM.BASE_LR", base_lr, "DCoM supervised training", run_arg="base_lr")
+        _set_default_cfg(cfg, pipeline, applied, "TRAIN.BATCH_SIZE", batch_size, "DCoM supervised training", run_arg="train_batch_size")
+        _set_default_cfg(cfg, pipeline, applied, "TEST.BATCH_SIZE", batch_size, "DCoM supervised training", run_arg="test_batch_size")
+        _set_default_cfg(cfg, pipeline, applied, "OPTIM.WEIGHT_DECAY", 3e-4, "DCoM supervised training", run_arg="weight_decay")
+        _set_default_cfg(cfg, pipeline, applied, "OPTIM.MOMENTUM", 0.9, "DCoM supervised training", run_arg="momentum")
+        _set_default_cfg(cfg, pipeline, applied, "OPTIM.NESTEROV", True, "DCoM supervised training", run_arg="nesterov")
+        return
+
+    # TypiClust/ProbCover/Deep-AL config defaults.
+    if not _is_imagenet_family(ds_key):
+        _set_default_cfg(cfg, pipeline, applied, "OPTIM.MAX_EPOCH", 200, "TypiClust/Deep-AL config default", run_arg="max_epoch")
+    _set_default_cfg(cfg, pipeline, applied, "OPTIM.BASE_LR", 0.1, "TypiClust/Deep-AL config default", run_arg="base_lr")
+    _set_default_cfg(cfg, pipeline, applied, "OPTIM.WEIGHT_DECAY", 5e-4, "TypiClust/Deep-AL config default", run_arg="weight_decay")
+    _set_default_cfg(cfg, pipeline, applied, "OPTIM.MOMENTUM", 0.9, "TypiClust/Deep-AL config default", run_arg="momentum")
+    _set_default_cfg(cfg, pipeline, applied, "OPTIM.NESTEROV", False, "TypiClust/Deep-AL config default", run_arg="nesterov")
+    _set_default_cfg(cfg, pipeline, applied, "TRAIN.BATCH_SIZE", 128, "TypiClust/Deep-AL config default", run_arg="train_batch_size")
+
+
+def apply_paper_hparams(cfg: Any, pipeline: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Apply method-specific paper/GitHub defaults unless the user supplied a value."""
+    if not pipeline.get("paper_hparams", True):
+        pipeline["paper_hparams_applied"] = {}
+        return {}
+
+    applied: Dict[str, Dict[str, Any]] = {}
+    al_name = _normalize_al_name(pipeline["active_learning"].get("method") or getattr(cfg.ACTIVE_LEARNING, "SAMPLING_FN", None))
+    ds_key = _dataset_key(cfg)
+    budget = _default_budget(cfg)
+
+    _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.BUDGET_SIZE", budget, "paper low-budget setting: budget = number of classes", active_arg="budget")
+
+    if al_name in COLD_START_AL_METHODS or al_name == "random":
+        _set_default_run_arg(pipeline, applied, "initial_size", 0, "cold-start setting used by representation-based low-budget AL")
+    elif al_name in MODEL_DEPENDENT_AL_METHODS:
+        _set_default_run_arg(pipeline, applied, "initial_size", int(pipeline["active_learning"].get("budget") or budget), "model-dependent AL needs an initial labeled pool")
+
+    if al_name in {"maxherding", "max_herding", "maxherding_orig", "max_herding_orig"}:
+        _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.MAX_ITER", 5 if _is_imagenet_family(ds_key) else 10, "MaxHerding experiments", active_arg="max_iter")
+    else:
+        _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.MAX_ITER", 5, "TypiClust/ProbCover/DCoM default AL rounds", active_arg="max_iter")
+
+    if al_name.startswith("typiclust"):
+        # TypiClust constants are class constants in typiclust.py: K_NN=20, MAX_NUM_CLUSTERS=500, MIN_CLUSTER_SIZE=5.
+        pass
+
+    elif al_name in {"probcover", "prob_cover", "probcover_orig", "prob_cover_orig"}:
+        _set_default_cfg(cfg, pipeline, applied, "KERNEL_TYPE", "tophat", "ProbCover uses radius balls / TopHat kernel", run_arg="kernel_type")
+        _set_default_cfg(cfg, pipeline, applied, "SPARSE_K", True, "ProbCover graph is sparse coverage", run_arg="sparse_K")
+        delta, reason = _delta_from_table(cfg, prefer_dcom_table=True)
+        if delta is not None:
+            _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_DELTA", delta, reason, run_arg="initial_delta")
+
+    elif al_name == "dcom":
+        delta, reason = _delta_from_table(cfg, prefer_dcom_table=True)
+        if delta is not None:
+            _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_DELTA", delta, reason, run_arg="initial_delta")
+        _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.MAX_DELTA", 1.1, "DCoM binary-search upper delta", run_arg="max_delta")
+        _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.DELTA_RESOLUTION", 0.05, "DCoM binary-search resolution", run_arg="delta_resolution")
+        _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.K_LOGISTIC", 30, "DCoM competence-score logistic parameter", run_arg="k_logistic")
+        _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.A_LOGISTIC", 0.9 if budget <= 10 else 0.8, "DCoM competence-score logistic parameter", run_arg="a_logistic")
+
+    elif al_name in {"maxherding", "max_herding", "maxherding_orig", "max_herding_orig"}:
+        _set_default_cfg(cfg, pipeline, applied, "KERNEL_TYPE", "rbf", "MaxHerding uses Gaussian/RBF kernel", run_arg="kernel_type")
+        _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_SIGMA", 1.0, "MaxHerding lengthscale for normalized features", run_arg="initial_sigma")
+        _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_DELTA", 1.0, "MaxHerding original code uses delta/lengthscale=1", run_arg="initial_delta")
+
+    elif al_name in {"bald", "dbal"}:
+        _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.DROPOUT_ITERATIONS", 25, "Deep-AL/TypiClust config default for MC-dropout methods", run_arg="dropout_iterations")
+
+    elif al_name == "vaal":
+        vaal_defaults = {
+            "VAAL.Z_DIM": 32,
+            "VAAL.VAE_BS": 64,
+            "VAAL.VAE_EPOCHS": 100,
+            "VAAL.VAE_LR": 5e-4,
+            "VAAL.DISC_LR": 5e-4,
+            "VAAL.BETA": 1.0,
+            "VAAL.ADVERSARY_PARAM": 1.0,
+            "VAAL.IM_SIZE": 32,
+        }
+        for key, value in vaal_defaults.items():
+            _set_default_cfg(cfg, pipeline, applied, key, value, "VAAL/Deep-AL config default")
+
+    elif al_name in {"misp", "mispc", "misp_plus", "all_misp"}:
+        # I could not find a public paper/GitHub standard for this local method.
+        for key, value in MISP_LOCAL_DEFAULTS.items():
+            run_arg = {
+                "ALPHA": "alpha",
+                "DIFF_METHOD": "diff_method",
+                "CONFIDENCE_METHOD": "confidence_method",
+                "CONT_METHOD": "cont_method",
+                "SOFT_BORDER_VAL": "soft_border_val",
+            }[key]
+            _set_default_cfg(cfg, pipeline, applied, key, value, "local MISP default; no public original HP found", run_arg=run_arg)
+        delta, reason = _delta_from_table(cfg, prefer_dcom_table=True)
+        if delta is not None:
+            _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_DELTA", delta, f"MISP local fallback from coverage delta table: {reason}", run_arg="initial_delta")
+
+    _apply_training_paper_defaults(cfg, pipeline, applied, al_name)
+    pipeline["paper_hparams_applied"] = applied
+    return applied
 
 
 def _set_new_allowed(cfg_node: Any) -> None:
@@ -109,6 +373,15 @@ def build_cfg(cfg_file: str, pipeline: Dict[str, Any]) -> Any:
         "KERNEL_TYPE": run_args.get("kernel_type"),
         "EVAL_MODEL_TYPE": run_args.get("eval_model_type"),
         "OPTIM.MAX_EPOCH": run_args.get("max_epoch"),
+        "OPTIM.BASE_LR": run_args.get("base_lr"),
+        "OPTIM.WEIGHT_DECAY": run_args.get("weight_decay"),
+        "OPTIM.MOMENTUM": run_args.get("momentum"),
+        "OPTIM.NESTEROV": run_args.get("nesterov"),
+        "TRAIN.BATCH_SIZE": run_args.get("train_batch_size"),
+        "TEST.BATCH_SIZE": run_args.get("test_batch_size"),
+        "ACTIVE_LEARNING.MAX_DELTA": run_args.get("max_delta"),
+        "ACTIVE_LEARNING.DELTA_RESOLUTION": run_args.get("delta_resolution"),
+        "ACTIVE_LEARNING.DROPOUT_ITERATIONS": run_args.get("dropout_iterations"),
         "SPARSE_K": run_args.get("sparse_K"),
         "MATRIX_DTYPE": run_args.get("matrix_dtype"),
         "DEBUG": run_args.get("debug"),
@@ -130,6 +403,7 @@ def build_cfg(cfg_file: str, pipeline: Dict[str, Any]) -> Any:
     _set_new_allowed(cfg)
     for k, v in args_dict.items():
         _set_cfg(cfg, k, v)
+    apply_paper_hparams(cfg, pipeline)
     normalize_cfg_paths(cfg)
     return cfg
 
@@ -496,6 +770,7 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "warmup_episode": args.warmup_episode,
             "warmup_min_acc": args.warmup_min_acc,
         },
+        "paper_hparams": args.paper_hparams,
         "run_args": {
             "seed": args.seed,
             "initial_size": args.initial_size,
@@ -506,6 +781,15 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "kernel_type": args.kernel_type,
             "eval_model_type": args.eval_model_type,
             "max_epoch": args.max_epoch,
+            "base_lr": args.base_lr,
+            "weight_decay": args.weight_decay,
+            "momentum": args.momentum,
+            "nesterov": args.nesterov,
+            "train_batch_size": args.train_batch_size,
+            "test_batch_size": args.test_batch_size,
+            "max_delta": args.max_delta,
+            "delta_resolution": args.delta_resolution,
+            "dropout_iterations": args.dropout_iterations,
             "sparse_K": args.sparse_K,
             "matrix_dtype": args.matrix_dtype,
             "debug": args.debug,
@@ -535,6 +819,8 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
     train_al_module.lu.setup_logging(cfg)
 
     logger.info("Experiment dir: %s", cfg.EXP_DIR)
+    with open(os.path.join(cfg.EXP_DIR, "paper_hparams_applied.json"), "w") as f:
+        json.dump(_jsonify(pipeline.get("paper_hparams_applied", {})), f, indent=2)
     data_obj = Data(cfg)
     clean_train_data, train_size = data_obj.getDataset(save_dir=cfg.DATASET.ROOT_DIR, isTrain=True, isDownload=True)
     test_data, test_size = data_obj.getDataset(save_dir=cfg.DATASET.ROOT_DIR, isTrain=False, isDownload=True)
@@ -653,6 +939,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
             "episode_training_times": episode_training_times,
             "episode_al_times": episode_al_times,
             "noise_method_results": noise_method_results,
+            "paper_hparams_applied": pipeline.get("paper_hparams_applied", {}),
         },
     }
 
@@ -688,21 +975,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--kernel_type", default=None, type=str)
     parser.add_argument("--eval_model_type", default=None, type=str)
     parser.add_argument("--max_epoch", default=None, type=int)
+    parser.add_argument("--base_lr", default=None, type=float)
+    parser.add_argument("--weight_decay", default=None, type=float)
+    parser.add_argument("--momentum", default=None, type=float)
+    parser.add_argument("--nesterov", dest="nesterov", action="store_true", default=None)
+    parser.add_argument("--no_nesterov", dest="nesterov", action="store_false")
+    parser.add_argument("--train_batch_size", default=None, type=int)
+    parser.add_argument("--test_batch_size", default=None, type=int)
+    parser.add_argument("--max_delta", default=None, type=float)
+    parser.add_argument("--delta_resolution", default=None, type=float)
+    parser.add_argument("--dropout_iterations", default=None, type=int)
 
-    parser.add_argument("--sparse_K", action="store_true")
+    parser.add_argument("--paper_hparams", dest="paper_hparams", action="store_true", default=True)
+    parser.add_argument("--no_paper_hparams", dest="paper_hparams", action="store_false")
+
+    parser.add_argument("--sparse_K", dest="sparse_K", action="store_true", default=None)
+    parser.add_argument("--no_sparse_K", dest="sparse_K", action="store_false")
     parser.add_argument("--matrix_dtype", choices=["float32", "float16"], default=None, type=str)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--high_budget", action="store_true")
     parser.add_argument("--sparse_ds", action="store_true")
     parser.add_argument("--norm_importance", action="store_true")
     parser.add_argument("--decrease_alpha", action="store_true")
-    parser.add_argument("--diff_method", default="abs_diff", type=str)
-    parser.add_argument("--confidence_method", default="margin", type=str)
-    parser.add_argument("--cont_method", default="positive", type=str)
-    parser.add_argument("--alpha", default=0.5, type=float)
-    parser.add_argument("--a_logistic", default=0.8, type=float)
-    parser.add_argument("--k_logistic", default=50, type=int)
-    parser.add_argument("--soft_border_val", default=0.5, type=float)
+    parser.add_argument("--diff_method", default=None, type=str)
+    parser.add_argument("--confidence_method", default=None, type=str)
+    parser.add_argument("--cont_method", default=None, type=str)
+    parser.add_argument("--alpha", default=None, type=float)
+    parser.add_argument("--a_logistic", default=None, type=float)
+    parser.add_argument("--k_logistic", default=None, type=int)
+    parser.add_argument("--soft_border_val", default=None, type=float)
 
     parser.add_argument("--out", default=None, type=str)
     return parser.parse_args()
