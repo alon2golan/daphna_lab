@@ -23,9 +23,6 @@ CIFAR_N_VARIANT="auto"
 GRID_OUT_DIR="$REPO_DIR/grid_outputs/smoke_paper_hp_NAL_grid"
 mkdir -p "$GRID_OUT_DIR"
 
-# Tiny grid to verify the risky parts:
-# 1. CIFAR100 asymmetric noise matrix/groups
-# 2. CIFAR100N loading path
 GRID_NOISE_TYPES="cifar100n"
 GRID_AL_METHODS="typiclust"
 GRID_NOISE_METHODS="none"
@@ -35,12 +32,20 @@ INITIAL_SIZE=100
 BUDGET_SIZE=100
 MAX_ITER=1
 
-# Optional: leave empty to let run_noise_al_pipeline.py build CIFAR100 groups from torchvision
+CIFAR_N_LABELS_PATH="$REPO_DIR/deep_al/tools/data/CIFAR-100_human.pt"
 SUPERCLASS_GROUPS_PATH=""
 
 EXTRA_NOISE_ARGS=()
 if [[ -n "$SUPERCLASS_GROUPS_PATH" ]]; then
   EXTRA_NOISE_ARGS+=(--superclass_groups_path "$SUPERCLASS_GROUPS_PATH")
+fi
+
+EXTRA_CIFAR_N_ARGS=()
+if [[ -f "$CIFAR_N_LABELS_PATH" ]]; then
+  EXTRA_CIFAR_N_ARGS+=(--cifar_n_labels_path "$CIFAR_N_LABELS_PATH")
+else
+  echo "WARNING: CIFAR_N_LABELS_PATH does not exist: $CIFAR_N_LABELS_PATH"
+  echo "CIFAR100N run may fail, but the smoke grid should continue."
 fi
 
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-NA}"
@@ -57,6 +62,7 @@ echo "INITIAL_SIZE=$INITIAL_SIZE"
 echo "BUDGET_SIZE=$BUDGET_SIZE"
 echo "MAX_ITER=$MAX_ITER"
 echo "SUPERCLASS_GROUPS_PATH=$SUPERCLASS_GROUPS_PATH"
+echo "CIFAR_N_LABELS_PATH=$CIFAR_N_LABELS_PATH"
 echo "Started smoke test at $(date)"
 
 python3 -u run_noise_al_pipeline.py \
@@ -67,6 +73,7 @@ python3 -u run_noise_al_pipeline.py \
   --grid_out_dir "$GRID_OUT_DIR" \
   --noise_rate "$NOISE_RATE" \
   "${EXTRA_NOISE_ARGS[@]}" \
+  "${EXTRA_CIFAR_N_ARGS[@]}" \
   --cifar_n_variant "$CIFAR_N_VARIANT" \
   --seed "$SEED" \
   --exp_name "$EXP_NAME" \

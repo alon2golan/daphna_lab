@@ -23,25 +23,31 @@ CIFAR_N_VARIANT="auto"
 GRID_OUT_DIR="$REPO_DIR/grid_outputs/paper_hp_NAL_grid"
 mkdir -p "$GRID_OUT_DIR"
 
-# CIFAR100 only
 GRID_NOISE_TYPES="clean,sym,asym,cifar100n"
 GRID_AL_METHODS="typiclust,probcover,dcom,maxherding,margin,coreset,random"
 GRID_NOISE_METHODS="none,label_cleaning"
 
 NOISE_RATE=0.2
-
-# Fair final label budget for all methods:
-# initial 100 + 4 AL rounds * 100 = 500 final labeled samples
 INITIAL_SIZE=100
 BUDGET_SIZE=100
 MAX_ITER=4
 
-# Optional: leave empty to let run_noise_al_pipeline.py build CIFAR100 groups from torchvision
+# You downloaded this file under deep_al/tools/data.
+CIFAR_N_LABELS_PATH="$REPO_DIR/deep_al/tools/data/CIFAR-100_human.pt"
+
 SUPERCLASS_GROUPS_PATH=""
 
 EXTRA_NOISE_ARGS=()
 if [[ -n "$SUPERCLASS_GROUPS_PATH" ]]; then
   EXTRA_NOISE_ARGS+=(--superclass_groups_path "$SUPERCLASS_GROUPS_PATH")
+fi
+
+EXTRA_CIFAR_N_ARGS=()
+if [[ -f "$CIFAR_N_LABELS_PATH" ]]; then
+  EXTRA_CIFAR_N_ARGS+=(--cifar_n_labels_path "$CIFAR_N_LABELS_PATH")
+else
+  echo "WARNING: CIFAR_N_LABELS_PATH does not exist: $CIFAR_N_LABELS_PATH"
+  echo "CIFAR100N runs may fail, but the grid should continue."
 fi
 
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-NA}"
@@ -58,6 +64,7 @@ echo "INITIAL_SIZE=$INITIAL_SIZE"
 echo "BUDGET_SIZE=$BUDGET_SIZE"
 echo "MAX_ITER=$MAX_ITER"
 echo "SUPERCLASS_GROUPS_PATH=$SUPERCLASS_GROUPS_PATH"
+echo "CIFAR_N_LABELS_PATH=$CIFAR_N_LABELS_PATH"
 echo "Started at $(date)"
 
 python3 -u run_noise_al_pipeline.py \
@@ -68,6 +75,7 @@ python3 -u run_noise_al_pipeline.py \
   --grid_out_dir "$GRID_OUT_DIR" \
   --noise_rate "$NOISE_RATE" \
   "${EXTRA_NOISE_ARGS[@]}" \
+  "${EXTRA_CIFAR_N_ARGS[@]}" \
   --cifar_n_variant "$CIFAR_N_VARIANT" \
   --seed "$SEED" \
   --exp_name "$EXP_NAME" \

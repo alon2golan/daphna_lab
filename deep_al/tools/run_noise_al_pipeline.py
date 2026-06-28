@@ -626,12 +626,20 @@ def apply_noise(clean_train_data: Any, cfg: Any, pipeline: Dict[str, Any]) -> tu
     if noise_type.startswith("cifar"):
         _validate_cifar_n_config(cfg, noise_type)
         variant = pipeline["noise"].get("variant", "auto")
-        extracted = _download_and_extract_cifar_n(cfg.DATASET.ROOT_DIR)
-        if extracted is None:
-            raise RuntimeError("Could not download/extract CIFAR-N labels")
-        pt_path = _find_cifar_n_pt(extracted, noise_type)
-        if pt_path is None:
-            raise FileNotFoundError(f"Could not find .pt file for {noise_type} under {extracted}")
+        explicit_pt_path = pipeline["noise"].get("labels_path")
+
+        if explicit_pt_path:
+            pt_path = explicit_pt_path
+            if not os.path.exists(pt_path):
+                raise FileNotFoundError(f"CIFAR-N labels path does not exist: {pt_path}")
+        else:
+            extracted = _download_and_extract_cifar_n(cfg.DATASET.ROOT_DIR)
+            if extracted is None:
+                raise RuntimeError("Could not download/extract CIFAR-N labels")
+            pt_path = _find_cifar_n_pt(extracted, noise_type)
+            if pt_path is None:
+                raise FileNotFoundError(f"Could not find .pt file for {noise_type} under {extracted}")
+
         noisy_labels = load_cifar_n_labels(pt_path, variant)
         if len(noisy_labels) != len(clean_labels):
             raise ValueError(f"CIFAR-N length mismatch: {len(noisy_labels)} labels vs {len(clean_labels)} samples")
@@ -1092,48 +1100,71 @@ def run_noise_method(method: Optional[str], train_data: Any, lSet: np.ndarray, c
     raise NotImplementedError(method)
 
 
-def _collect_loader_numpy(loader: Any) -> tuple[np.ndarray, np.ndarray]:
-    """Collect all (x, y) from a loader into numpy arrays."""
+def _collect_dataset_numpy(dataset: Any, indices: Optional[np.ndarray] = None) -> tuple[np.ndarray, np.ndarray]:
+    """Collect dataset items directly, without DataLoader drop_last."""
     xs, ys = [], []
-    dataset = getattr(loader, "dataset", None)
+
     old_no_aug = getattr(dataset, "no_aug", None)
-    if dataset is not None and hasattr(dataset, "no_aug"):
+    if hasattr(dataset, "no_aug"):
         dataset.no_aug = True
+
+    if indices is None:
+        indices = np.arange(len(dataset))
+
     try:
-        for xb, yb in loader:
+        for idx in indices:
+            xb, yb = dataset[int(idx)]
+
             if hasattr(xb, "detach"):
                 xb = xb.detach().cpu().numpy()
             else:
                 xb = np.asarray(xb)
+
             if hasattr(yb, "detach"):
                 yb = yb.detach().cpu().numpy()
             else:
                 yb = np.asarray(yb)
+
             xs.append(xb)
             ys.append(yb)
     finally:
-        if dataset is not None and old_no_aug is not None:
+        if old_no_aug is not None:
             dataset.no_aug = old_no_aug
-    x = np.concatenate(xs, axis=0)
-    y = np.concatenate(ys, axis=0).astype(np.int64)
+
+    x = np.stack(xs, axis=0)
+    y = np.asarray(ys, dtype=np.int64)
+
     if x.ndim > 2:
         x = x.reshape(x.shape[0], -1)
+
     return x, y
 
 
-def evaluate_final_knn(lSet_loader: Any, valSet_loader: Any, test_loader: Any, *, k: int = 1) -> Dict[str, Any]:
-    """Fit KNN on the final labeled set and evaluate train/val/test loaders."""
+def evaluate_final_knn(
+    train_data: Any,
+    test_data: Any,
+    lSet: np.ndarray,
+    valSet: np.ndarray,
+    *,
+    k: int = 1,
+) -> Dict[str, Any]:
+    """Fit KNN on the full final lSet and evaluate full val/test.
+
+    Do not use DataLoaders here, because training loaders may use drop_last=True.
+    In the previous version this caused train_size=128 even when final_lSet_len=200.
+    """
     from sklearn.neighbors import KNeighborsClassifier
 
-    train_x, train_y = _collect_loader_numpy(lSet_loader)
-    val_x, val_y = _collect_loader_numpy(valSet_loader)
-    test_x, test_y = _collect_loader_numpy(test_loader)
+    train_x, train_y = _collect_dataset_numpy(train_data, lSet)
+    val_x, val_y = _collect_dataset_numpy(train_data, valSet)
+    test_x, test_y = _collect_dataset_numpy(test_data, None)
 
     if len(train_y) == 0:
         return {"status": "skipped", "reason": "empty labeled set"}
 
     k_eff = int(min(max(1, k), len(train_y)))
     clf = KNeighborsClassifier(n_neighbors=k_eff, metric="euclidean", n_jobs=-1)
+
     start = time.time()
     clf.fit(train_x, train_y)
     fit_time = time.time() - start
@@ -1161,6 +1192,7 @@ def evaluate_final_knn(lSet_loader: Any, valSet_loader: Any, test_loader: Any, *
     return result
 
 
+
 def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_method: Optional[str], noise_method: Optional[str], exp_name: str) -> Dict[str, Any]:
     if args.cifar_n_variant not in CIFAR_N_VARIANTS:
         raise ValueError(f"Invalid cifar_n_variant={args.cifar_n_variant}")
@@ -1176,6 +1208,7 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "transition_matrix": args.noise_transition,
             "superclass_groups_path": args.superclass_groups_path,
             "variant": args.cifar_n_variant,
+            "labels_path": args.cifar_n_labels_path,
         },
         "active_learning": {
             "method": al_method,
@@ -1384,7 +1417,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         try:
             knn_k = int(pipeline.get("evaluation", {}).get("knn_k", 1))
             logger.info("Running final additional KNN evaluation with k=%d", knn_k)
-            final_knn_eval = evaluate_final_knn(lSet_loader, valSet_loader, test_loader, k=knn_k)
+            final_knn_eval = evaluate_final_knn(train_data, test_data, lSet, valSet, k=knn_k)
             append_to_single_run_log(cfg, "FINAL KNN EVALUATION", final_knn_eval)
             logger.info("Final KNN evaluation: %s", json.dumps(_jsonify(final_knn_eval), sort_keys=True))
         except Exception:
@@ -1444,6 +1477,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--superclass_groups_path", default=None, type=str,
                         help="Optional CIFAR100 superclass groups JSON/NPY for asymmetric noise. If omitted, torchvision CIFAR100 coarse labels are used.")
     parser.add_argument("--cifar_n_variant", choices=sorted(CIFAR_N_VARIANTS), default="auto", type=str)
+    parser.add_argument("--cifar_n_labels_path", default=None, type=str,
+                        help="Optional explicit path to CIFAR-N .pt labels, e.g. data/CIFAR-100_human.pt")
 
     parser.add_argument("--al_method", default=None, type=str)
     parser.add_argument("--budget", default=None, type=int)
