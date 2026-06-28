@@ -1,0 +1,81 @@
+#!/bin/bash
+#SBATCH --mem=30g
+#SBATCH -c 8
+#SBATCH --time=12:00:00
+#SBATCH --gres=gg:g0:1,vmem:30g
+#SBATCH --mail-user=tom.novak@mail.huji.ac.il
+#SBATCH --mail-type=FAIL,TIME_LIMIT
+#SBATCH --output=gpu_grid_noise_al_smoke_%j.log
+#SBATCH --error=gpu_grid_noise_al_smoke_%j.log
+
+set -euo pipefail
+export PYTHONUNBUFFERED=1
+
+REPO_DIR="/cs/labs/daphna/$USER/projects/daphna_lab"
+cd "$REPO_DIR"
+source "$REPO_DIR/venv/bin/activate"
+cd "$REPO_DIR/deep_al/tools"
+
+CFG_PATH="../configs/cifar100/al/RESNET18.yaml"
+SEED=0
+EXP_NAME="smoke_NAL_paper_hp"
+CIFAR_N_VARIANT="auto"
+GRID_OUT_DIR="$REPO_DIR/grid_outputs/smoke_paper_hp_NAL_grid"
+mkdir -p "$GRID_OUT_DIR"
+
+# Tiny grid to verify the risky parts:
+# 1. CIFAR100 asymmetric noise matrix/groups
+# 2. CIFAR100N loading path
+GRID_NOISE_TYPES="cifar100n"
+GRID_AL_METHODS="typiclust"
+GRID_NOISE_METHODS="none"
+
+NOISE_RATE=0.2
+INITIAL_SIZE=100
+BUDGET_SIZE=100
+MAX_ITER=1
+
+# Optional: leave empty to let run_noise_al_pipeline.py build CIFAR100 groups from torchvision
+SUPERCLASS_GROUPS_PATH=""
+
+EXTRA_NOISE_ARGS=()
+if [[ -n "$SUPERCLASS_GROUPS_PATH" ]]; then
+  EXTRA_NOISE_ARGS+=(--superclass_groups_path "$SUPERCLASS_GROUPS_PATH")
+fi
+
+echo "SLURM_JOB_ID=${SLURM_JOB_ID:-NA}"
+echo "HOST=$(hostname)"
+echo "PWD=$(pwd)"
+echo "PYTHON=$(which python3)"
+echo "CFG_PATH=$CFG_PATH"
+echo "GRID_NOISE_TYPES=$GRID_NOISE_TYPES"
+echo "GRID_AL_METHODS=$GRID_AL_METHODS"
+echo "GRID_NOISE_METHODS=$GRID_NOISE_METHODS"
+echo "GRID_OUT_DIR=$GRID_OUT_DIR"
+echo "NOISE_RATE=$NOISE_RATE"
+echo "INITIAL_SIZE=$INITIAL_SIZE"
+echo "BUDGET_SIZE=$BUDGET_SIZE"
+echo "MAX_ITER=$MAX_ITER"
+echo "SUPERCLASS_GROUPS_PATH=$SUPERCLASS_GROUPS_PATH"
+echo "Started smoke test at $(date)"
+
+python3 -u run_noise_al_pipeline.py \
+  --cfg "$CFG_PATH" \
+  --grid_noise_types "$GRID_NOISE_TYPES" \
+  --grid_al_methods "$GRID_AL_METHODS" \
+  --grid_noise_methods "$GRID_NOISE_METHODS" \
+  --grid_out_dir "$GRID_OUT_DIR" \
+  --noise_rate "$NOISE_RATE" \
+  "${EXTRA_NOISE_ARGS[@]}" \
+  --cifar_n_variant "$CIFAR_N_VARIANT" \
+  --seed "$SEED" \
+  --exp_name "$EXP_NAME" \
+  --eval_model_type from_features \
+  --also_eval_knn \
+  --knn_k 1 \
+  --paper_hparams \
+  --initial_size "$INITIAL_SIZE" \
+  --budget "$BUDGET_SIZE" \
+  --max_iter "$MAX_ITER"
+
+echo "Finished smoke test at $(date)"

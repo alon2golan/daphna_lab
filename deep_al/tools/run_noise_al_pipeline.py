@@ -30,6 +30,7 @@ import os
 import sys
 import tempfile
 import time
+import traceback
 import urllib.request
 import zipfile
 from copy import deepcopy
@@ -46,6 +47,15 @@ from deep_al.pycls.al.active_learning import ActiveLearning
 from deep_al.pycls.core.config import dump_cfg, initialize_cfg, normalize_cfg_paths
 from deep_al.pycls.datasets.data import Data
 from deep_al.pycls.datasets.noisy_dataset import NoisyDataset
+
+# Local utility file expected at: deep_al/tools/noise_utils.py
+# Keep this import local to avoid accidentally using an older noise_utils under pycls/datasets.
+from noise_utils import (
+    make_transition_matrix,
+    noise_summary,
+    save_transition_matrix,
+    load_cifar_n_labels,
+)
 
 logger = logging.getLogger("run_noise_al_pipeline")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -277,6 +287,8 @@ def apply_paper_hparams(cfg: Any, pipeline: Dict[str, Any]) -> Dict[str, Dict[st
         _set_default_cfg(cfg, pipeline, applied, "KERNEL_TYPE", "rbf", "MaxHerding uses Gaussian/RBF kernel", run_arg="kernel_type")
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_SIGMA", 1.0, "MaxHerding lengthscale for normalized features", run_arg="initial_sigma")
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_DELTA", 1.0, "MaxHerding original code uses delta/lengthscale=1", run_arg="initial_delta")
+        _set_default_cfg(cfg, pipeline, applied, "SPARSE_K", True, "Avoid dense RBF kernel OOM; keep only non-negligible RBF entries", run_arg="sparse_K")
+        _set_default_cfg(cfg, pipeline, applied, "MATRIX_DTYPE", "float16", "Reduce kernel memory for MaxHerding", run_arg="matrix_dtype")
 
     elif al_name in {"bald", "dbal"}:
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.DROPOUT_ITERATIONS", 25, "Deep-AL/TypiClust config default for MC-dropout methods", run_arg="dropout_iterations")
@@ -451,10 +463,13 @@ def _find_cifar_n_pt(extracted_dir: str, noise_type: str) -> Optional[str]:
     import glob
 
     noise_type = noise_type.lower()
-    patterns = ["**/*CIFAR-10*.pt", "**/*CIFAR10*.pt"] if "10" in noise_type else [
-        "**/*CIFAR-100*.pt",
-        "**/*CIFAR100*.pt",
-    ]
+    if noise_type == "cifar10n":
+        patterns = ["**/*CIFAR-10*.pt", "**/*CIFAR10*.pt"]
+    elif noise_type == "cifar100n":
+        patterns = ["**/*CIFAR-100*.pt", "**/*CIFAR100*.pt"]
+    else:
+        raise ValueError(f"Unsupported CIFAR-N noise_type={noise_type}")
+
     for pattern in patterns:
         matches = glob.glob(os.path.join(extracted_dir, pattern), recursive=True)
         if matches:
@@ -488,11 +503,34 @@ def _get_targets(dataset: Any) -> Optional[np.ndarray]:
 
 
 def _set_targets(dataset: Any, labels: np.ndarray) -> None:
+    """Force a dataset/wrapper to expose the active labels in .targets.
+
+    Several AL methods, especially DCoM, directly access train_data.targets.
+    Synthetic NoisyDataset wrappers may keep noisy labels elsewhere, so we also
+    attach .targets to the wrapper itself.
+    """
     labels = np.asarray(labels, dtype=np.int64)
-    if hasattr(dataset, "targets"):
-        dataset.targets = labels.tolist() if isinstance(dataset.targets, list) else labels.copy()
+    dataset.targets = labels.tolist() if isinstance(getattr(dataset, "targets", None), list) else labels.copy()
     if hasattr(dataset, "noisy_labels"):
         dataset.noisy_labels = labels.copy()
+
+
+def _ensure_noisy_dataset_label_attrs(dataset: Any, clean_labels: np.ndarray) -> Any:
+    """Make noisy/clean label fields consistent for wrappers and DCoM."""
+    clean_labels = np.asarray(clean_labels, dtype=np.int64)
+    if not hasattr(dataset, "clean_labels"):
+        dataset.clean_labels = clean_labels.copy()
+
+    labels = _get_targets(dataset)
+    if labels is None:
+        raise RuntimeError("Noisy dataset has no readable labels after noise injection")
+    labels = np.asarray(labels, dtype=np.int64)
+
+    if not hasattr(dataset, "noisy_labels"):
+        dataset.noisy_labels = labels.copy()
+    _set_targets(dataset, labels)
+    dataset.is_noisy = labels != clean_labels
+    return dataset
 
 
 def _set_one_label(dataset: Any, idx: int, label: int) -> None:
@@ -512,11 +550,67 @@ def _set_one_label(dataset: Any, idx: int, label: int) -> None:
 def _validate_cifar_n_config(cfg: Any, noise_type: str) -> None:
     noise_type = noise_type.lower()
     num_classes = int(cfg.MODEL.NUM_CLASSES)
-    if "10" in noise_type and num_classes != 10:
+    ds_key = _dataset_key(cfg)
+    if noise_type == "cifar10n" and (num_classes != 10 or ds_key != "CIFAR10"):
         raise ValueError("cifar10n requires MODEL.NUM_CLASSES=10 and a CIFAR10 config")
-    if "100" in noise_type and num_classes != 100:
+    if noise_type == "cifar100n" and (num_classes != 100 or ds_key != "CIFAR100"):
         raise ValueError("cifar100n requires MODEL.NUM_CLASSES=100 and a CIFAR100 config")
+    if noise_type not in {"cifar10n", "cifar100n"}:
+        raise ValueError(f"Unsupported CIFAR-N noise_type={noise_type}")
 
+
+def _resolve_transition_matrix(cfg: Any, pipeline: Dict[str, Any], noise_type: str, noise_rate: float) -> tuple[Optional[np.ndarray], Optional[Dict[str, Any]]]:
+    """Create/load the transition matrix used by synthetic noise."""
+    num_classes = int(cfg.MODEL.NUM_CLASSES)
+    dataset_name = _cfg_get(cfg, 'DATASET.NAME') or _dataset_key(cfg)
+    transition_path = pipeline.get('noise', {}).get('transition_matrix')
+    superclass_groups_path = pipeline.get('noise', {}).get('superclass_groups_path')
+
+    meta: Dict[str, Any] = {
+        'noise_type': noise_type,
+        'noise_rate': float(noise_rate),
+        'num_classes': num_classes,
+        'dataset_name': dataset_name,
+        'provided_transition_path': transition_path,
+        'provided_superclass_groups_path': superclass_groups_path,
+    }
+
+    if noise_type not in {'sym', 'symmetric', 'asym', 'asymmetric'} and transition_path is None:
+        return None, meta
+
+    if transition_path is not None:
+        meta['source'] = 'provided_transition_path'
+    elif noise_type in {'sym', 'symmetric'}:
+        meta['source'] = 'generated_symmetric'
+    elif num_classes == 10:
+        meta['source'] = 'generated_cifar10_asymmetric_common_flips'
+    elif superclass_groups_path is not None:
+        meta['source'] = 'provided_cifar100_superclass_groups'
+    else:
+        meta['source'] = 'torchvision_cifar100_raw_coarse_labels'
+
+    transition = make_transition_matrix(
+        noise_type=noise_type,
+        noise_rate=noise_rate,
+        num_classes=num_classes,
+        dataset_name=dataset_name,
+        transition_path=transition_path,
+        superclass_groups_path=superclass_groups_path,
+        data_root=cfg.DATASET.ROOT_DIR,
+    )
+
+    if transition is not None:
+        resolved_path = os.path.join(cfg.EXP_DIR, f"resolved_transition_{noise_type}_{noise_rate:.3f}.npy")
+        save_transition_matrix(transition, resolved_path)
+        meta['resolved_transition_path'] = resolved_path
+        meta['row_sum_min'] = float(np.min(transition.sum(axis=1)))
+        meta['row_sum_max'] = float(np.max(transition.sum(axis=1)))
+        meta['diagonal_mean'] = float(np.mean(np.diag(transition)))
+        meta['off_diagonal_mass_mean'] = float(np.mean(1.0 - np.diag(transition)))
+        pipeline.setdefault('noise', {})['resolved_transition_matrix_path'] = resolved_path
+        pipeline.setdefault('noise', {})['transition_metadata'] = meta
+
+    return transition, meta
 
 def apply_noise(clean_train_data: Any, cfg: Any, pipeline: Dict[str, Any]) -> tuple[Any, bool]:
     noise_type = pipeline["noise"].get("type")
@@ -538,21 +632,27 @@ def apply_noise(clean_train_data: Any, cfg: Any, pipeline: Dict[str, Any]) -> tu
         pt_path = _find_cifar_n_pt(extracted, noise_type)
         if pt_path is None:
             raise FileNotFoundError(f"Could not find .pt file for {noise_type} under {extracted}")
-        noisy_labels = _load_cifar_n_labels(pt_path, variant)
+        noisy_labels = load_cifar_n_labels(pt_path, variant)
         if len(noisy_labels) != len(clean_labels):
             raise ValueError(f"CIFAR-N length mismatch: {len(noisy_labels)} labels vs {len(clean_labels)} samples")
 
         noisy_train_data = copy.copy(clean_train_data)
         noisy_train_data.clean_labels = clean_labels.copy()
         noisy_train_data.noisy_labels = noisy_labels.copy()
-        noisy_train_data.is_noisy = noisy_labels != clean_labels
-        _set_targets(noisy_train_data, noisy_labels)
+        noisy_train_data = _ensure_noisy_dataset_label_attrs(noisy_train_data, clean_labels)
+        try:
+            summary = noise_summary(clean_labels, get_current_train_labels(noisy_train_data))
+            summary["cifar_n_pt_path"] = str(pt_path)
+            summary["cifar_n_variant"] = str(variant)
+            append_to_single_run_log(cfg, "NOISE SUMMARY", summary)
+        except Exception as exc:
+            logger.warning("Could not build CIFAR-N noise summary: %s", exc)
         logger.info("Applied %s labels from %s | noisy rate in file: %.4f", noise_type, pt_path, noisy_train_data.is_noisy.mean())
         return noisy_train_data, True
 
-    transition = None
-    if pipeline["noise"].get("transition_matrix"):
-        transition = np.load(pipeline["noise"]["transition_matrix"])
+    transition, transition_meta = _resolve_transition_matrix(cfg, pipeline, noise_type, noise_rate)
+    if transition_meta is not None:
+        append_to_single_run_log(cfg, "NOISE TRANSITION MATRIX", transition_meta)
 
     noisy_train_data = NoisyDataset(
         copy.copy(clean_train_data),
@@ -562,9 +662,13 @@ def apply_noise(clean_train_data: Any, cfg: Any, pipeline: Dict[str, Any]) -> tu
         seed=cfg.RNG_SEED,
         noise_transition_matrix=transition,
     )
-    if not hasattr(noisy_train_data, "clean_labels"):
-        noisy_train_data.clean_labels = clean_labels.copy()
-    logger.info("Applied synthetic noise: type=%s rate=%.3f", noise_type, noise_rate)
+    noisy_train_data = _ensure_noisy_dataset_label_attrs(noisy_train_data, clean_labels)
+    try:
+        summary = noise_summary(clean_labels, get_current_train_labels(noisy_train_data))
+        append_to_single_run_log(cfg, "NOISE SUMMARY", summary)
+    except Exception as exc:
+        logger.warning("Could not build noise summary: %s", exc)
+    logger.info("Applied synthetic noise: type=%s rate=%.3f actual=%.4f", noise_type, noise_rate, float(noisy_train_data.is_noisy.mean()))
     return noisy_train_data, True
 
 
@@ -764,6 +868,9 @@ def build_run_summary(cfg: Any, pipeline: Dict[str, Any], extra: Optional[Dict[s
             'type': pipeline.get('noise', {}).get('type'),
             'rate': pipeline.get('noise', {}).get('rate'),
             'transition_matrix': pipeline.get('noise', {}).get('transition_matrix'),
+            'resolved_transition_matrix_path': pipeline.get('noise', {}).get('resolved_transition_matrix_path'),
+            'transition_metadata': pipeline.get('noise', {}).get('transition_metadata'),
+            'superclass_groups_path': pipeline.get('noise', {}).get('superclass_groups_path'),
             'cifar_n_variant': pipeline.get('noise', {}).get('variant'),
         },
         'noise_handling': pipeline.get('noise_handling', {}),
@@ -1067,6 +1174,7 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "type": noise_type,
             "rate": args.noise_rate,
             "transition_matrix": args.noise_transition,
+            "superclass_groups_path": args.superclass_groups_path,
             "variant": args.cifar_n_variant,
         },
         "active_learning": {
@@ -1216,9 +1324,11 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
                 checkpoint_file, train_time, epoch_times, best_train_acc, best_val_acc, test_acc = train_al_module.train_and_eval_model(
                     cfg, cur_episode, lSet_loader, model, optimizer, test_loader, valSet_loader, plotting_manager
                 )
-            except Exception:
+            except Exception as exc:
+                tb = traceback.format_exc()
                 logger.exception("Training failed")
-                return {"status": "failed", "reason": "train_and_eval_model failed", "exp_dir": cfg.EXP_DIR}
+                append_to_single_run_log(cfg, "TRAINING FAILED", {"reason": repr(exc), "traceback": tb})
+                return {"status": "failed", "reason": repr(exc), "traceback": tb, "exp_dir": cfg.EXP_DIR}
             episode_training_times.append(float(train_time))
             final_train_acc = float(best_train_acc)
             final_val_acc = float(best_val_acc)
@@ -1234,9 +1344,11 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
             lSet, lSet_loader, uSet, valSet_loader = active_sampling_part(
                 cfg, checkpoint_file, cur_episode, data_obj, lSet, train_data, uSet, valSet, clean_train_data, al_obj, train_al_module, pipeline
             )
-        except Exception:
+        except Exception as exc:
+            tb = traceback.format_exc()
             logger.exception("Active sampling failed")
-            return {"status": "failed", "reason": "active_sampling_part failed", "exp_dir": cfg.EXP_DIR}
+            append_to_single_run_log(cfg, "ACTIVE SAMPLING FAILED", {"reason": repr(exc), "traceback": tb})
+            return {"status": "failed", "reason": repr(exc), "traceback": tb, "exp_dir": cfg.EXP_DIR}
         episode_al_times.append(float(time.time() - start))
 
         try:
@@ -1252,9 +1364,11 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
                 pipeline,
             )
             noise_method_results.append({"episode": cur_episode, "result": nm_result})
-        except Exception:
+        except Exception as exc:
+            tb = traceback.format_exc()
             logger.exception("Noise handling failed")
-            return {"status": "failed", "reason": "noise handling failed", "exp_dir": cfg.EXP_DIR}
+            append_to_single_run_log(cfg, "NOISE HANDLING FAILED", {"reason": repr(exc), "traceback": tb})
+            return {"status": "failed", "reason": repr(exc), "traceback": tb, "exp_dir": cfg.EXP_DIR}
 
         if not cfg.ACTIVE_LEARNING.FINE_TUNE:
             model = train_al_module.mh.get_model(cfg, model_init_state=model_init_state)
@@ -1325,7 +1439,10 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--noise_type", default=None, type=str)
     parser.add_argument("--noise_rate", default=0.0, type=float)
-    parser.add_argument("--noise_transition", default=None, type=str)
+    parser.add_argument("--noise_transition", "--noise_transition_path", dest="noise_transition", default=None, type=str,
+                        help="Optional path to transition matrix .npy/.json/.csv")
+    parser.add_argument("--superclass_groups_path", default=None, type=str,
+                        help="Optional CIFAR100 superclass groups JSON/NPY for asymmetric noise. If omitted, torchvision CIFAR100 coarse labels are used.")
     parser.add_argument("--cifar_n_variant", choices=sorted(CIFAR_N_VARIANTS), default="auto", type=str)
 
     parser.add_argument("--al_method", default=None, type=str)

@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --mem=30g
+#SBATCH --mem=40g
 #SBATCH -c 8
-#SBATCH --time=48:00:00
-#SBATCH --gres=gg:g0:1,vmem:30g
+#SBATCH --time=72:00:00
+#SBATCH --gres=gg:g0:1,vmem:40g
 #SBATCH --mail-user=tom.novak@mail.huji.ac.il
 #SBATCH --mail-type=FAIL,TIME_LIMIT
 #SBATCH --output=gpu_grid_noise_al_%j.log
@@ -23,9 +23,26 @@ CIFAR_N_VARIANT="auto"
 GRID_OUT_DIR="$REPO_DIR/grid_outputs/paper_hp_NAL_grid"
 mkdir -p "$GRID_OUT_DIR"
 
+# CIFAR100 only
 GRID_NOISE_TYPES="clean,sym,asym,cifar100n"
 GRID_AL_METHODS="typiclust,probcover,dcom,maxherding,margin,coreset,random"
 GRID_NOISE_METHODS="none,label_cleaning"
+
+NOISE_RATE=0.2
+
+# Fair final label budget for all methods:
+# initial 100 + 4 AL rounds * 100 = 500 final labeled samples
+INITIAL_SIZE=100
+BUDGET_SIZE=100
+MAX_ITER=4
+
+# Optional: leave empty to let run_noise_al_pipeline.py build CIFAR100 groups from torchvision
+SUPERCLASS_GROUPS_PATH=""
+
+EXTRA_NOISE_ARGS=()
+if [[ -n "$SUPERCLASS_GROUPS_PATH" ]]; then
+  EXTRA_NOISE_ARGS+=(--superclass_groups_path "$SUPERCLASS_GROUPS_PATH")
+fi
 
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-NA}"
 echo "HOST=$(hostname)"
@@ -36,6 +53,11 @@ echo "GRID_NOISE_TYPES=$GRID_NOISE_TYPES"
 echo "GRID_AL_METHODS=$GRID_AL_METHODS"
 echo "GRID_NOISE_METHODS=$GRID_NOISE_METHODS"
 echo "GRID_OUT_DIR=$GRID_OUT_DIR"
+echo "NOISE_RATE=$NOISE_RATE"
+echo "INITIAL_SIZE=$INITIAL_SIZE"
+echo "BUDGET_SIZE=$BUDGET_SIZE"
+echo "MAX_ITER=$MAX_ITER"
+echo "SUPERCLASS_GROUPS_PATH=$SUPERCLASS_GROUPS_PATH"
 echo "Started at $(date)"
 
 python3 -u run_noise_al_pipeline.py \
@@ -44,12 +66,17 @@ python3 -u run_noise_al_pipeline.py \
   --grid_al_methods "$GRID_AL_METHODS" \
   --grid_noise_methods "$GRID_NOISE_METHODS" \
   --grid_out_dir "$GRID_OUT_DIR" \
-  --noise_rate 0.2 \
+  --noise_rate "$NOISE_RATE" \
+  "${EXTRA_NOISE_ARGS[@]}" \
   --cifar_n_variant "$CIFAR_N_VARIANT" \
   --seed "$SEED" \
   --exp_name "$EXP_NAME" \
   --eval_model_type from_features \
-    --also_eval_knn \
-  --paper_hparams
+  --also_eval_knn \
+  --knn_k 1 \
+  --paper_hparams \
+  --initial_size "$INITIAL_SIZE" \
+  --budget "$BUDGET_SIZE" \
+  --max_iter "$MAX_ITER"
 
 echo "Finished at $(date)"
