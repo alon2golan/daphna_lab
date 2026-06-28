@@ -38,6 +38,7 @@ python3 -u run_noise_al_pipeline.py \
   --seed "$SEED" \
   --exp_name "$EXP_NAME" \
   --eval_model_type from_features \
+    --also_eval_knn \
   --paper_hparams
 
 echo "Finished at $(date)"

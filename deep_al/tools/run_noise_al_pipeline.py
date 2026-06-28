@@ -767,6 +767,7 @@ def build_run_summary(cfg: Any, pipeline: Dict[str, Any], extra: Optional[Dict[s
             'cifar_n_variant': pipeline.get('noise', {}).get('variant'),
         },
         'noise_handling': pipeline.get('noise_handling', {}),
+        'extra_evaluation': pipeline.get('evaluation', {}),
         'paper_hparams': {
             'enabled': bool(pipeline.get('paper_hparams', False)),
             'applied': pipeline.get('paper_hparams_applied', {}),
@@ -984,6 +985,75 @@ def run_noise_method(method: Optional[str], train_data: Any, lSet: np.ndarray, c
     raise NotImplementedError(method)
 
 
+def _collect_loader_numpy(loader: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Collect all (x, y) from a loader into numpy arrays."""
+    xs, ys = [], []
+    dataset = getattr(loader, "dataset", None)
+    old_no_aug = getattr(dataset, "no_aug", None)
+    if dataset is not None and hasattr(dataset, "no_aug"):
+        dataset.no_aug = True
+    try:
+        for xb, yb in loader:
+            if hasattr(xb, "detach"):
+                xb = xb.detach().cpu().numpy()
+            else:
+                xb = np.asarray(xb)
+            if hasattr(yb, "detach"):
+                yb = yb.detach().cpu().numpy()
+            else:
+                yb = np.asarray(yb)
+            xs.append(xb)
+            ys.append(yb)
+    finally:
+        if dataset is not None and old_no_aug is not None:
+            dataset.no_aug = old_no_aug
+    x = np.concatenate(xs, axis=0)
+    y = np.concatenate(ys, axis=0).astype(np.int64)
+    if x.ndim > 2:
+        x = x.reshape(x.shape[0], -1)
+    return x, y
+
+
+def evaluate_final_knn(lSet_loader: Any, valSet_loader: Any, test_loader: Any, *, k: int = 1) -> Dict[str, Any]:
+    """Fit KNN on the final labeled set and evaluate train/val/test loaders."""
+    from sklearn.neighbors import KNeighborsClassifier
+
+    train_x, train_y = _collect_loader_numpy(lSet_loader)
+    val_x, val_y = _collect_loader_numpy(valSet_loader)
+    test_x, test_y = _collect_loader_numpy(test_loader)
+
+    if len(train_y) == 0:
+        return {"status": "skipped", "reason": "empty labeled set"}
+
+    k_eff = int(min(max(1, k), len(train_y)))
+    clf = KNeighborsClassifier(n_neighbors=k_eff, metric="euclidean", n_jobs=-1)
+    start = time.time()
+    clf.fit(train_x, train_y)
+    fit_time = time.time() - start
+
+    def _acc(x: np.ndarray, y: np.ndarray) -> float:
+        preds = clf.predict(x)
+        return float(100.0 * (preds == y).mean())
+
+    start = time.time()
+    result = {
+        "status": "completed",
+        "k_requested": int(k),
+        "k_effective": int(k_eff),
+        "metric": "euclidean",
+        "train_size": int(train_x.shape[0]),
+        "val_size": int(val_x.shape[0]),
+        "test_size": int(test_x.shape[0]),
+        "feature_dim": int(train_x.shape[1]),
+        "train_acc": _acc(train_x, train_y),
+        "val_acc": _acc(val_x, val_y),
+        "test_acc": _acc(test_x, test_y),
+        "fit_time_sec": float(fit_time),
+    }
+    result["eval_time_sec"] = float(time.time() - start)
+    return result
+
+
 def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_method: Optional[str], noise_method: Optional[str], exp_name: str) -> Dict[str, Any]:
     if args.cifar_n_variant not in CIFAR_N_VARIANTS:
         raise ValueError(f"Invalid cifar_n_variant={args.cifar_n_variant}")
@@ -1008,6 +1078,10 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "method": noise_method_norm,
             "warmup_episode": args.warmup_episode,
             "warmup_min_acc": args.warmup_min_acc,
+        },
+        "evaluation": {
+            "also_eval_knn": bool(args.also_eval_knn),
+            "knn_k": int(args.knn_k),
         },
         "paper_hparams": args.paper_hparams,
         "run_args": {
@@ -1123,6 +1197,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
     episode_al_times = []
     noise_method_results = []
     final_train_acc = final_val_acc = final_test_acc = 0.0
+    final_knn_eval = None
     checkpoint_file = None
 
     episode_states = []
@@ -1191,6 +1266,18 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
             except OSError:
                 pass
 
+    if pipeline.get("evaluation", {}).get("also_eval_knn", False):
+        try:
+            knn_k = int(pipeline.get("evaluation", {}).get("knn_k", 1))
+            logger.info("Running final additional KNN evaluation with k=%d", knn_k)
+            final_knn_eval = evaluate_final_knn(lSet_loader, valSet_loader, test_loader, k=knn_k)
+            append_to_single_run_log(cfg, "FINAL KNN EVALUATION", final_knn_eval)
+            logger.info("Final KNN evaluation: %s", json.dumps(_jsonify(final_knn_eval), sort_keys=True))
+        except Exception:
+            logger.exception("Final additional KNN evaluation failed")
+            final_knn_eval = {"status": "failed", "reason": "exception during final KNN evaluation"}
+            append_to_single_run_log(cfg, "FINAL KNN EVALUATION", final_knn_eval)
+
     final_extra = {
         "train_size": int(train_size),
         "test_size": int(test_size),
@@ -1201,6 +1288,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         "final_train_acc": float(final_train_acc),
         "final_val_acc": float(final_val_acc),
         "final_test_acc": float(final_test_acc),
+        "final_knn_eval": final_knn_eval,
         "episode_training_times": episode_training_times,
         "episode_al_times": episode_al_times,
         "noise_method_results": noise_method_results,
@@ -1221,6 +1309,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
             "final_train_acc": float(final_train_acc),
             "final_val_acc": float(final_val_acc),
             "final_test_acc": float(final_test_acc),
+            "final_knn_eval": final_knn_eval,
             "episode_training_times": episode_training_times,
             "episode_al_times": episode_al_times,
             "noise_method_results": noise_method_results,
@@ -1290,6 +1379,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--a_logistic", default=None, type=float)
     parser.add_argument("--k_logistic", default=None, type=int)
     parser.add_argument("--soft_border_val", default=None, type=float)
+
+    parser.add_argument("--also_eval_knn", action="store_true", help="After regular supervised training, also fit KNN on the final labeled set and evaluate train/val/test.")
+    parser.add_argument("--knn_k", default=1, type=int, help="K for the additional final KNN evaluation.")
 
     parser.add_argument("--out", default=None, type=str)
     return parser.parse_args()
