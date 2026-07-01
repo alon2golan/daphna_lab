@@ -97,10 +97,18 @@ class BayesianCoverage(CoverageMatrixMethod):
             # log-prior broadcast over all points
             self.C = torch.log(self.pi.clamp_min(self.log_eps)).repeat(M, 1)
         elif self.combine == 'additive':
-            self.C = torch.full((M, self.num_of_classes), self.alpha,
-                                device=self.device, dtype=self.matrices_type)
+            # Dirichlet-style prior pseudocounts = pi (rows already sum to 1, so
+            # the initial posterior is the prior and posterior() is always a
+            # valid distribution — unlike an all-zero init).
+            self.C = self.pi.unsqueeze(0).repeat(M, 1).clone()
         else:
             raise ValueError(f"Unknown COMBINE={self.combine!r}")
+
+        # Base CoverageMatrixMethod carries coverage across AL episodes via
+        # C_general; we reset C to the prior each episode, so we must instead
+        # re-fold every already-labeled point (the current lSet) or the posterior
+        # would forget everything selected in previous episodes.
+        self._fold_labeled_set()
 
     def posterior(self):
         """Per-point class posterior P(y_u = .) as a [M, num_classes] tensor."""
@@ -108,6 +116,26 @@ class BayesianCoverage(CoverageMatrixMethod):
             return torch.softmax(self.C, dim=1)
         # additive
         return self.C / self.C.sum(dim=1, keepdim=True).clamp_min(self.log_eps)
+
+    def _fold_labeled_set(self):
+        """
+        Re-accumulate the evidence of every already-labeled point (the first
+        len(self.lSet) entries of relevant_indices) into the freshly-initialized
+        C, using each point's recorded observed label and annotator. Points with
+        no recorded annotation (e.g. an unannotated oracle warm-start) are
+        skipped — there is no observed label to fold.
+        """
+        am = self.annotator_manager
+        if am is None:
+            return
+        for local in range(len(self.lSet)):
+            global_idx = int(self.relevant_indices[local])
+            if global_idx not in am.annotated_labels:
+                continue
+            chosen_label = int(am.annotated_labels[global_idx])
+            annotator_id = am.get_annotator_for_sample(global_idx)
+            r = self._reliability(global_idx, annotator_id) if self.combine == 'product' else None
+            self._fold_neighbor(local, chosen_label, r)
 
     # ------------------------------------------------------------------ #
     # per-neighbor evidence (design §2 Steps A + B)
@@ -173,6 +201,23 @@ class BayesianCoverage(CoverageMatrixMethod):
         raise ValueError(f"Unknown SELECTION={self.selection!r}")
 
     # ------------------------------------------------------------------ #
+    # fold one labeled point into the coverage accumulator
+    # ------------------------------------------------------------------ #
+    def _fold_neighbor(self, local_idx, chosen_label, r):
+        """
+        Fold the evidence of one labeled point into C. `local_idx` indexes into
+        relevant_indices, `chosen_label` is its observed (possibly noisy) label,
+        `r` its reliability. Shared by the in-loop greedy step and the
+        episode-start re-fold of the labeled set.
+        """
+        k_row = self.K[local_idx].to_dense().squeeze()
+        if self.combine == 'product':
+            self.C += self._neighbor_loglik(k_row, chosen_label, r)
+        else:  # additive (Itai's rule, clean-label baseline)
+            self.C[:, chosen_label] += k_row
+        del k_row
+
+    # ------------------------------------------------------------------ #
     # greedy step
     # ------------------------------------------------------------------ #
     def _select_one(self, selected, annotator_id):
@@ -186,17 +231,13 @@ class BayesianCoverage(CoverageMatrixMethod):
         result = self.annotator_manager.annotate_samples([global_idx], annotator_id)
         chosen_label = result['annotated_labels'][global_idx]
 
-        k_row = self.K[sampled_point].to_dense().squeeze()
-
-        if self.combine == 'product':
-            r = self._reliability(global_idx, annotator_id)
-            self.C += self._neighbor_loglik(k_row, chosen_label, r)
-        else:  # additive (Itai's rule, clean-label baseline)
-            self.C[:, chosen_label] += k_row
+        # additive ignores r; skip the lookup so the reproduction control never
+        # touches the annotator-selection RNG.
+        r = self._reliability(global_idx, annotator_id) if self.combine == 'product' else None
+        self._fold_neighbor(sampled_point, chosen_label, r)
 
         assert sampled_point not in selected, 'sample was already selected'
         selected.append(sampled_point)
-        del k_row
         return sampled_point, global_idx, chosen_label
 
     # ------------------------------------------------------------------ #

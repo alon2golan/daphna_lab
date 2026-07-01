@@ -242,6 +242,38 @@ _C.NOISE_FILTER.AUM_NUM_REPEATS = 1
 _C.NOISE_FILTER.AUM_BATCH_SIZE = 64
 
 # ---------------------------------------------------------------------------- #
+# Bayesian coverage options (soft per-class posterior coverage; design doc
+# docs/bayesian_coverage_DESIGN.md). Only consumed when SAMPLING_FN is one of
+# bayes_coverage / bayes_product / bayes_additive; every other sampling method
+# (probcover / npc / random / ...) ignores this block, so its presence must not
+# change any existing config_key or dashboard about=<hash> (regression B4).
+# ---------------------------------------------------------------------------- #
+_C.BAYES_COVERAGE = CN()
+# Source of the class prior pi(k): 'uniform' (ship) | 'empirical' (future).
+_C.BAYES_COVERAGE.PRIOR = 'uniform'
+# Neighbor-evidence combination rule (design doc §3 — MUST be compared, not
+# assumed): 'product' (product-of-experts in log-space, the proposed math) |
+# 'additive' (Itai's pseudocount rule == BAYES_MISP; the reproduction control).
+_C.BAYES_COVERAGE.COMBINE = 'product'
+# Global tempering beta for the product rule (design §2.4): log q -> beta*log q.
+# < 1 counteracts correlated-neighbor overconfidence. 1.0 = untempered.
+_C.BAYES_COVERAGE.TEMPER_BETA = 1.0
+# Per-neighbor weight scheme w_{u,l} (design §2.4): 'kernel' (w=K[u,l], redundant
+# far neighbors contribute less; recommended) | 'equal' (w=1).
+_C.BAYES_COVERAGE.NEIGHBOR_WEIGHT = 'kernel'
+# Acquisition score (design §6): 'coverage_gain' (ship; soft-coverage marginal
+# gain) | 'entropy' (expected uncertainty reduction; future variant).
+_C.BAYES_COVERAGE.SELECTION = 'coverage_gain'
+# Training-target policy (design §5 — an experimental arm to compare, like
+# TRAIN_ON_CLEAN): 'observed' (raw noisy label; current behaviour) |
+# 'soft_posterior' | 'map_posterior' | 'reweighted'* | 'filtered'*
+# (* need point-4 per-point reliability, so deferred).
+_C.BAYES_COVERAGE.TRAIN_LABEL_MODE = 'observed'
+# Per-point reliability r_l source (design §4): 'prior' (annotator accuracy;
+# ship) | 'graph' | 'aum' (both future work -> NoiseAwareBayesianCoverage).
+_C.BAYES_COVERAGE.RELIABILITY_SOURCE = 'prior'
+
+# ---------------------------------------------------------------------------- #
 # Common train/test data loader options
 # ---------------------------------------------------------------------------- #
 _C.DATA_LOADER = CN()

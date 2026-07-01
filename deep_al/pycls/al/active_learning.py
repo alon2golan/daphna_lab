@@ -11,6 +11,7 @@ from .typiclust import TypiClust
 from .maxherding import MaxHerding
 from .DCoM import DCoM
 from .coverage_matrix_methods import CoverageMatrixMethod, NoiseAwareCoverage
+from .bayesian_coverage import BayesianCoverage
 from .noise_filters import build_noise_filter
 import deep_al.pycls.utils.logging as lu
 import deep_al.pycls.datasets.utils as ds_utils
@@ -118,6 +119,27 @@ class ActiveLearning:
             noise_filter = build_noise_filter(self.cfg)
             return NoiseAwareCoverage(self.cfg, annotator_manager=self.annotator_manager,
                                       noise_filter=noise_filter)
+
+        # Bayesian coverage (soft per-class posterior; design doc
+        # docs/bayesian_coverage_DESIGN.md). Shares the coverage graph with
+        # ProbCover (TopHat kernel) but replaces the binary max-coverage matrix
+        # with a per-class posterior. bayes_product / bayes_additive are
+        # convenience aliases that pin BAYES_COVERAGE.COMBINE for the design §3
+        # product-vs-additive comparison; bayes_coverage honours the config value.
+        elif sampling_fn in ["bayes_coverage", "bayes_product", "bayes_additive"]:
+            if getattr(self.cfg, 'KERNEL_TYPE', None) != 'tophat':
+                logger.info('Warning!! for BayesianCoverage the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+                print('Warning!! for BayesianCoverage the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+                self.cfg['KERNEL_TYPE'] = 'tophat'
+            # The sparse-K path is not implemented for the dense [M, num_classes]
+            # posterior accumulator yet (design §7); force it off.
+            self.cfg['SPARSE_K'] = False
+            self.cfg['K_SPARSE'] = False
+            if sampling_fn == "bayes_product":
+                self.cfg.BAYES_COVERAGE.COMBINE = 'product'
+            elif sampling_fn == "bayes_additive":
+                self.cfg.BAYES_COVERAGE.COMBINE = 'additive'
+            return BayesianCoverage(self.cfg, annotator_manager=self.annotator_manager)
 
         elif sampling_fn.startswith("typiclust"):
             is_scan = sampling_fn.endswith('dc')
