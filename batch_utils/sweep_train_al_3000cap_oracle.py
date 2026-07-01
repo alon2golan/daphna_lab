@@ -58,7 +58,8 @@ def build_jobs() -> list[str]:
                     f"python {TRAIN_SCRIPT} --initial_delta 0.75 --budget {batch} "
                     f"--eval_model_type from_features --max_iter {max_iter} "
                     f"--cfg {CFG} --target_nu 0.0 --al {strat} --seed {seed} "
-                    f"--exp-name {exp} --sweep-name {SWEEP_NAME}"
+                    f"--exp-name {exp} --sweep-name {SWEEP_NAME} "
+                    f"--track_progress"
                 )
                 jobs.append(cmd)
     return jobs

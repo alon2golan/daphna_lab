@@ -64,7 +64,8 @@ def build_jobs(sweep_name: str) -> list[str]:
                             f"python {TRAIN_SCRIPT} --initial_delta 0.75 --budget {batch} "
                             f"--eval_model_type from_features --max_iter {max_iter} "
                             f"--cfg {CFG} --tau {tau} --nu_prime {nu} --al {strat} --seed {seed} "
-                            f"--exp-name {exp} --sweep-name {sweep_name}"
+                            f"--exp-name {exp} --sweep-name {sweep_name} "
+                            f"--track_progress --tag nu_tag=adam_b{nu_b}"
                         )
                         jobs.append(cmd)
     return jobs
