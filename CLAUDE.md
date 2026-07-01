@@ -16,3 +16,21 @@ launching any sweep / `sbatch` array:
 4. Prefer a **preemptible partition** (`killable`) so jobs yield instead of blocking labmates.
 
 SLURM commands only run via `ssh phoenix` (not on the local node).
+
+## train_al run tagging & dashboard visibility
+
+train_al records two dashboard-facing knobs in `result.json` (via `reporting/result_writer.py`):
+
+- **`--track_progress`** (store_true, **default OFF**) → `params.track_progress`. Marks a run
+  whose accuracy-vs-episode curve belongs in the dashboard **Comparison** tab. Runs WITHOUT it
+  are treated as figure-ingredients and surface only under **Additional data → Figure-ingredient
+  runs**. **Any sweep whose curves you want to compare MUST pass `--track_progress`** in its
+  launcher (the 3000cap family launchers already do). Older runs with no recorded flag fall back
+  to category (`reg.TRACK_PROGRESS_CATEGORIES = {train_noise_nu_prime, aum_filter}`); the recorded
+  flag always wins, so a new tracked sweep that forgets the flag will be hidden from Comparison.
+- **`--tag KEY=VALUE`** (repeatable) → `result.json["tags"]`. Free-form facets; the scanner
+  expands each to a `p_<key>` column that auto-appears as a groupable/filterable axis. Convention
+  for ν' provenance: `--tag nu_tag=<optimizer>_b<nu_cache_budget>` (e.g. `sgd_b100`, `adam_b300`;
+  analytical→`nu_analytical`, oracle→derived `none`). If a run carries no explicit `nu_tag`, the
+  scanner derives one optimizer-aware from the exp-name (`nucache<N>` + `sgd`/`adam`). Tags never
+  enter `config_key`, so adding one won't fragment seed-grouping or change `about=<hash>` URLs.

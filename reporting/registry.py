@@ -60,7 +60,8 @@ _USER_FIELDS = ("category", "note", "title", "context", "flags")
 
 # Purpose tags for train_al runs (the Graphs tab scopes on these).
 CATEGORY_RULES = [
-    ("fig55",           re.compile(r"fig55")),
+    # Tomer's Fig-5.5 embedding graphs (sweep names still carry the fig55 token).
+    ("tomer_embedding_graphs", re.compile(r"fig55")),
     # NPC / probcover / random × {train-on-clean on,off} × noise × seeds, all
     # sharing the AUM noise filter. Matched on the "AUMFILTER" sweep-name token.
     ("aum_filter",      re.compile(r"aumfilter|aum_filter", re.IGNORECASE)),
@@ -81,8 +82,37 @@ KNOWN_CATEGORIES = (
     + ["uncategorized", "nu_caching", "other_repo", "misc"]
 )
 
+# Categories whose runs are "track-progress" by nature: their accuracy-vs-episode
+# curves belong in the dashboard Comparison tab. Used as the fallback for runs
+# that predate the per-run --track_progress flag (the recorded flag always wins).
+# Everything else (fig55, nu_caching, npc-repro diagnostics, …) is a figure
+# ingredient and surfaces under Additional data instead.
+TRACK_PROGRESS_CATEGORIES = {"train_noise_nu_prime", "aum_filter"}
+
 _NU_CACHE_RX = re.compile(r"nu_prime|nu_optcompare|sweep_nu", re.IGNORECASE)
 _TRAIN_AL_RX = re.compile(r"train_al\.py")
+
+# Category rules for results/ ARTIFACTS (figures), matched against the file path.
+# Separate from CATEGORY_RULES because figure filenames differ from sweep names
+# (e.g. the run rule "_nu[0-9.]" would false-match "tau_vs_nu.png"). First match wins.
+ARTIFACT_CATEGORY_RULES = [
+    ("tomer_embedding_graphs", re.compile(r"tomer_embedding|fig55", re.IGNORECASE)),
+    ("train_noise_nu_prime", re.compile(r"3000cap", re.IGNORECASE)),
+    ("aum_filter",           re.compile(r"aumfilter|aum_filter", re.IGNORECASE)),
+    ("oracle_vs_noisy",      re.compile(r"repro_4_15|oracle_vs_noisy|probcover_random", re.IGNORECASE)),
+    ("npc_repro",            re.compile(r"netta|npc", re.IGNORECASE)),
+    ("nu_caching",           re.compile(r"nu_prime|nu_optcompare|nu_vs_tau|tau_vs_nu|heatmap", re.IGNORECASE)),
+]
+
+
+def categorize_artifact(path: str) -> str:
+    """Best-effort category for a results/ figure, by matching its path against
+    ARTIFACT_CATEGORY_RULES (first match wins); 'misc' if nothing matches."""
+    s = path or ""
+    for cat, rx in ARTIFACT_CATEGORY_RULES:
+        if rx.search(s):
+            return cat
+    return "misc"
 
 
 def categorize(sweep_name: str, command: str = "") -> dict:

@@ -28,10 +28,18 @@ _EXCLUDE_FROM_KEY = {
     "seed",
     "exp_name",
     "exp-name",
-    # Derived for display only (see load_all_results). It is 1:1 with nu_prime
-    # within a (strategy, tau), so excluding it keeps config_key — and any
-    # bookmarked about=<hash> URLs — stable while still grouping seeds together.
-    "nu_cache_budget",
+    # NOTE: nu_tag is INTENTIONALLY part of config_key. It encodes the nu'-cache
+    # provenance (<opt>_b<budget>) and is the ONLY discriminator between runs
+    # whose nu_prime coincides across cache budgets — e.g. random B100 tau0.1:
+    # nucache100 and nucache300 both give nu'=0.785156, so without nu_tag in the
+    # key they collapse into one config and one tag (sgd_b100/sgd_b300) is lost.
+    # nu_tag is constant across seeds, so it still groups seeds together.
+    # (Including it changes config_key hashes → older about=<hash> URLs break;
+    # accepted as the cost of correct grouping.)
+    # Routing/visibility flag (dashboard Comparison vs Additional data), not a
+    # configuration dimension — excluded so it neither fragments seed-grouping
+    # nor clutters config labels.
+    "track_progress",
 }
 
 # Display order for human-readable config labels.
@@ -43,7 +51,7 @@ _LABEL_KEY_ORDER = [
     "budget",
     "max_iter",
     "tau",
-    "nu_cache_budget",
+    "nu_tag",
     "target_nu",
     "initial_delta",
     "sparse_K",
@@ -92,10 +100,11 @@ def compute_config_label(params: dict) -> str:
     for k, v in sorted(params.items()):
         if k in seen or v is None or v == -1 or v is False:
             continue
-        # When the run carries a nu_cache_budget (rendered above), it conveys the
+        # When the run carries a nu_tag (rendered above), it conveys the
         # provenance of nu_prime far more readably than the raw float, so drop the
-        # redundant nu_prime from the compact legend.
-        if k == "nu_prime" and params.get("nu_cache_budget") is not None:
+        # redundant nu_prime from the compact legend (except the oracle "none" tag,
+        # which has no nu_prime to drop anyway).
+        if k == "nu_prime" and params.get("nu_tag") not in (None, "none"):
             continue
         parts.append(f"{k}={v}" if v is not True else k)
     return " | ".join(parts) if parts else "unknown"
@@ -139,14 +148,40 @@ def load_all_results(output_root=None) -> pd.DataFrame:
                         params[_arg] = _cast(_m.group(1))
                     except (ValueError, TypeError):
                         pass
-        # Budget at which nu_prime was estimated, encoded in the exp-name as
-        # "...nucache<N>..." (e.g. the train_al 3000-cap sweep, where AL batch
-        # and the nu'-cache budget are decoupled). Derived for a readable legend
-        # ("nu_cache_budget=300" instead of the raw "nu_prime=0.40"); display
-        # only, so it is excluded from config_key.
-        _nm = re.search(r"nucache(\d+)", data.get("command", "") or str(result_file.parent))
-        if _nm:
-            params["nu_cache_budget"] = int(_nm.group(1))
+        # Free-form run tags recorded by --tag KEY=VALUE (result.json["tags"]).
+        # Exposed below as p_<key> facet columns. nu_tag, if explicitly tagged,
+        # also feeds the config label / nu_prime-suppression logic, so it is
+        # mirrored into params here (an explicit tag wins over the derivation).
+        tags = dict(data.get("tags") or {})
+        if "nu_tag" in tags:
+            params["nu_tag"] = tags["nu_tag"]
+
+        # Provenance of the nu' (injected noise level) this run used, as a single
+        # readable tag. Used when the run carries no explicit nu_tag. Derived from
+        # the exp-name / command, display only, so it is excluded from config_key
+        # (about=<hash> URLs stay stable). Values:
+        #   "none"            oracle arm (target_nu=0, no injected noise)
+        #   "nu_analytical"   analytical rule nu'=tau (exp-name "...analytical...")
+        #   "<opt>_b<N>"      NoAA-estimated nu' from the <opt> nu_prime cache at
+        #                     budget N (exp-name "...nucache<N>..."); <opt> is sgd
+        #                     when the run is from an sgd sweep, else adam. AL batch
+        #                     and the nu'-cache budget are decoupled.
+        if params.get("nu_tag") is None:
+            _hay = (data.get("command", "") or "") + " " + str(result_file.parent)
+            _tgt = params.get("target_nu")
+            try:
+                _is_oracle = _tgt is not None and float(_tgt) == 0.0
+            except (TypeError, ValueError):
+                _is_oracle = False
+            if "_oracle" in _hay or _is_oracle:
+                params["nu_tag"] = "none"
+            elif "analytical" in _hay:
+                params["nu_tag"] = "nu_analytical"
+            else:
+                _nm = re.search(r"nucache(\d+)", _hay)
+                if _nm:
+                    _opt = "sgd" if "sgd" in _hay.lower() else "adam"
+                    params["nu_tag"] = f"{_opt}_b{_nm.group(1)}"
         record = {
             "exp_dir": data.get("exp_dir", str(result_file.parent)),
             "result_file": str(result_file),
@@ -166,6 +201,10 @@ def load_all_results(output_root=None) -> pd.DataFrame:
             "episodes": data.get("episodes", []),
             "error": data.get("error"),
             **{f"p_{k}": v for k, v in params.items()},
+            # Free-form tags as facet columns. config_key/label were computed from
+            # params only, so tags never fragment seed-grouping or change about=
+            # URLs. Skip any tag whose key already came from a real param.
+            **{f"p_{k}": v for k, v in tags.items() if k not in params},
         }
         records.append(record)
 
@@ -319,7 +358,7 @@ def get_all_aggregated(df: pd.DataFrame) -> list:
 
 # Params surfaced in a sweep's auto-fact grid (varying ones highlighted).
 _DESCRIBE_PARAM_KEYS = [
-    "p_al_method", "p_tau", "p_target_nu", "p_nu_prime", "p_budget", "p_max_iter",
+    "p_al_method", "p_tau", "p_target_nu", "p_nu_prime", "p_nu_optimizer", "p_nu_tag", "p_budget", "p_max_iter",
     "p_dataset", "p_model", "p_eval_model_type", "p_features_tag",
     "p_initial_delta", "p_kernel_type", "p_diff_method", "p_alpha",
     "p_sparse_K", "p_seed",

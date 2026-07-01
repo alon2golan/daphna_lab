@@ -61,6 +61,20 @@ class ResultWriter:
         _noise_rates = list(getattr(_annot, "NOISE_RATES", []) or []) if _annot is not None else []
         _noise_rate = _noise_rates[0] if _noise_rates else None
 
+        # Free-form run tags (from --tag KEY=VALUE, repeatable) ----------------
+        # Kept in a dedicated dict (NOT merged into params) so a tag can never
+        # shadow a real parameter. The scanner expands each into a p_<key>
+        # column so it rides the dashboard's existing facet/filter machinery.
+        tags: dict = {}
+        for _t in (getattr(args, "tag", None) or []):
+            if "=" not in _t:
+                print(f"[ResultWriter] ignoring malformed --tag (need KEY=VALUE): {_t!r}")
+                continue
+            _k, _v = _t.split("=", 1)
+            _k = _k.strip()
+            if _k:
+                tags[_k] = _v.strip()
+
         # Params from args + cfg -----------------------------------------------
         params = {
             "al_method": getattr(args, "al", None),
@@ -81,10 +95,12 @@ class ResultWriter:
             "target_nu": getattr(args, "target_nu", None),
             "features_tag": getattr(args, "features_tag", None),
             "nu_prime": getattr(args, "nu_prime", None),
+            "nu_optimizer": getattr(args, "nu_optimizer", None),
             "matrix_dtype": getattr(args, "matrix_dtype", None),
             "noise_rate": _noise_rate,
             "noise_filter": _nf_method,
             "train_on_clean": bool(_toc),
+            "track_progress": bool(getattr(args, "track_progress", False)),
         }
 
         sweep_name = getattr(args, "sweep_name", None) or sweep_id
@@ -100,6 +116,7 @@ class ResultWriter:
             "sweep_name": sweep_name,
             "slurm_task_id": slurm_task_id,
             "params": params,
+            "tags": tags,
             "episodes": [],
             "final_test_acc": None,
             "total_episodes_planned": getattr(args, "max_iter", 0) + 1,
