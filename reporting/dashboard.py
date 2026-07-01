@@ -49,7 +49,8 @@ from reporting.scanner import (  # noqa: E402
 )
 from reporting import registry as reg  # noqa: E402
 from reporting.html_export import generate_report  # noqa: E402
-from deep_al.pycls.noise.nu_prime_cache import load_cache as _load_nu_cache  # noqa: E402
+
+TRACK_PROGRESS_CATEGORIES = reg.TRACK_PROGRESS_CATEGORIES
 
 # ── Page config ───────────────────────────────────────────────────────────────
 
@@ -163,13 +164,13 @@ with st.sidebar:
     if st.button("🔄 Refresh data", width="stretch"):
         st.cache_data.clear()
         st.rerun()
-    st.caption("Auto-refreshes every 30 s.")
+    st.caption("Cached 10 min — hit 🔄 Refresh data to rescan now.")
 
 
 # ── Data loading ────────────────────────────────────────────────────────────────
 
 
-@st.cache_data(ttl=30, show_spinner="Scanning result.json…")
+@st.cache_data(ttl=600, show_spinner="Scanning result.json…")
 def _load_results(directory: str) -> pd.DataFrame:
     return load_all_results(directory)
 
@@ -350,7 +351,7 @@ def _build_comparison_chart(agg_list, x_field="episode", y_field="test_acc",
         xaxis_title=_X_TITLE.get(x_field, x_field),
         yaxis_title=_Y_TITLE.get(y_field, y_field),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        hovermode="x unified", template="plotly_white", height=480,
+        hovermode="closest", template="plotly_white", height=480,
         margin=dict(t=40), title=title)
     if y_range:
         fig.update_yaxes(range=y_range)
@@ -702,7 +703,8 @@ def _render_ledger():
 _GROUPABLE = [
     ("sweep", "sweep_name"),
     ("al_method", "p_al_method"), ("tau", "p_tau"), ("target_nu", "p_target_nu"),
-    ("nu_prime", "p_nu_prime"), ("budget", "p_budget"), ("max_iter", "p_max_iter"),
+    ("nu_prime", "p_nu_prime"), ("nu_tag", "p_nu_tag"),
+    ("budget", "p_budget"), ("max_iter", "p_max_iter"),
     ("dataset", "p_dataset"), ("model", "p_model"),
     ("eval_model_type", "p_eval_model_type"), ("features_tag", "p_features_tag"),
     ("noise", "p_noise_rate"), ("train_on_clean", "p_train_on_clean"),
@@ -802,18 +804,40 @@ def _render_comparison():
             reg.categorize(row.get("sweep_name", ""), row.get("command", ""))["category"],
         )
 
+    def _track_progress_for(row):
+        # Recorded flag wins (None/NaN = run predates the flag); else fall back to
+        # category so older track-progress runs still show without a history rewrite.
+        tp = row.get("p_track_progress")
+        if tp is None or (isinstance(tp, float) and pd.isna(tp)):
+            return row["category"] in TRACK_PROGRESS_CATEGORIES
+        return bool(tp)
+
     gdf = df.copy()
     gdf["category"] = gdf.apply(_cat_for, axis=1)
+    gdf["track_progress"] = gdf.apply(_track_progress_for, axis=1)
     qp_out: dict = {}  # accumulates URL state to write back at the end
 
-    # ── Category scope (first filter — prevents mixing unrelated curves) ──
-    cat_opts = ["(all)"] + sorted(gdf["category"].unique())
+    # ── Track-progress scope FIRST: by default Comparison works on only the runs
+    #    whose accuracy-vs-episode curve we track. This also gates which categories
+    #    are offered below — a category with no tracked runs (e.g. fig55, all
+    #    figure-ingredients) is not listed at all unless this box is ticked.
+    show_untracked = st.checkbox(
+        "Show non-tracked (figure-ingredient) runs",
+        value=(_qp_get("showuntracked") == "1"), key="cmp_showuntracked",
+        help="By default only runs flagged track_progress are shown (older runs fall "
+             f"back to category: {', '.join(sorted(TRACK_PROGRESS_CATEGORIES))}). "
+             "Tick to also include runs that only feed offline figures.")
+    base = gdf if show_untracked else gdf[gdf["track_progress"]]
+
+    # ── Category scope (prevents mixing unrelated curves). Only categories that
+    #    actually have runs in scope are offered, so empty ones don't clutter it.
+    cat_opts = ["(all)"] + sorted(base["category"].unique())
     cats_present = cat_opts[1:]
     sel_cat = st.selectbox(
         "Category", options=cat_opts,
         index=_qp_index(cat_opts, _qp_get("cat"), 1 if cats_present else 0),
         key="cmp_cat")
-    scoped = gdf if sel_cat == "(all)" else gdf[gdf["category"] == sel_cat]
+    scoped = base if sel_cat == "(all)" else base[base["category"] == sel_cat]
 
     # ── Hide flagged sweeps by default (Feature 1) — BEFORE the sweep filter,
     #    so deprecated/buggy sweeps don't even appear in the picker unless shown.
@@ -878,13 +902,13 @@ def _render_comparison():
     # ── Dynamic param filters: any config param that VARIES inside the current
     #    scope becomes a filter — so each category automatically surfaces exactly
     #    the knobs that distinguish its curves (e.g. train_noise_nu_prime →
-    #    al_method, tau, budget, nu_cache_budget). Two columns are never offered:
+    #    al_method, tau, budget, nu_tag). Two columns are never offered:
     #    p_seed (curves are seed-averaged; handled by the "Seeds" selector below)
     #    and exp_name (a per-run label, not a config dimension). Preferred display
     #    order is below; any other varying param is appended alphabetically.
     NON_FILTER = {"p_seed", "p_exp_name", "p_exp-name"}
     FILTER_ORDER = [
-        "p_al_method", "p_tau", "p_budget", "p_nu_cache_budget", "p_nu_prime",
+        "p_al_method", "p_tau", "p_budget", "p_nu_tag", "p_nu_prime",
         "p_target_nu", "p_max_iter", "p_dataset", "p_model", "p_eval_model_type",
         "p_features_tag", "p_kernel_type", "p_diff_method", "p_alpha",
         "p_initial_delta", "p_sparse_K", "status",
@@ -1154,26 +1178,41 @@ def _render_comparison():
 
 def _render_additional():
     st.header("Additional data")
-    sub_nu, sub_art = st.tabs(["ν' cache", "Artifact browser"])
+    sub_nu, sub_ing, sub_art = st.tabs(
+        ["ν' cache", "Figure-ingredient runs", "Artifact browser"])
 
     # ── ν' explorer ──────────────────────────────────────────────────────────
     with sub_nu:
         nu_dataset = st.selectbox("Dataset", ["cifar100", "cifar10", "imagenet50"], key="nx_ds")
+        # Lazy import: this pulls in torch/matplotlib/sklearn (~6 s) — keep it out of
+        # the module-level import path so cold start stays fast for every other view.
+        from deep_al.pycls.noise.nu_prime_cache import (
+            load_cache as _load_nu_cache, available_optimizers as _nu_opts,
+            available_budgets as _nu_budgets, _method_cache as _nu_method_cache)
         cache = _load_nu_cache(nu_dataset)
         if not cache:
             st.warning(f"No ν' cache for {nu_dataset}. Run `sweep_nu_prime.py --submit`.")
         else:
             methods = sorted(cache.keys())
-            budgets = sorted({int(b) for m in cache.values() for b in m})
-            c1, c2 = st.columns(2)
+            optimizers = sorted({o for m in methods for o in _nu_opts(nu_dataset, m)})
+            budgets = sorted({b for m in methods for o in optimizers
+                              for b in _nu_budgets(nu_dataset, m, o)})
+            c1, c2, c3 = st.columns(3)
             sm = c1.multiselect("AL methods", methods, default=methods, key="nx_m")
-            sb = c2.multiselect("Budgets", budgets, default=budgets, key="nx_b")
+            so = c2.multiselect("Optimizer", optimizers, default=optimizers, key="nx_o")
+            sb = c3.multiselect("Budgets", budgets, default=budgets, key="nx_b")
             anchor = st.checkbox("Oracle anchor (τ=1, ν'=0)", value=True, key="nx_a")
-            if sm and sb:
+            if sm and so and sb:
                 fig = go.Figure()
-                for mi, m in enumerate(sm):
+                # colour distinguishes the (method, optimizer) pair; dash the budget.
+                pairs = [(m, o) for m in sm for o in so]
+                for m, o in pairs:
+                    md = _nu_method_cache(cache, m, o)
+                    if not md:
+                        continue
+                    ci = pairs.index((m, o))
                     for bi, b in enumerate(sb):
-                        td = cache.get(m, {}).get(str(b))
+                        td = md.get(str(b))
                         if not td:
                             continue
                         taus = sorted(float(t) for t in td)
@@ -1181,8 +1220,8 @@ def _render_additional():
                         if anchor and 1.0 not in taus:
                             taus.append(1.0); nus.append(0.0)
                         fig.add_trace(go.Scatter(
-                            x=taus, y=nus, mode="lines+markers", name=f"{m} / B={b}",
-                            line=dict(color=_COLORS[mi % len(_COLORS)], width=2.2,
+                            x=taus, y=nus, mode="lines+markers", name=f"{m} · {o} / B={b}",
+                            line=dict(color=_COLORS[ci % len(_COLORS)], width=2.2,
                                       dash=["solid", "dash", "dot", "dashdot"][bi % 4]),
                             marker=dict(size=7)))
                 fig.add_hline(y=0.5, line_dash="dot", line_color="grey")
@@ -1193,45 +1232,77 @@ def _render_additional():
                     title=f"{nu_dataset.upper()} — ν' vs τ")
                 st.plotly_chart(fig, width="stretch")
 
-    # ── Generic artifact browser over results/** ──────────────────────────────
+    # ── Figure-ingredient runs (the non-track-progress train_al runs) ──────────
+    with sub_ing:
+        st.caption(
+            "train_al runs that only feed an offline figure — kept out of the "
+            "Comparison tab. Grouped by category; the rendered figures live in the "
+            "Artifact browser tab. Tick 'Show non-tracked runs' in Comparison to "
+            "plot any of these as curves anyway.")
+        if df.empty:
+            st.info("No runs found.")
+        else:
+            _cat_map = _registry_category_map()
+
+            def _cat(row):
+                return _cat_map.get(
+                    str(row["sweep_id"]),
+                    reg.categorize(row.get("sweep_name", ""), row.get("command", ""))["category"])
+
+            idf = df.copy()
+            idf["category"] = idf.apply(_cat, axis=1)
+
+            def _tp(row):
+                tp = row.get("p_track_progress")
+                if tp is None or (isinstance(tp, float) and pd.isna(tp)):
+                    return row["category"] in TRACK_PROGRESS_CATEGORIES
+                return bool(tp)
+
+            ing = idf[~idf.apply(_tp, axis=1)]
+            if ing.empty:
+                st.info("No figure-ingredient runs — every run is track-progress.")
+            else:
+                _FIG_HINT = {
+                    "fig55": "Fig 5.5 repro → results/fig55*.png (plot_fig55_*.py)",
+                    "oracle_vs_noisy": "4_15 oracle-vs-noisy → plot_repro_4_15_*.py",
+                    "nu_estimation": "ν' estimation / seed-decoupling diagnostics",
+                    "noise_mechanism": "bypass-noise diagnostics",
+                    "uncategorized": "misc (e.g. Netta NPC repro → plot_netta_fig5_repro.py)",
+                }
+                summary = (
+                    ing.groupby(["category", "sweep_name"])
+                    .agg(runs=("exp_dir", "size"), last_run=("created_at", "max"))
+                    .reset_index()
+                    .sort_values(["category", "last_run"], ascending=[True, False]))
+                summary["feeds_figure"] = summary["category"].map(
+                    lambda c: _FIG_HINT.get(c, ""))
+                st.dataframe(summary, width="stretch", hide_index=True)
+
+    # ── Image artifact browser over results/** ────────────────────────────────
     with sub_art:
-        st.caption("Renders .png / .csv / .json under results/. New files appear automatically.")
+        st.caption("Renders image files under results/. New files appear automatically.")
+        _IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp")
         if not _RESULTS_DIR.exists():
             st.info("No results/ directory.")
         else:
             arts = sorted(
-                [p for p in _RESULTS_DIR.rglob("*")
-                 if p.suffix.lower() in (".png", ".csv", ".json")],
+                [p for p in _RESULTS_DIR.rglob("*") if p.suffix.lower() in _IMG_EXT],
                 key=lambda p: p.stat().st_mtime, reverse=True,
             )
             if not arts:
-                st.info("No artifacts found.")
+                st.info("No image artifacts found.")
             else:
                 rel = [str(p.relative_to(_RESULTS_DIR)) for p in arts]
-                pick = st.selectbox(f"Artifact ({len(arts)})", options=rel)
-                path = _RESULTS_DIR / pick
-                suf = path.suffix.lower()
-                if suf == ".png":
-                    st.image(str(path), caption=pick, width="stretch")
-                elif suf == ".csv":
-                    cdf = pd.read_csv(path)
-                    st.dataframe(cdf, width="stretch", hide_index=True)
-                    numcols = cdf.select_dtypes("number").columns.tolist()
-                    if len(numcols) >= 2:
-                        xx = st.selectbox("X", numcols, key="art_x")
-                        yy = st.multiselect("Y", [c for c in numcols if c != xx],
-                                            default=[c for c in numcols if c != xx][:1], key="art_y")
-                        if yy:
-                            f = go.Figure()
-                            for c in yy:
-                                f.add_trace(go.Scatter(x=cdf[xx], y=cdf[c], mode="lines+markers", name=c))
-                            f.update_layout(xaxis_title=xx, template="plotly_white", height=420)
-                            st.plotly_chart(f, width="stretch")
-                elif suf == ".json":
-                    try:
-                        st.json(json.loads(path.read_text()))
-                    except (json.JSONDecodeError, OSError) as exc:
-                        st.error(f"Could not read JSON: {exc}")
+                cat_of = {r: reg.categorize_artifact(r) for r in rel}
+                cat_opts = ["(all)"] + sorted(set(cat_of.values()))
+                sel = st.selectbox("Category", options=cat_opts, key="art_cat")
+                shown = rel if sel == "(all)" else [r for r in rel if cat_of[r] == sel]
+                if not shown:
+                    st.info("No images in this category.")
+                else:
+                    pick = st.selectbox(f"Image ({len(shown)})", options=shown,
+                                        format_func=lambda r: f"[{cat_of[r]}]  {r}")
+                    st.image(str(_RESULTS_DIR / pick), caption=pick, width="stretch")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
