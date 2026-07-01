@@ -262,12 +262,23 @@ def main():
                         choices=["curves", "iso_nu", "heatmap", "both", "all"])
     parser.add_argument("--out_dir", default=None,
                         help="Directory for output PNGs (default: results/<dataset>/)")
+    parser.add_argument("--optimizer", choices=["adam", "sgd"], required=True,
+                        help="Which optimizer column of the ν' cache to plot "
+                             "(sgd = Tomer-style, adam = daphna_lab default).")
     args = parser.parse_args()
 
-    cache = load_cache(args.dataset)
-    if not cache:
+    from deep_al.pycls.noise.nu_prime_cache import _method_cache
+    full = load_cache(args.dataset)
+    if not full:
         print(f"No cache found for dataset '{args.dataset}'. "
               f"Run nu_prime_sweeper.py first.")
+        return
+    # Slice to the requested optimizer so downstream plot helpers keep their
+    # legacy {method: {budget: {tau}}} view.
+    cache = {m: _method_cache(full, m, args.optimizer) for m in full}
+    cache = {m: d for m, d in cache.items() if d}
+    if not cache:
+        print(f"No '{args.optimizer}' ν' data for dataset '{args.dataset}'.")
         return
 
     if args.out_dir:

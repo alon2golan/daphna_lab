@@ -84,20 +84,26 @@ DEFAULT_SEEDS    = [0, 1, 2]
 
 
 def raw_file(dataset: str, method: str, budget: int,
-             tau: float, seed: int) -> Path:
-    """Path to single-run result JSON (one per method/budget/tau/seed)."""
+             tau: float, seed: int, optimizer: str = "adam") -> Path:
+    """Path to single-run result JSON (one per method/budget/tau/seed/optimizer).
+
+    The optimizer is part of the filename so adam and sgd estimates for the
+    same cell never overwrite each other. Adam files keep their historical
+    (optimizer-less) name for backward compatibility.
+    """
     d = REPO_DIR / "results" / dataset / "nu_prime_raw"
-    return d / f"{method}_{budget}_tau{tau:.1f}_seed{seed}.json"
+    suffix = "" if optimizer == "adam" else f"_{optimizer}"
+    return d / f"{method}_{budget}_tau{tau:.1f}_seed{seed}{suffix}.json"
 
 
 # ── job builder ─────────────────────────────────────────────────────────────
 
 def build_jobs(dataset: str, methods: list[str], budgets: list[int],
-               taus: list[float], seeds: list[int]) -> list[str]:
+               taus: list[float], seeds: list[int], optimizer: str) -> list[str]:
     """One command per (method, budget, tau, seed)."""
     jobs = []
     for method, budget, tau, seed in itertools.product(methods, budgets, taus, seeds):
-        output = raw_file(dataset, method, budget, tau, seed)
+        output = raw_file(dataset, method, budget, tau, seed, optimizer)
         cmd = (
             f"python3 {ESTIMATOR_SCRIPT}"
             f" --dataset {dataset}"
@@ -108,6 +114,7 @@ def build_jobs(dataset: str, methods: list[str], budgets: list[int],
             f" --al_method {method}"
             f" --noise_mode random"
             f" --representation_model simclr"
+            f" --optimizer {optimizer}"
             f" --seed {seed}"
             f" --output_file {output}"
         )
@@ -142,7 +149,7 @@ def build_script(jobs: list[str]) -> str:
 # ── averaging ─────────────────────────────────────────────────────────────────
 
 def run_average(dataset: str, methods: list[str], budgets: list[int],
-                taus: list[float], seeds: list[int],
+                taus: list[float], seeds: list[int], optimizer: str,
                 dry_run: bool = False) -> None:
     """
     For each (method, budget, tau): read per-seed raw files, print table,
@@ -168,7 +175,7 @@ def run_average(dataset: str, methods: list[str], budgets: list[int],
             seed_vals: list[float] = []
             cells = ""
             for seed in seeds:
-                f = raw_file(dataset, method, budget, tau, seed)
+                f = raw_file(dataset, method, budget, tau, seed, optimizer)
                 if f.exists():
                     with open(f) as fp:
                         nu = json.load(fp).get("nu_prime")
@@ -181,7 +188,7 @@ def run_average(dataset: str, methods: list[str], budgets: list[int],
                 avg = float(np.mean(seed_vals))
                 avg_str = f"  {avg:.4f}"
                 if not dry_run:
-                    upsert(dataset, method, budget, tau, avg)
+                    upsert(dataset, method, optimizer, budget, tau, avg)
                     any_written = True
             else:
                 avg_str = "  ----"
@@ -190,7 +197,7 @@ def run_average(dataset: str, methods: list[str], budgets: list[int],
 
         # oracle anchor (tau=1.0 → nu_prime=0.0)
         if not dry_run:
-            upsert(dataset, method, budget, 1.0, 0.0)
+            upsert(dataset, method, optimizer, budget, 1.0, 0.0)
         print(f"  1.0    (oracle anchor -> 0.0000)")
 
     print()
@@ -214,6 +221,10 @@ def main():
     parser.add_argument("--budgets",  nargs="+", type=int, default=DEFAULT_BUDGETS)
     parser.add_argument("--taus",     nargs="+", type=float, default=DEFAULT_TAUS)
     parser.add_argument("--seeds",    nargs="+", type=int, default=DEFAULT_SEEDS)
+    parser.add_argument("--optimizer", choices=["adam", "sgd"], required=True,
+                        help="NoAA fit optimizer. Written as a distinct column in the "
+                             "cache (sgd = Tomer-style, adam = daphna_lab default). Required: "
+                             "raw files and the cache column are keyed by it, so it must be explicit.")
     parser.add_argument("--submit",   action="store_true",
                         help="Build script and submit to SLURM")
     parser.add_argument("--average",  action="store_true",
@@ -224,12 +235,12 @@ def main():
 
     if args.average:
         run_average(args.dataset, args.methods, args.budgets,
-                    args.taus, args.seeds, dry_run=args.dry_run)
+                    args.taus, args.seeds, args.optimizer, dry_run=args.dry_run)
         return
 
     # ── submit / dry-run ───────────────────────────────────────────────────
     jobs = build_jobs(args.dataset, args.methods, args.budgets,
-                      args.taus, args.seeds)
+                      args.taus, args.seeds, args.optimizer)
     script = build_script(jobs)
 
     n = len(args.methods)
@@ -239,6 +250,7 @@ def main():
     print(f"\nSweep plan: {len(jobs)} jobs  "
           f"({n} methods × {b} budgets × {t} taus × {s} seeds)")
     print(f"  dataset : {args.dataset}")
+    print(f"  optimizer: {args.optimizer}")
     print(f"  methods : {args.methods}")
     print(f"  budgets : {args.budgets}")
     print(f"  taus    : {args.taus}")
