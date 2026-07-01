@@ -306,7 +306,165 @@ defaults to the annotator prior `ρ`, so the base class runs standalone.
 
 ---
 
-## 9. Open verification checklist (carry forward)
+## 9. Testing & comparison plan
+
+This section is the concrete "how do we know it works, and that we didn't break
+anything" plan. Four layers: (A) unit/correctness, (B) regression — protect the
+existing `CoverageMatrixMethod` / `NoiseAwareCoverage` path, (C) performance,
+(D) the experimental comparison that decides whether we continue and which
+version becomes the default.
+
+### A. Unit / correctness tests (fast, CI-style, synthetic)
+
+Put these in `deep_al/tests/test_bayesian_coverage.py`. They must run on CPU on
+a tiny synthetic feature set (e.g. 2 well-separated Gaussian clusters, 200
+points, 2-4 classes) so they are seconds-fast and deterministic.
+
+1. **Posterior is a valid distribution.** For any state of `C`,
+   `posterior()` rows are non-negative and sum to 1 (both `product` and
+   `additive`).
+2. **`b_l` sanity (Step A).** `_neighbor_true_label_belief(c, r)` returns
+   `b[c]=r`, off-diagonal `(1-r)/(C-1)`, sums to 1; `r=1` -> one-hot;
+   `r=1/C` -> uniform.
+3. **Single-neighbor propagation (Step B).** For one labeled point with `r=1`:
+   a point at `K=1` gets posterior -> one-hot on the label; a point at `K=0`
+   gets posterior -> prior `pi`. Interpolates monotonically in `K`.
+4. **Annotator-accuracy monotonicity (point 2).** Fixing geometry, lowering `r`
+   moves the covered point's posterior monotonically toward `pi` (peak
+   probability on the label is non-increasing in noise).
+5. **Multi-neighbor sharpening (point 3, product).** Two neighbors that agree on
+   a label produce a MORE peaked posterior than either alone (entropy strictly
+   decreases). Two neighbors that disagree produce HIGHER entropy than a single
+   confident one. This is the property additive accumulation fails — assert the
+   `product` branch has it.
+6. **ProbCover limit.** With `r=1` (oracle), a single class, hard-threshold
+   (tophat) kernel, and `SELECTION=coverage_gain`, the sequence of selected
+   points matches plain `CoverageMatrixMethod` on the same toy (or covers the
+   same set). Documents that Bayesian ⊇ ProbCover.
+7. **Determinism.** Same `RNG_SEED` + same config -> identical selected indices
+   across two runs.
+8. **Numerical safety.** No `nan`/`inf` in `C` or `posterior()` after a full
+   selection loop, including `K` values at exactly 0 and 1 and `r` near 1.
+
+### B. Regression tests — DO NOT BREAK the existing coverage path
+
+The whole point is that `BayesianCoverage` is a *new* class; the existing
+`CoverageMatrixMethod` and `NoiseAwareCoverage` (NPC) must be byte-for-byte
+unaffected. Guard rails:
+
+1. **Import isolation.** `bayesian_coverage.py` only *imports from*
+   `coverage_matrix_methods.py`; it must not modify module-level state,
+   monkey-patch, or change any base method. Confirm by `git diff` on
+   `coverage_matrix_methods.py` being **empty** across this whole effort. (If a
+   genuine refactor of the base is ever needed, that is a separate reviewed
+   commit with its own regression run.)
+2. **Golden-run equivalence for `CoverageMatrixMethod`.** Before any change,
+   capture a reference run: one small ProbCover (`SAMPLING_FN` unchanged) AL run
+   on CIFAR features, fixed seed, save the selected-index sequence and the
+   per-episode test accuracy to `docs/golden/probcover_ref.json`. After the
+   Bayesian code lands, re-run the identical config and assert the selected
+   indices and final accuracy are **identical** (indices exactly; accuracy to
+   float tolerance). Same for one **NPC** config -> `npc_ref.json`.
+3. **Routing safety.** After registering `BayesianCoverage` in
+   `ActiveLearning.py`, assert existing `SAMPLING_FN` values
+   (`probcover`, `npc`, `random`, ...) still resolve to the same classes.
+   Adding the new branch must not shadow or reorder existing ones.
+4. **Config additivity.** The new `BAYES_COVERAGE` cfg block must have complete
+   defaults and must not appear in / alter any existing config key, `config_key`
+   hashing, or dashboard `about=<hash>` URLs (cf. run-tagging notes in
+   `CLAUDE.md`). Verify an existing sweep's `config_key` is unchanged.
+5. **Full existing test suite green.** `deep_al/tests/` (incl.
+   `test_annotators.py`) passes unchanged.
+
+### C. Performance / resource tests
+
+`product` accumulates a dense `[M, num_classes]` log-update **per selected
+point** and computes `K @ uncertainty` **per greedy step**; on CIFAR-100
+(`num_classes=100`) this is heavier than the base method's single-column
+`torch.maximum`. Measure before scaling up.
+
+1. **Wall-clock per selection round** vs. `CoverageMatrixMethod` and Itai's
+   `additive`, on the real CIFAR-10 and CIFAR-100 feature sets, at budgets
+   {100, 300, 1000}. Record as a small table; flag if `product` is > ~2x the
+   base per-round cost.
+2. **Peak GPU memory** for the dense `[M, C]` accumulator and the `K @ u`
+   matmul at the largest `M` we intend to run (full CIFAR pool). Confirm it fits
+   the `g0` GPUs; if not, that motivates the (currently unimplemented) sparse
+   path.
+3. **Scaling knobs behave.** `num_classes` 10 -> 100 and pool size scaling do
+   not blow up latency super-linearly beyond the expected `O(M·C)` /
+   `O(M^2)` matmul.
+4. Perf tests are informational (not pass/fail) but must be recorded in the PR
+   so we choose budgets/datasets that are actually runnable on the shared
+   cluster (see SLURM etiquette in `CLAUDE.md`).
+
+### D. Experimental comparison — what to compare, and the decision rule
+
+This is the layer that decides **whether we continue** and **which version is
+the default**. Run through the existing sweep + dashboard machinery
+(`--track_progress`, Comparison tab; see the al-dashboard skill and run-tagging
+notes in `CLAUDE.md`). All arms share seeds, budgets, kernel/delta, and dataset.
+
+**Fixed experimental grid (baseline):**
+- Datasets: CIFAR-10 first (cheap, `C=10`), then CIFAR-100 (`C=100`, the
+  stress case).
+- Noise levels (symmetric annotator): {0.0 (clean sanity), 0.2, 0.5, 0.8}.
+- Budgets: {100, 300, 1000} selected points.
+- Seeds: >= 3 (reuse the lab's seed convention, e.g. 1/2/3) for mean +- std.
+- Metric: downstream test accuracy vs. budget (primary); also report mean
+  posterior calibration / label-recovery of covered points as a diagnostic.
+
+**Arms to compare (methods):**
+1. `random` — floor.
+2. `probcover` (`CoverageMatrixMethod`) — the current non-noise-aware baseline.
+3. `npc` (`NoiseAwareCoverage`) — current noise-aware baseline.
+4. `bayes_additive` — `BayesianCoverage` COMBINE=additive == Itai's rule.
+   **This is the Itai-reproduction control.**
+5. `bayes_product` — `BayesianCoverage` COMBINE=product == our proposed math.
+
+**Decision rules (must be met to proceed / to flip defaults):**
+- **Sanity:** at noise 0.0, `bayes_product`, `bayes_additive`, and `probcover`
+  should be within noise of each other. If Bayesian *hurts* on clean data,
+  stop and debug — the model must not cost accuracy where there is nothing to
+  gain.
+- **Itai reproduction:** `bayes_additive` reproduces Itai's reported behaviour
+  (and matches `probcover` at noise 0.0). If not, the additive branch is wrong
+  and no comparison is valid yet.
+- **Core hypothesis (points 1-3):** at noise >= 0.2, `bayes_product` should beat
+  `probcover` (uses annotator accuracy) and be competitive with / beat `npc`.
+  If it does not beat `probcover` under noise, the annotator-accuracy weighting
+  is not paying off — revisit the model before adding complexity.
+- **product vs additive (design §3 — the load-bearing check):** adopt
+  `COMBINE=product` as the default **only if** it is >= `bayes_additive` on
+  downstream accuracy (within std) across the noise grid, with a real win at
+  >= one noise level. If `product` is worse, **keep `additive` as default** and
+  record the finding; the math being "correct" does not override measured harm.
+
+**TRAIN_LABEL_MODE comparison (design §5), run after a method winner is chosen:**
+Fix the winning coverage method, then sweep
+`TRAIN_LABEL_MODE ∈ {observed, soft_posterior, map_posterior, reweighted*,
+filtered*}` (`*` = needs point-4 reliability, so deferred) over the same
+noise/budget/seed grid; facet the dashboard on the `p_train_label_mode` tag.
+Report which target policy wins per noise level — this is itself a result, not a
+single default to bake in.
+
+**Gate to point 4 (AUM / reliability, future work):** only start point 4 once
+`bayes_product` (or `additive`, whichever wins D) has beaten `probcover` under
+noise AND a `TRAIN_LABEL_MODE` winner is established — otherwise the soft-`r_l`
+work has no validated base to build on.
+
+### Suggested test-artifact layout
+
+- `deep_al/tests/test_bayesian_coverage.py` — layer A + the regression asserts
+  in B1/B3/B4.
+- `docs/golden/{probcover_ref,npc_ref}.json` — B2 golden runs.
+- a launcher (e.g. `batch_utils/sweep_bayes_coverage.py`) for layer D, with
+  `--track_progress` and `--tag combine=<...> --tag train_label_mode=<...>` so
+  the dashboard Comparison tab can facet the arms.
+
+---
+
+## 10. Open verification checklist (carry forward)
 
 - [ ] `product` vs `additive`: does the mathematically-correct rule actually
       improve downstream accuracy? (§3) — **must verify, do not assume.**
