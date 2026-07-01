@@ -7,7 +7,7 @@ from sweep_nu_prime_optcompare.py jobs 30741466 + 30741961).
 Reuses the fig55 accuracy runs (same true-label runs as plot_fig55_daphna.py) for the
 5 ν̂-independent strategies, and computes NoAA twice with the two optimizers' ν̂.
 
-  results/fig55_daphna_noaa_optcompare.png / .csv
+  results/tomer_embedding_probcover_padding_fix.png / .csv
 """
 from __future__ import annotations
 import glob, json
@@ -88,7 +88,7 @@ def main():
                          ("NoAA-SGD", noaa_sgd), ("NoAA-Adam", noaa_adam)]:
                 rows.append({"strategy": s, "tau": tau, "budget": B, "acc_mean": v})
     df = pd.DataFrame(rows)
-    df.to_csv(OUT_DIR / "fig55_daphna_noaa_optcompare.csv", index=False)
+    df.to_csv(OUT_DIR / "tomer_embedding_probcover_padding_fix.csv", index=False)
 
     colors = {"All-Oracle": "tab:blue", "All-Noisy": "tab:orange", "Random": "tab:green",
               "Analytical (τ=1−ν)": "tab:red", "Ground Truth": "tab:purple",
@@ -105,8 +105,8 @@ def main():
     axes[0].set_ylabel("Mean accuracy (%)")
     axes[-1].legend(loc="lower right", fontsize=8)
     fig.suptitle("Fig 5.5 in daphna_lab — NoAA-SGD vs NoAA-Adam (daphna ν̂ estimator, clean lsets)", fontsize=11)
-    plt.tight_layout(); plt.savefig(OUT_DIR / "fig55_daphna_noaa_optcompare.png", dpi=120, bbox_inches="tight")
-    print(f"✓ {OUT_DIR/'fig55_daphna_noaa_optcompare.png'}")
+    plt.tight_layout(); plt.savefig(OUT_DIR / "tomer_embedding_probcover_padding_fix.png", dpi=120, bbox_inches="tight")
+    print(f"✓ {OUT_DIR/'tomer_embedding_probcover_padding_fix.png'}")
 
 if __name__ == "__main__":
     main()

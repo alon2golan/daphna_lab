@@ -12,8 +12,8 @@ Usage:
 If --sweep is omitted, the most recent fig55_daphna_* sweep is used.
 
 Outputs:
-    results/fig55_daphna.png
-    results/fig55_daphna.csv
+    results/tomer_embedding_probcover_original.png
+    results/tomer_embedding_probcover_original.csv
 """
 from __future__ import annotations
 import argparse, json, glob
@@ -122,8 +122,8 @@ def main():
                                 "v_hat": v_hat if strat == "NoAA" else np.nan})
 
     result_df = pd.DataFrame(records)
-    result_df.to_csv(OUT_DIR / "fig55_daphna.csv", index=False)
-    print(f"✓ {OUT_DIR / 'fig55_daphna.csv'}")
+    result_df.to_csv(OUT_DIR / "tomer_embedding_probcover_original.csv", index=False)
+    print(f"✓ {OUT_DIR / 'tomer_embedding_probcover_original.csv'}")
 
     # ---- plot ----
     colors = {"All-Oracle": "tab:blue", "All-Noisy": "tab:orange", "Random": "tab:green",
@@ -145,8 +145,8 @@ def main():
     suffix = " — all six strategies" if v_hat_df is not None else " — five strategies (NoAA pending)"
     fig.suptitle(f"Fig 5.5 reproduction in daphna_lab (CIFAR100 · linear-on-SimCLR · ProbCover, post seed-fix){suffix}", fontsize=11)
     plt.tight_layout()
-    plt.savefig(OUT_DIR / "fig55_daphna.png", dpi=120, bbox_inches="tight")
-    print(f"✓ {OUT_DIR / 'fig55_daphna.png'}")
+    plt.savefig(OUT_DIR / "tomer_embedding_probcover_original.png", dpi=120, bbox_inches="tight")
+    print(f"✓ {OUT_DIR / 'tomer_embedding_probcover_original.png'}")
 
 
 if __name__ == "__main__":

@@ -117,7 +117,7 @@ SLIDES.append(("Background", """
 
 SLIDES.append(("Fig 5.5 reproduced", f"""
   <h2>✅ Fig 5.5 reproduced — NoAA tracks Ground Truth</h2>
-  {img(FIGS / 'fig55_daphna.png', 'fig55 reproduction')}
+  {img(FIGS / 'tomer_embedding_probcover_original.png', 'fig55 reproduction')}
   <p>Six strategies × three τ panels, CIFAR-100, ProbCover, post-fix. In every panel the
   <b>NoAA</b> curve (brown) tracks <b>Ground Truth</b> (purple); All-Oracle (blue) is lowest at small budgets.
   Qualitatively identical to the original <code>oracle-teacher-proj</code> figure. The native daphna_lab
@@ -184,7 +184,7 @@ SLIDES.append(("Root cause #2", f"""
   <p>daphna_lab's estimator hardcoded <b>Adam</b>; Tomer's port used <b>SGD + weight-decay + LR schedule</b>.
   Adam overfits noisy labels → a <i>lower</i> equilibrium ν′, biggest where ν′ is large (small τ). We added a
   <code>--optimizer</code> switch and re-estimated ν′ for ProbCover at all budgets, both optimizers.</p>
-  {img(FIGS / 'fig55_daphna_noaa_optcompare.png', 'noaa adam vs sgd')}
+  {img(FIGS / 'tomer_embedding_probcover_padding_fix.png', 'noaa adam vs sgd')}
   <p class="cap">NoAA-SGD (brown) vs NoAA-Adam (magenta dashed). For B ≤ 1000 both ≈ Ground Truth. At <b>B=3000</b> they
   diverge: NoAA-Adam tracks GT better; NoAA-SGD's ν′ collapses (its flat-LR SGD <i>underfits</i> the large 10k–30k noisy sets).</p>
 """))
