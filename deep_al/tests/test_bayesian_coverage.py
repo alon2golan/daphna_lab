@@ -26,6 +26,7 @@ if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
 from deep_al.pycls.al.bayesian_coverage import BayesianCoverage
+from deep_al.pycls.noise.annotator import Annotator
 
 
 def make_bc(num_classes=3, combine='product', neighbor_weight='kernel',
@@ -55,6 +56,11 @@ def entropy(p):
     return float(-(p * torch.log(p.clamp_min(1e-12))).sum())
 
 
+def loglik(bc, k_row, label, r):
+    """Per-point log-likelihood contribution of one symmetric-accuracy-r neighbor."""
+    return bc._neighbor_loglik(k_row, bc._neighbor_true_label_belief(label, r))
+
+
 class TestPosteriorValid(unittest.TestCase):
     def test_valid_distribution_both_combines(self):
         # A1: posterior() rows are non-negative and sum to 1 for any C.
@@ -64,7 +70,7 @@ class TestPosteriorValid(unittest.TestCase):
             bc.C = init_C(bc, M)
             # perturb with some arbitrary evidence
             k_row = torch.rand(M, dtype=torch.float64)
-            bc.C = bc.C + (bc._neighbor_loglik(k_row, 2, 0.7)
+            bc.C = bc.C + (loglik(bc, k_row, 2, 0.7)
                            if combine == 'product' else 0.0)
             if combine == 'additive':
                 bc.C[:, 2] += k_row
@@ -104,7 +110,7 @@ class TestSingleNeighborPropagation(unittest.TestCase):
         label = 2
         k_row = torch.tensor([1.0, 0.75, 0.5, 0.25, 0.0], dtype=torch.float64)
         M = k_row.numel()
-        bc.C = init_C(bc, M) + bc._neighbor_loglik(k_row, label, r=1.0)
+        bc.C = init_C(bc, M) + loglik(bc, k_row, label, 1.0)
         P = bc.posterior()
         # K=1 -> ~one-hot on the label
         self.assertAlmostEqual(float(P[0, label]), 1.0, places=6)
@@ -125,7 +131,7 @@ class TestAccuracyMonotonicity(unittest.TestCase):
         k_row = torch.ones(1, dtype=torch.float64)  # fully covered point
         peaks = []
         for r in [1.0, 0.9, 0.7, 0.5, 1.0 / 4]:
-            bc.C = init_C(bc, 1) + bc._neighbor_loglik(k_row, label, r=r)
+            bc.C = init_C(bc, 1) + loglik(bc, k_row, label, r)
             peaks.append(float(bc.posterior()[0, label]))
         for a, b in zip(peaks[:-1], peaks[1:]):
             self.assertGreaterEqual(a + 1e-9, b, f"peak rose as accuracy fell: {peaks}")
@@ -140,8 +146,8 @@ class TestMultiNeighborSharpening(unittest.TestCase):
         label = 1
         r = 0.8
         k = torch.ones(1, dtype=torch.float64)
-        one = init_C(bc, 1) + bc._neighbor_loglik(k, label, r)
-        two = one + bc._neighbor_loglik(k, label, r)
+        one = init_C(bc, 1) + loglik(bc, k, label, r)
+        two = one + loglik(bc, k, label, r)
         bc.C = one
         h1 = entropy(bc.posterior()[0])
         bc.C = two
@@ -154,8 +160,8 @@ class TestMultiNeighborSharpening(unittest.TestCase):
         bc = make_bc(num_classes=3, combine='product')
         r = 0.8
         k = torch.ones(1, dtype=torch.float64)
-        one = init_C(bc, 1) + bc._neighbor_loglik(k, 0, r)
-        conflict = one + bc._neighbor_loglik(k, 1, r)
+        one = init_C(bc, 1) + loglik(bc, k, 0, r)
+        conflict = one + loglik(bc, k, 1, r)
         bc.C = one
         h_one = entropy(bc.posterior()[0])
         bc.C = conflict
@@ -174,8 +180,8 @@ class TestMultiNeighborSharpening(unittest.TestCase):
 
         bc_prod = make_bc(num_classes=3, combine='product')
         bc_prod.C = init_C(bc_prod, 1)
-        bc_prod.C = bc_prod.C + bc_prod._neighbor_loglik(k, 1, 1.0)
-        bc_prod.C = bc_prod.C + bc_prod._neighbor_loglik(k, 1, 1.0)
+        bc_prod.C = bc_prod.C + loglik(bc_prod, k, 1, 1.0)
+        bc_prod.C = bc_prod.C + loglik(bc_prod, k, 1, 1.0)
         h_prod = entropy(bc_prod.posterior()[0])
 
         self.assertLess(h_prod, h_add, "product should be sharper than additive here")
@@ -187,7 +193,7 @@ class TestNumericalSafety(unittest.TestCase):
         bc = make_bc(num_classes=5, combine='product')
         k_row = torch.tensor([0.0, 1.0, 0.0, 1.0, 0.5], dtype=torch.float64)
         bc.C = init_C(bc, k_row.numel())
-        bc.C = bc.C + bc._neighbor_loglik(k_row, 3, r=1.0 - 1e-9)
+        bc.C = bc.C + loglik(bc, k_row, 3, 1.0 - 1e-9)
         self.assertTrue(torch.isfinite(bc.C).all(), "non-finite in C")
         P = bc.posterior()
         self.assertTrue(torch.isfinite(P).all(), "non-finite in posterior")
@@ -211,6 +217,81 @@ class TestAcquisition(unittest.TestCase):
         bc.C = init_C(bc, 4)
         scores = bc._acquisition_scores()
         self.assertEqual(int(torch.argmax(scores)), 0)
+
+
+class _ToyDataset:
+    """Minimal dataset with a `targets` attribute for Annotator construction."""
+    def __init__(self, targets):
+        self.targets = list(targets)
+
+    def __len__(self):
+        return len(self.targets)
+
+    def __getitem__(self, i):
+        return 0, self.targets[i]
+
+
+class TestAnnotatorConfusionMatrix(unittest.TestCase):
+    def test_clean_is_identity(self):
+        ann = Annotator(_ToyDataset([0, 1, 2, 0, 1, 2]), noise_type='clean',
+                        noise_rate=0.0, num_classes=3)
+        self.assertTrue(np.allclose(ann.confusion_matrix, np.eye(3)))
+
+    def test_symmetric_matches_closed_form(self):
+        C, nr = 4, 0.3
+        ann = Annotator(_ToyDataset(list(range(C)) * 5), noise_type='sym',
+                        noise_rate=nr, num_classes=C, seed=1)
+        M = ann.confusion_matrix
+        self.assertTrue(np.allclose(np.diag(M), 1.0 - nr))       # diag = accuracy
+        off = M[~np.eye(C, dtype=bool)]
+        self.assertTrue(np.allclose(off, nr / (C - 1)))          # uniform off-diag
+        self.assertTrue(np.allclose(M.sum(1), 1.0))
+
+    def test_asymmetric_uses_transition_matrix(self):
+        # Circular flip k -> k+1 for the noised fraction.
+        C, nr = 3, 0.4
+        T = np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]], dtype=float)
+        ann = Annotator(_ToyDataset(list(range(C)) * 5), noise_type='asym',
+                        noise_rate=nr, num_classes=C, seed=1,
+                        noise_transition_matrix=T)
+        M = ann.confusion_matrix
+        expected = (1 - nr) * np.eye(C) + nr * T
+        self.assertTrue(np.allclose(M, expected))
+        self.assertTrue(np.allclose(M.sum(1), 1.0))
+        # off-diagonal mass sits only on the flip target, unlike symmetric noise.
+        self.assertAlmostEqual(M[0, 1], nr)
+        self.assertAlmostEqual(M[0, 2], 0.0)
+
+
+class TestBeliefFromConfusion(unittest.TestCase):
+    def test_belief_matches_bayes_rule(self):
+        # b(k) ∝ pi(k) * M[k, c]; check against a hand-computed asym matrix.
+        bc = make_bc(num_classes=3)
+        M = torch.tensor([[0.7, 0.3, 0.0],
+                          [0.0, 0.8, 0.2],
+                          [0.1, 0.0, 0.9]], dtype=torch.float64)
+        c = 1  # observed label
+        b = bc._belief(c, M)
+        # uniform prior -> b ∝ column c of M = [0.3, 0.8, 0.0]
+        expected = torch.tensor([0.3, 0.8, 0.0], dtype=torch.float64)
+        expected = expected / expected.sum()
+        self.assertTrue(torch.allclose(b, expected, atol=1e-9))
+        self.assertAlmostEqual(float(b.sum()), 1.0, places=9)
+
+    def test_symmetric_confusion_reduces_to_scalar_form(self):
+        # _confusion_matrix built from a real sym annotator -> _belief(c) peak = accuracy.
+        C, nr = 4, 0.25
+        ann = Annotator(_ToyDataset(list(range(C)) * 5), noise_type='sym',
+                        noise_rate=nr, num_classes=C, seed=2)
+
+        class _MgrStub:
+            annotators = [ann]
+            annotator_accuracies = [ann.accuracy]
+        bc = make_bc(num_classes=C)
+        bc.annotator_manager = _MgrStub()
+        M = bc._confusion_matrix(0)
+        b = bc._belief(2, M)
+        self.assertAlmostEqual(float(b[2]), ann.accuracy, places=9)
 
 
 if __name__ == '__main__':

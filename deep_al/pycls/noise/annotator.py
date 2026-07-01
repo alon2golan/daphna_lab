@@ -35,6 +35,9 @@ class Annotator:
         self.cost = cost
         self.seed = seed
         self.save_dir = save_dir
+        # Retained so consumers (e.g. BayesianCoverage Step A) can reconstruct the
+        # effective confusion matrix for asymmetric annotators.
+        self.noise_transition_matrix = noise_transition_matrix
         
         # Get targets from dataset
         if hasattr(dataset, 'targets'):
@@ -152,3 +155,40 @@ class Annotator:
     def accuracy(self):
         """Get the accuracy of this annotator (1 - noise_rate)."""
         return 1.0 - self.noise_rate
+
+    @property
+    def confusion_matrix(self):
+        """
+        Effective confusion matrix M[k, j] = P(observed = j | true = k), i.e. the
+        probability this annotator reports label j for a sample whose true label
+        is k. Reflects how noise is actually injected in _apply_noise: a fraction
+        `noise_rate` of samples is resampled, the rest keep the true label, so
+
+            M = (1 - noise_rate) * I  +  noise_rate * R,
+
+        where R[k, ·] is the resampling distribution for class k:
+          * clean / noise_rate == 0 -> identity (R unused),
+          * 'sym'  -> uniform over the OTHER C-1 classes (R[k,k] = 0),
+          * 'asym' -> the provided noise_transition_matrix rows.
+
+        Returns a (num_classes, num_classes) float64 numpy array with rows that
+        sum to 1.
+        """
+        C = self.num_classes
+        if self.noise_type == "clean" or self.noise_rate <= 0.0:
+            return np.eye(C, dtype=np.float64)
+
+        nr = float(self.noise_rate)
+        if self.noise_type == "sym":
+            R = np.full((C, C), 1.0 / (C - 1), dtype=np.float64)
+            np.fill_diagonal(R, 0.0)
+        elif self.noise_type == "asym":
+            if self.noise_transition_matrix is None:
+                raise ValueError("asym annotator has no noise_transition_matrix "
+                                 "to build a confusion matrix from")
+            R = np.asarray(self.noise_transition_matrix, dtype=np.float64)
+        else:
+            raise ValueError(f"Unknown noise type: {self.noise_type}")
+
+        M = (1.0 - nr) * np.eye(C, dtype=np.float64) + nr * R
+        return M

@@ -18,10 +18,11 @@ Summary of the model (design doc §2):
     Itai's additive rule -- see design doc §3: the `additive` branch is kept and
     MUST be compared empirically before `product` is adopted as default.
 
-STATUS: stub. The `product`/`additive` combine + `coverage_gain` selection +
-`prior` reliability path is implemented. Marked TODO / NotImplementedError:
+STATUS: implemented for design build-order steps 1-2. Working: `product` /
+`additive` combine, `coverage_gain` selection, `prior` reliability, and the full
+confusion-matrix Step A (symmetric AND asymmetric annotators, via
+`Annotator.confusion_matrix`). Marked TODO / NotImplementedError:
   * entropy (expected-info) selection            (design §6)
-  * asymmetric confusion-matrix annotators        (design §2, Step A)
   * TRAIN_LABEL_MODE target construction          (design §5)
   * sparse-K path
   * NoiseAwareBayesianCoverage posterior reliability r_l  (design §4, FUTURE)
@@ -134,41 +135,62 @@ class BayesianCoverage(CoverageMatrixMethod):
                 continue
             chosen_label = int(am.annotated_labels[global_idx])
             annotator_id = am.get_annotator_for_sample(global_idx)
-            r = self._reliability(global_idx, annotator_id) if self.combine == 'product' else None
-            self._fold_neighbor(local, chosen_label, r)
+            self._fold_neighbor(local, chosen_label, annotator_id)
 
     # ------------------------------------------------------------------ #
     # per-neighbor evidence (design §2 Steps A + B)
     # ------------------------------------------------------------------ #
-    def _reliability(self, global_idx, annotator_id):
+    def _confusion_matrix(self, annotator_id):
         """
-        r_l = P(l correctly labeled). For now this is the annotator's prior
-        accuracy (design §4). FUTURE: graph-based / AUM posterior override.
+        M[k, j] = P(observed = j | true = k) for the given annotator, as a
+        [C, C] tensor. Uses the annotator's own effective confusion matrix
+        (`Annotator.confusion_matrix`, which handles clean / sym / asym), and
+        falls back to a symmetric matrix built from the recorded accuracy for
+        annotator objects that don't expose it.
         """
         if annotator_id is None:
             annotator_id = self.annotator_manager.select_annotator()
-        return float(self.annotator_manager.annotator_accuracies[annotator_id])
+        annotator = self.annotator_manager.annotators[annotator_id]
+        M_np = getattr(annotator, 'confusion_matrix', None)
+        if M_np is None:
+            acc = float(self.annotator_manager.annotator_accuracies[annotator_id])
+            return self._symmetric_confusion(acc)
+        return torch.as_tensor(M_np, device=self.device, dtype=self.matrices_type)
+
+    def _symmetric_confusion(self, r):
+        """Symmetric confusion matrix with accuracy r on the diagonal and
+        (1-r)/(C-1) off-diagonal — the closed form of a `sym` annotator."""
+        C = self.num_of_classes
+        M = torch.full((C, C), (1.0 - r) / (C - 1), device=self.device, dtype=self.matrices_type)
+        M.fill_diagonal_(r)
+        return M
+
+    def _belief(self, chosen_label, M):
+        """
+        b_l(k) = P(y_l = k | y~_l = chosen_label)  ∝  pi(k) * M[k, chosen_label]
+        (design §2 Step A). General form: annotator accuracy enters through the
+        confusion matrix M, so symmetric and asymmetric annotators are handled
+        uniformly. Returns a normalized [C] tensor.
+        """
+        b = self.pi * M[:, chosen_label]                                # [C]
+        return b / b.sum().clamp_min(self.log_eps)
 
     def _neighbor_true_label_belief(self, chosen_label, r):
         """
-        b_l(k) = P(y_l = k | y~_l). Symmetric-annotator form (Step A):
-        b_l(chosen_label) = r ; uniform (1-r)/(C-1) elsewhere.
-        TODO: use the full confusion matrix for asymmetric annotators
-        (annotator.noise_transition_matrix).
+        Convenience wrapper: Step-A belief for a symmetric annotator of accuracy
+        r. Derived from the general `_belief` path so the symmetric closed form
+        (b(chosen_label) = r) is validated against the confusion-matrix form.
         """
-        C = self.num_of_classes
-        b = torch.full((C,), (1.0 - r) / (C - 1), device=self.device, dtype=self.matrices_type)
-        b[chosen_label] = r
-        return b
+        return self._belief(chosen_label, self._symmetric_confusion(r))
 
-    def _neighbor_loglik(self, k_row, chosen_label, r):
+    def _neighbor_loglik(self, k_row, b):
         """
         Weighted log-likelihood contribution of one labeled neighbor to every
-        point (design §2 Steps B + C, §2.4 weighting):
+        point (design §2 Steps B + C, §2.4 weighting), given its true-label
+        belief b (=[C], from `_belief`):
             q(u,k) = K[u,l]*b(k) + (1-K[u,l])*pi(k)
             return w_u * log q(u,k)                       shape [M, num_classes]
         """
-        b = self._neighbor_true_label_belief(chosen_label, r)           # [C]
         k = k_row.unsqueeze(1)                                          # [M,1]
         q = k * b.unsqueeze(0) + (1.0 - k) * self.pi.unsqueeze(0)       # [M,C]
         logq = torch.log(q.clamp_min(self.log_eps))
@@ -203,16 +225,18 @@ class BayesianCoverage(CoverageMatrixMethod):
     # ------------------------------------------------------------------ #
     # fold one labeled point into the coverage accumulator
     # ------------------------------------------------------------------ #
-    def _fold_neighbor(self, local_idx, chosen_label, r):
+    def _fold_neighbor(self, local_idx, chosen_label, annotator_id):
         """
         Fold the evidence of one labeled point into C. `local_idx` indexes into
         relevant_indices, `chosen_label` is its observed (possibly noisy) label,
-        `r` its reliability. Shared by the in-loop greedy step and the
+        `annotator_id` identifies the annotator (its confusion matrix supplies
+        the accuracy for Step A). Shared by the in-loop greedy step and the
         episode-start re-fold of the labeled set.
         """
         k_row = self.K[local_idx].to_dense().squeeze()
         if self.combine == 'product':
-            self.C += self._neighbor_loglik(k_row, chosen_label, r)
+            b = self._belief(chosen_label, self._confusion_matrix(annotator_id))
+            self.C += self._neighbor_loglik(k_row, b)
         else:  # additive (Itai's rule, clean-label baseline)
             self.C[:, chosen_label] += k_row
         del k_row
@@ -230,11 +254,11 @@ class BayesianCoverage(CoverageMatrixMethod):
         global_idx = int(self.relevant_indices[sampled_point])
         result = self.annotator_manager.annotate_samples([global_idx], annotator_id)
         chosen_label = result['annotated_labels'][global_idx]
+        # annotate_samples resolves None -> a concrete annotator; record which one
+        # so the confusion matrix matches the annotator that actually labelled it.
+        used_annotator = result['annotator_assignments'][global_idx]
 
-        # additive ignores r; skip the lookup so the reproduction control never
-        # touches the annotator-selection RNG.
-        r = self._reliability(global_idx, annotator_id) if self.combine == 'product' else None
-        self._fold_neighbor(sampled_point, chosen_label, r)
+        self._fold_neighbor(sampled_point, chosen_label, used_annotator)
 
         assert sampled_point not in selected, 'sample was already selected'
         selected.append(sampled_point)
