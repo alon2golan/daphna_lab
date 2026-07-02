@@ -96,6 +96,16 @@ def argparser():
                         help="Free-form run tag, repeatable. Recorded under result.json['tags'] and "
                              "surfaced in the dashboard as a groupable/filterable facet. "
                              "E.g. --tag nu_tag=sgd_b100 --tag owner=arik")
+    parser.add_argument('--train_label_mode', default=None,
+                        choices=['observed', 'map_posterior', 'filtered',
+                                 'soft_posterior', 'reweighted'],
+                        help="BayesianCoverage §5 training-target policy: how the labeled "
+                             "points are labelled for the supervised step. observed=raw noisy "
+                             "(default); map_posterior=relabel to posterior argmax; "
+                             "filtered=drop points whose leave-one-out posterior disagrees; "
+                             "soft_posterior=train on the posterior distribution; "
+                             "reweighted=weight each observed label by its LOO reliability. "
+                             "Sets cfg.BAYES_COVERAGE.TRAIN_LABEL_MODE. Only affects bayes_* runs.")
     parser.add_argument('--external_noisy_labels', default=None, type=str,
                         help="DIAGNOSTIC: path to a .npy array of shape (n_train,) of precomputed noisy "
                              "labels. When set, overrides the single noisy annotator's generated "
@@ -590,7 +600,7 @@ def main(cfg, args):
         result = annotator_manager.annotate_samples(lSet, annotator_id=initial_annotator_id)
         print(f"Initial labeled set ({len(lSet)} samples) annotated. Cost: {result['cost_spent']}")
         train_idx = _clean_training_indices(cfg, lSet, uSet, train_data_wrapped, annotator_manager)
-        lSet_loader = data_obj.getIndexesDataLoader(indexes=train_idx, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data_wrapped)
+        lSet_loader, _ = _bayes_training_loader(cfg, data_obj, train_idx, train_data_wrapped, al_obj)
         valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)  # ValSet always uses true labels
         if valSet_loader is None:
             valSet_loader = lSet_loader
@@ -731,6 +741,56 @@ def _clean_training_indices(cfg, lSet, uSet, train_data_wrapped, annotator_manag
     return clean
 
 
+def _bayes_training_loader(cfg, data_obj, train_idx, train_data_wrapped, al_obj):
+    """
+    Build the training loader, applying the BayesianCoverage §5 TRAIN_LABEL_MODE
+    (design doc §5) when the active arm is a BayesianCoverage with a non-'observed'
+    mode. Returns (loader, effective_train_idx). For every other method/mode this
+    is exactly the standard int-label loader, so their training path is unchanged.
+
+      map_posterior  -> relabel points to the posterior argmax (int path).
+      filtered       -> train only on the leave-one-out-clean subset (int path).
+      soft_posterior -> train on the posterior distribution (soft-target path).
+      reweighted     -> observed labels weighted by LOO reliability (soft-target path).
+    """
+    from deep_al.pycls.al.bayesian_coverage import BayesianCoverage
+    from deep_al.pycls.noise.noisy_label_wrapper import SoftTargetDatasetWrapper
+
+    bs = cfg.TRAIN.BATCH_SIZE
+    train_idx = np.asarray(train_idx, dtype=int)
+    # Clear any stale relabel override from a previous episode.
+    if hasattr(train_data_wrapped, 'training_label_override'):
+        train_data_wrapped.training_label_override = {}
+
+    alg = getattr(al_obj, 'al_algorithm', None)
+    mode = getattr(getattr(cfg, 'BAYES_COVERAGE', None), 'TRAIN_LABEL_MODE', 'observed')
+    std = lambda idx, data: data_obj.getIndexesDataLoader(indexes=np.asarray(idx, dtype=int),
+                                                          batch_size=bs, data=data)
+
+    if (not isinstance(alg, BayesianCoverage) or mode == 'observed'
+            or not getattr(alg, '_selection_done', False) or len(train_idx) == 0):
+        return std(train_idx, train_data_wrapped), train_idx
+
+    tt = alg.training_targets([int(i) for i in train_idx], mode)
+    if tt['mode'] == 'map_posterior':
+        train_data_wrapped.training_label_override = tt['hard_labels']
+        print(f"[bayes:{mode}] relabelled {len(tt['hard_labels'])} training points to posterior argmax")
+        return std(train_idx, train_data_wrapped), train_idx
+    if tt['mode'] == 'filtered':
+        keep = np.array(sorted(tt['keep']), dtype=int)
+        if len(keep) == 0:
+            print("[bayes:filtered] LOO posterior filter removed all points; falling back to full lSet")
+            keep = train_idx
+        else:
+            print(f"[bayes:filtered] kept {len(keep)}/{len(train_idx)} LOO-clean training points")
+        return std(keep, train_data_wrapped), keep
+    if tt['mode'] in ('soft_posterior', 'reweighted'):
+        soft_ds = SoftTargetDatasetWrapper(train_data_wrapped, tt['soft'], cfg.MODEL.NUM_CLASSES)
+        print(f"[bayes:{mode}] training on soft targets for {len(tt['soft'])} points")
+        return std(train_idx, soft_ds), train_idx
+    return std(train_idx, train_data_wrapped), train_idx
+
+
 def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet_loader, train_data, train_data_wrapped, uSet, valSet,
                          valSet_loader, al_obj, annotator_manager):
     print("======== ACTIVE SAMPLING ========\n")
@@ -779,7 +839,7 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
     lSet = np.append(lSet, activeSet)
     uSet = new_uSet
     train_idx = _clean_training_indices(cfg, lSet, uSet, train_data_wrapped, annotator_manager)
-    lSet_loader = data_obj.getIndexesDataLoader(indexes=train_idx, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data_wrapped)
+    lSet_loader, _ = _bayes_training_loader(cfg, data_obj, train_idx, train_data_wrapped, al_obj)
     valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)  # ValSet always uses true labels
     if valSet_loader is None:
         valSet_loader = lSet_loader
@@ -976,15 +1036,24 @@ def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch
         inputs, labels = inputs.cuda(), labels.cuda(non_blocking=True)
         # Perform the forward pass
         preds = model(inputs)
-        # Compute the loss
-        loss = loss_fun(preds, labels)
+        # Compute the loss. A 2-D float label batch [B, C] means SOFT targets
+        # (BayesianCoverage soft_posterior / reweighted): use soft cross-entropy
+        # -sum(y*logsoftmax(x)). reweighted encodes its per-sample weight as the
+        # row sum, so this same path applies it. Integer labels keep the normal
+        # (hard) cross-entropy untouched for every other method.
+        if labels.dim() == 2:
+            loss = -(labels * torch.nn.functional.log_softmax(preds, dim=-1)).sum(dim=1).mean()
+            hard_labels = labels.argmax(dim=1)
+        else:
+            loss = loss_fun(preds, labels)
+            hard_labels = labels
         # Perform the backward pass
         optimizer.zero_grad()
         loss.backward()
         # Update the parametersSWA
         optimizer.step()
         # Compute the errors
-        top1_err, top5_err = mu.topk_errors(preds, labels, [1, 5])
+        top1_err, top5_err = mu.topk_errors(preds, hard_labels, [1, 5])
         # Copy the stats from GPU to CPU (sync point)
         loss, top1_err = loss.item(), top1_err.item()
         if cur_iter != 0 and cur_iter%19 == 0:
@@ -1053,5 +1122,8 @@ if __name__ == "__main__":
     # Parse command line arguments and setup config in one call
     args = argparser().parse_args()
     cfg_instance = setup_cfg(args)
+    # BayesianCoverage §5 training-target policy (CLI overrides the cfg default).
+    if getattr(args, 'train_label_mode', None):
+        cfg_instance.BAYES_COVERAGE.TRAIN_LABEL_MODE = args.train_label_mode
     # Run main with the initialized config
     main(cfg_instance, args)

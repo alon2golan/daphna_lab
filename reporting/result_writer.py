@@ -100,6 +100,8 @@ class ResultWriter:
             "noise_rate": _noise_rate,
             "noise_filter": _nf_method,
             "train_on_clean": bool(_toc),
+            "train_label_mode": getattr(getattr(cfg, "BAYES_COVERAGE", None),
+                                        "TRAIN_LABEL_MODE", "observed"),
             "track_progress": bool(getattr(args, "track_progress", False)),
         }
 

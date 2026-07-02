@@ -294,5 +294,88 @@ class TestBeliefFromConfusion(unittest.TestCase):
         self.assertAlmostEqual(float(b[2]), ann.accuracy, places=9)
 
 
+class _StubAnn:
+    def __init__(self, M): self._M = M
+    @property
+    def confusion_matrix(self): return self._M
+
+
+class _StubMgr:
+    def __init__(self, M, labels):
+        self.annotators = [_StubAnn(M)]
+        self.annotator_accuracies = [float(np.diag(M)[0])]
+        self.annotated_labels = labels          # {global_idx: observed_label}
+    def get_annotator_for_sample(self, g): return 0
+    def select_annotator(self): return 0
+
+
+def _bc_with_posterior():
+    """
+    A product BayesianCoverage whose persisted accumulator C_general encodes,
+    for 3 labeled points, a self-vote (from the observed label at accuracy 0.8)
+    plus a neighbour boost:
+      pt0 observed=0, neighbours boost 0  -> LOO agrees   (clean)
+      pt1 observed=0, neighbours boost 1  -> LOO disagrees (noisy; map flips->1)
+      pt2 observed=1, neighbours boost 1  -> LOO agrees   (clean)
+    """
+    C = 3
+    r = 0.8
+    M = np.full((C, C), (1 - r) / (C - 1)); np.fill_diagonal(M, r)
+    bc = make_bc(num_classes=C, combine='product')
+    bc.annotator_manager = _StubMgr(M, {0: 0, 1: 0, 2: 1})
+    bc.train_label_mode = 'observed'
+    logpi = torch.log(bc.pi)
+    def belief(c):
+        b = torch.full((C,), (1 - r) / (C - 1), dtype=torch.float64); b[c] = r
+        return torch.log(b)
+    rows = torch.stack([
+        logpi + belief(0) + torch.tensor([2., 0., 0.], dtype=torch.float64),
+        logpi + belief(0) + torch.tensor([0., 3., 0.], dtype=torch.float64),
+        logpi + belief(1) + torch.tensor([0., 2., 0.], dtype=torch.float64),
+    ])
+    # C_general is indexed by GLOBAL idx; points live at global 0,1,2.
+    bc.C_general = rows
+    return bc
+
+
+class TestTrainingTargets(unittest.TestCase):
+    def test_observed_passthrough(self):
+        bc = _bc_with_posterior()
+        self.assertEqual(bc.training_targets([0, 1, 2], 'observed'), {'mode': 'observed'})
+
+    def test_map_posterior_relabels_on_neighbour_override(self):
+        bc = _bc_with_posterior()
+        out = bc.training_targets([0, 1, 2], 'map_posterior')
+        # pt1's strong disagreeing neighbours flip its label 0 -> 1; others stay.
+        self.assertEqual(out['hard_labels'], {0: 0, 1: 1, 2: 1})
+
+    def test_filtered_drops_neighbour_disagreements(self):
+        bc = _bc_with_posterior()
+        out = bc.training_targets([0, 1, 2], 'filtered')
+        # LOO: pt0 (obs0, boost0) and pt2 (obs1, boost1) agree -> kept; pt1 dropped.
+        self.assertEqual(sorted(out['keep']), [0, 2])
+
+    def test_soft_posterior_returns_valid_distributions(self):
+        bc = _bc_with_posterior()
+        out = bc.training_targets([0, 1, 2], 'soft_posterior')
+        for g in (0, 1, 2):
+            v = out['soft'][g]
+            self.assertEqual(v.shape, (3,))
+            self.assertAlmostEqual(float(v.sum()), 1.0, places=6)
+        # pt0 soft target peaks on class 0
+        self.assertEqual(int(out['soft'][0].argmax()), 0)
+
+    def test_reweighted_weights_by_loo_reliability(self):
+        bc = _bc_with_posterior()
+        out = bc.training_targets([0, 1, 2], 'reweighted')
+        # each soft target is w*onehot(observed): mass on the observed class only
+        self.assertEqual(int(out['soft'][0].argmax()), 0)   # observed 0
+        self.assertEqual(int(out['soft'][2].argmax()), 1)   # observed 1
+        w0 = out['soft'][0][0]      # pt0 neighbours agree -> high reliability
+        w1 = out['soft'][1][0]      # pt1 neighbours disagree -> low reliability
+        self.assertGreater(w0, w1)
+        self.assertTrue(0.0 <= w1 <= w0 <= 1.0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

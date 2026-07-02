@@ -86,6 +86,9 @@ class BayesianCoverage(CoverageMatrixMethod):
             raise NotImplementedError("PRIOR='empirical' not implemented yet.")
         self.pi = pi
         self.log_eps = 1e-12
+        # Becomes True once a selection has populated C_general, so training-time
+        # posterior queries (training_targets) don't run on an all-prior C_general.
+        self._selection_done = False
 
     # ------------------------------------------------------------------ #
     # coverage representation
@@ -265,22 +268,118 @@ class BayesianCoverage(CoverageMatrixMethod):
         return sampled_point, global_idx, chosen_label
 
     # ------------------------------------------------------------------ #
+    # per-point posterior over GLOBAL indices (read after selection)
+    # ------------------------------------------------------------------ #
+    # select_samples persists the final per-point accumulator into
+    # self.C_general[self.relevant_indices] before deleting self.C, so the
+    # posterior for any point survives the episode and can be queried at
+    # training time (train_al calls training_targets after selection).
+
+    def _finalize_selection(self, selected, num_samples):
+        # Mark that C_general now holds real posteriors (base method untouched).
+        self._selection_done = True
+        return super()._finalize_selection(selected, num_samples)
+
+    def _accum_rows(self, global_indices):
+        idx = torch.as_tensor([int(g) for g in global_indices],
+                              device=self.device, dtype=torch.long)
+        return self.C_general[idx]                                # [k, C]
+
+    def posterior_for(self, global_indices):
+        """Per-point posterior P(y=·) for the given GLOBAL indices -> [k, C]."""
+        rows = self._accum_rows(global_indices)
+        if self.combine == 'product':
+            return torch.softmax(rows, dim=1)
+        return rows / rows.sum(dim=1, keepdim=True).clamp_min(self.log_eps)
+
+    def _loo_posterior_for(self, global_indices):
+        """
+        Leave-one-out posterior: the same posterior with each point's OWN
+        observed-label vote removed, so it reflects only that point's NEIGHBORS
+        (the graph-based reliability signal, design §4b). This is what makes a
+        labeled point's cleanliness judgeable — the full posterior is dominated
+        by the point's own (self-loop K=1) vote and would rarely disagree.
+        """
+        rows = self._accum_rows(global_indices).clone()
+        am = self.annotator_manager
+        for i, g in enumerate(global_indices):
+            g = int(g)
+            if am is None or g not in am.annotated_labels:
+                continue
+            c = int(am.annotated_labels[g])
+            if self.combine == 'product':
+                # self-term = temper_beta * w_ll * log q_ll; the self-loop has
+                # K[l,l]=1 (distance 0, tophat or rbf) so q_ll=b_l and w_ll=1.
+                b = self._belief(c, self._confusion_matrix(am.get_annotator_for_sample(g)))
+                rows[i] -= self.temper_beta * torch.log(b.clamp_min(self.log_eps))
+            else:
+                rows[i, c] -= 1.0                                 # additive: drop one count
+        if self.combine == 'product':
+            return torch.softmax(rows, dim=1)
+        rows = rows.clamp_min(0.0)
+        return rows / rows.sum(dim=1, keepdim=True).clamp_min(self.log_eps)
+
+    # ------------------------------------------------------------------ #
     # training-target policy (design §5) -- CONFIGURABLE, to be compared
     # ------------------------------------------------------------------ #
-    def training_targets(self, labeled_local):
+    def training_targets(self, global_indices, mode=None):
         """
-        Build training targets for the labeled points according to
-        TRAIN_LABEL_MODE. These arms are meant to be compared head-to-head
-        (design §5), not hardcoded.
+        Build training targets for the given labeled GLOBAL indices according to
+        TRAIN_LABEL_MODE (design §5) -- an experimental arm to compare, not a
+        baked-in choice. Returns a dict describing how train_al should build the
+        training loader:
 
-        Returns targets aligned with `labeled_local`. Soft modes return a
-        distribution per point; hard modes return integer labels.
+          observed       -> {'mode':'observed'}                      (raw noisy labels)
+          map_posterior  -> {'mode', 'hard_labels': {gidx: int}}     (argmax posterior)
+          filtered       -> {'mode', 'keep': [gidx, ...]}            (LOO-clean subset)
+          soft_posterior -> {'mode', 'soft': {gidx: np[C]}}          (posterior as soft label)
+          reweighted     -> {'mode', 'soft': {gidx: np[C]}}          (w*onehot(observed),
+                                                                      w = LOO reliability)
+
+        The clean/reliability signal is the method's OWN posterior (design §4b,
+        no AUM); reweighted/filtered use the leave-one-out posterior so a point's
+        own vote does not mask a disagreeing neighbourhood.
         """
-        raise NotImplementedError(
-            "TRAIN_LABEL_MODE dispatch not implemented yet. Planned arms "
-            "(design §5): observed | soft_posterior | map_posterior | "
-            "reweighted | filtered. Wire this to the trainer + dashboard facet."
-        )
+        mode = mode or self.train_label_mode
+        am = self.annotator_manager
+        gidxs = [int(g) for g in global_indices]
+        observed = {g: int(am.annotated_labels[g]) for g in gidxs
+                    if am is not None and g in am.annotated_labels}
+
+        if mode == 'observed':
+            return {'mode': 'observed'}
+
+        if mode == 'map_posterior':
+            P = self.posterior_for(gidxs)
+            hard = {g: int(P[i].argmax()) for i, g in enumerate(gidxs)}
+            return {'mode': mode, 'hard_labels': hard}
+
+        if mode == 'filtered':
+            Ploo = self._loo_posterior_for(gidxs)
+            keep = [g for i, g in enumerate(gidxs)
+                    if g in observed and int(Ploo[i].argmax()) == observed[g]]
+            return {'mode': mode, 'keep': keep}
+
+        if mode == 'soft_posterior':
+            P = self.posterior_for(gidxs)
+            soft = {g: P[i].detach().cpu().numpy() for i, g in enumerate(gidxs)}
+            return {'mode': mode, 'soft': soft}
+
+        if mode == 'reweighted':
+            Ploo = self._loo_posterior_for(gidxs)
+            soft = {}
+            for i, g in enumerate(gidxs):
+                if g not in observed:
+                    continue
+                w = float(Ploo[i, observed[g]])          # reliability of the observed label
+                v = np.zeros(self.num_of_classes, dtype=np.float32)
+                v[observed[g]] = w
+                soft[g] = v
+            return {'mode': mode, 'soft': soft}
+
+        raise ValueError(
+            f"Unknown TRAIN_LABEL_MODE={mode!r}. Expected one of: observed, "
+            "map_posterior, filtered, soft_posterior, reweighted.")
 
 
 class NoiseAwareBayesianCoverage(BayesianCoverage, NoiseAwareCoverage):

@@ -114,20 +114,32 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", choices=sorted(DATASET_DIRS), default="cifar10",
                     help="Which dataset's BAYESCOV_n*.yaml configs to sweep.")
+    ap.add_argument("--train_label_modes", default=None,
+                    help="Comma-separated §5 TRAIN_LABEL_MODE arms (e.g. "
+                         "observed,map_posterior,filtered,soft_posterior,reweighted). "
+                         "When set, the sweep FIXES al=bayes_product and varies the "
+                         "training-label policy instead of the AL method. Recorded in "
+                         "result.json params.train_label_mode (dashboard facet).")
     ap.add_argument("--submit", action="store_true",
                     help="Write the .sh and sbatch it via the SLURM login node.")
     args = ap.parse_args()
 
     al_configs = al_configs_for(DATASET_DIRS[args.dataset])
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    sweep_name = f"BAYESCOV_compare_{args.dataset}_n0_20_50_80__{ts}"
-    jobs = build_jobs_from(al_configs, GRID, FIXED_ARGS, sweep_name=sweep_name)
+    if args.train_label_modes:
+        modes = [m.strip() for m in args.train_label_modes.split(",") if m.strip()]
+        grid = dict(al=["bayes_product"], train_label_mode=modes, seed=[1, 2, 3])
+        sweep_name = f"BAYESCOV_trainmode_{args.dataset}_n0_20_50_80__{ts}"
+    else:
+        grid = GRID
+        sweep_name = f"BAYESCOV_compare_{args.dataset}_n0_20_50_80__{ts}"
+    jobs = build_jobs_from(al_configs, grid, FIXED_ARGS, sweep_name=sweep_name)
     script = build_script(jobs, ARRAY_THROTTLE)
 
     print(f"Sweep name : {sweep_name}")
     print(f"Dataset    : {args.dataset}")
     print(f"Cfgs       : {len(al_configs)}  (noise 0.0/0.2/0.5/0.8)")
-    print(f"Grid       : {GRID}")
+    print(f"Grid       : {grid}")
     print(f"Fixed args : {FIXED_ARGS.strip()}")
     print(f"Total runs : {len(jobs)}  (array 0-{len(jobs) - 1}%{ARRAY_THROTTLE})\n")
     for j in jobs:
