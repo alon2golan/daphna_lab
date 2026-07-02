@@ -1,0 +1,53 @@
+# Bayesian-coverage comparison config — CIFAR100, linear-on-SimCLR-features.
+# One noisy annotator at symmetric noise rate 0.0. NOISE_FILTER.METHOD='none'
+# so ALL arms (random/probcover/bayes_additive/bayes_product) train on the raw
+# observed (noisy) labels — the apples-to-apples base for the design §3
+# product-vs-additive gate. (npc, which needs a filter, is a separate arm.)
+# Run via batch_utils/sweep_bayes_coverage.py.
+RNG_SEED: 1
+DATASET:
+  NAME: CIFAR100
+  ROOT_DIR: './data'
+  VAL_RATIO: 0.1
+  AUG_METHOD: 'hflip'
+MODEL:
+  TYPE: resnet18          # ignored under eval_model_type=from_features
+  NUM_CLASSES: 100
+OPTIM:
+  TYPE: 'sgd'
+  BASE_LR: 0.025
+  LR_POLICY: cos
+  LR_MULT: 0.1
+  MAX_EPOCH: 200
+  MOMENTUM: 0.9
+  NESTEROV: True
+  WEIGHT_DECAY: 0.0003
+  GAMMA: 0.1
+TRAIN:
+  SPLIT: train
+  BATCH_SIZE: 100
+  IM_SIZE: 32
+  EVAL_PERIOD: 2
+TEST:
+  SPLIT: test
+  BATCH_SIZE: 200
+  IM_SIZE: 32
+DATA_LOADER:
+  NUM_WORKERS: 8
+CUDNN:
+  BENCHMARK: True
+ANNOTATORS:
+  ENABLED: True
+  MODE: 'single'
+  NUM_ANNOTATORS: 1
+  NOISE_TYPE: 'sym'
+  NOISE_RATES: [0.0]
+  COSTS: [1]
+NOISE_FILTER:
+  METHOD: 'none'
+ACTIVE_LEARNING:
+  INIT_L_RATIO: 0.0
+  BUDGET_SIZE: 100
+  MAX_ITER: 9             # 100 -> 1000 labeled over 10 episodes
+  DELTA_RESOLUTION: 0.05
+  MAX_DELTA: 1.1

@@ -56,14 +56,21 @@ from sweep_train_al import (
 )
 
 # --- sweep definition --------------------------------------------------------
-CFG_DIR = "deep_al/configs/cifar10/al"
-# Each cfg fixes the noise level; the noise=<level> tag makes it a dashboard facet.
-AL_CONFIGS = [
-    f"--cfg {CFG_DIR}/BAYESCOV_n00.yaml --tag noise=0.0",
-    f"--cfg {CFG_DIR}/BAYESCOV_n20.yaml --tag noise=0.2",
-    f"--cfg {CFG_DIR}/BAYESCOV_n50.yaml --tag noise=0.5",
-    f"--cfg {CFG_DIR}/BAYESCOV_n80.yaml --tag noise=0.8",
-]
+# NOTE on budget regime: budget 100 x10 episodes -> 100..1000 labeled. On CIFAR100
+# (C=100) that is 1..10 examples/class = ProbCover's intended LOW-budget regime.
+# On CIFAR10 (C=10) the SAME grid reaches 100/class, well past the low-budget
+# regime where coverage helps — read CIFAR10 curves only at the low end (<=~300).
+DATASET_DIRS = {"cifar10": "deep_al/configs/cifar10/al",
+                "cifar100": "deep_al/configs/cifar100/al"}
+
+def al_configs_for(cfg_dir):
+    # Each cfg fixes the noise level; the noise=<level> tag makes it a dashboard facet.
+    return [
+        f"--cfg {cfg_dir}/BAYESCOV_n00.yaml --tag noise=0.0",
+        f"--cfg {cfg_dir}/BAYESCOV_n20.yaml --tag noise=0.2",
+        f"--cfg {cfg_dir}/BAYESCOV_n50.yaml --tag noise=0.5",
+        f"--cfg {cfg_dir}/BAYESCOV_n80.yaml --tag noise=0.8",
+    ]
 GRID = dict(
     al=["random", "probcover", "bayes_additive", "bayes_product"],
     seed=[1, 2, 3],
@@ -105,17 +112,21 @@ def build_script(jobs, array_throttle):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--dataset", choices=sorted(DATASET_DIRS), default="cifar10",
+                    help="Which dataset's BAYESCOV_n*.yaml configs to sweep.")
     ap.add_argument("--submit", action="store_true",
                     help="Write the .sh and sbatch it via the SLURM login node.")
     args = ap.parse_args()
 
+    al_configs = al_configs_for(DATASET_DIRS[args.dataset])
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    sweep_name = f"BAYESCOV_compare_cifar10_n0_20_50_80__{ts}"
-    jobs = build_jobs_from(AL_CONFIGS, GRID, FIXED_ARGS, sweep_name=sweep_name)
+    sweep_name = f"BAYESCOV_compare_{args.dataset}_n0_20_50_80__{ts}"
+    jobs = build_jobs_from(al_configs, GRID, FIXED_ARGS, sweep_name=sweep_name)
     script = build_script(jobs, ARRAY_THROTTLE)
 
     print(f"Sweep name : {sweep_name}")
-    print(f"Cfgs       : {len(AL_CONFIGS)}  (noise 0.0/0.2/0.5/0.8)")
+    print(f"Dataset    : {args.dataset}")
+    print(f"Cfgs       : {len(al_configs)}  (noise 0.0/0.2/0.5/0.8)")
     print(f"Grid       : {GRID}")
     print(f"Fixed args : {FIXED_ARGS.strip()}")
     print(f"Total runs : {len(jobs)}  (array 0-{len(jobs) - 1}%{ARRAY_THROTTLE})\n")
