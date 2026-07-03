@@ -250,11 +250,13 @@ def load_cifar_n_labels(pt_path: str | Path, variant: str = "auto") -> np.ndarra
     if variant != "auto":
         return np.asarray(data[variant], dtype=np.int64)
 
-    for key in ["aggre_label", "worst_label", "clean_label", "random_label1", "random_label2", "random_label3"]:
+    # CIFAR-10N usually has aggre_label/worst_label/random_label*.
+    # CIFAR-100N official file has noisy_label + clean_label.
+    for key in ["aggre_label", "noisy_label", "worst_label", "random_label1", "random_label2", "random_label3"]:
         if key in data:
             return np.asarray(data[key], dtype=np.int64)
 
-    raise KeyError(f"No CIFAR-N label key found. Available keys: {list(data.keys())}")
+    raise KeyError(f"No CIFAR-N noisy-label key found. Available keys: {list(data.keys())}")
 
 
 def attach_noisy_labels_to_dataset(dataset, noisy_labels: np.ndarray | list[int]):
