@@ -56,11 +56,12 @@ from noise_utils import (
     save_transition_matrix,
     load_cifar_n_labels,
 )
+import noise_cleaning as noise_cleaning
 
 logger = logging.getLogger("run_noise_al_pipeline")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
-SUPPORTED_NOISE_METHODS = {None, "none", "label_cleaning", "aum"}
+SUPPORTED_NOISE_METHODS = {None, "none", "label_cleaning", "crossval", "crossval_label_cleaning", "temporal", "aum", "aum_relabel"}
 CIFAR_N_VARIANTS = {
     "auto",
     "aggre_label",
@@ -384,6 +385,9 @@ def build_cfg(cfg_file: str, pipeline: Dict[str, Any]) -> Any:
         "ACTIVE_LEARNING.INITIAL_SIGMA": run_args.get("initial_sigma"),
         "KERNEL_TYPE": run_args.get("kernel_type"),
         "EVAL_MODEL_TYPE": run_args.get("eval_model_type"),
+        "MODEL.LOSS_FUN": run_args.get("loss_fun"),
+        "MODEL.GCE_Q": run_args.get("gce_q"),
+        "MODEL.BOOTSTRAP_BETA": run_args.get("bootstrap_beta"),
         "OPTIM.MAX_EPOCH": run_args.get("max_epoch"),
         "OPTIM.BASE_LR": run_args.get("base_lr"),
         "OPTIM.WEIGHT_DECAY": run_args.get("weight_decay"),
@@ -853,6 +857,8 @@ def build_run_summary(cfg: Any, pipeline: Dict[str, Any], extra: Optional[Dict[s
             'type': _cfg_get(cfg, 'MODEL.TYPE'),
             'num_classes': _cfg_get(cfg, 'MODEL.NUM_CLASSES'),
             'loss_fun': _cfg_get(cfg, 'MODEL.LOSS_FUN'),
+            'gce_q': _cfg_get(cfg, 'MODEL.GCE_Q'),
+            'bootstrap_beta': _cfg_get(cfg, 'MODEL.BOOTSTRAP_BETA'),
             'use_1nn': _maybe_bool(_cfg_get(cfg, 'MODEL.USE_1NN')),
             'linear_from_features': _maybe_bool(_cfg_get(cfg, 'MODEL.LINEAR_FROM_FEATURES')),
             'linear_from_images': _maybe_bool(_cfg_get(cfg, 'MODEL.LINEAR_FROM_IMAGES')),
@@ -889,6 +895,9 @@ def build_run_summary(cfg: Any, pipeline: Dict[str, Any], extra: Optional[Dict[s
         },
         'raw_pipeline': pipeline,
     }
+    if '_runtime_cleaning_state' in summary.get('raw_pipeline', {}):
+        summary['raw_pipeline'] = dict(summary['raw_pipeline'])
+        summary['raw_pipeline'].pop('_runtime_cleaning_state', None)
     if extra:
         summary['runtime'] = _jsonify(extra)
     return _jsonify(summary)
@@ -980,123 +989,101 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, trai
 
 
 def run_label_cleaning(train_data: Any, lSet: np.ndarray, cfg: Any, checkpoint_file: Optional[str], train_al_module: Any,
-                       threshold: float = 0.9) -> Dict[str, Any]:
-    if checkpoint_file is None:
-        return {"fixed": 0, "changed_indices": []}
+                       threshold: float = 0.9, pred_source: str = "checkpoint", crossval_folds: int = 5,
+                       crossval_max_iter: int = 300) -> Dict[str, Any]:
+    if pred_source == "crossval":
+        return noise_cleaning.run_crossval_cleaning(
+            train_data,
+            lSet,
+            cfg,
+            threshold=threshold,
+            folds=crossval_folds,
+            max_iter=crossval_max_iter,
+        )
 
-    import torch
-
-    model = train_al_module.mh.get_model(cfg, checkpoint_file)
-    device = "cuda" if (cfg.NUM_GPUS > 0 and torch.cuda.is_available()) else "cpu"
-    model.to(device)
-    model.eval()
-
-    labels = get_current_train_labels(train_data)
-    clean_labels = np.asarray(train_data.clean_labels) if hasattr(train_data, "clean_labels") else None
-
-    stats = {
-        "total_noisy_in_lSet": 0,
-        "correctly_fixed": 0,
-        "clean_corrupted": 0,
-        "wrong_to_wrong": 0,
-    }
-    if clean_labels is not None:
-        stats["total_noisy_in_lSet"] = int(np.sum(labels[lSet.astype(int)] != clean_labels[lSet.astype(int)]))
-
-    fixed = 0
-    changed = []
-    with torch.no_grad():
-        for start in range(0, len(lSet), cfg.TRAIN.BATCH_SIZE):
-            batch_indices = lSet[start:start + cfg.TRAIN.BATCH_SIZE].astype(int)
-            samples = [train_data[int(idx)][0] for idx in batch_indices]
-            try:
-                inputs = torch.stack([x if isinstance(x, torch.Tensor) else torch.tensor(x) for x in samples]).to(device)
-            except Exception:
-                inputs = torch.tensor(np.stack([np.asarray(x) for x in samples])).to(device)
-
-            probs = torch.nn.functional.softmax(model(inputs), dim=1)
-            confs, preds = probs.max(dim=1)
-            for idx, pred, conf in zip(batch_indices, preds.cpu().numpy(), confs.cpu().numpy()):
-                idx = int(idx)
-                pred = int(pred)
-                cur_label = int(labels[idx])
-                if pred == cur_label or float(conf) < threshold:
-                    continue
-
-                if clean_labels is not None:
-                    true_label = int(clean_labels[idx])
-                    if cur_label != true_label and pred == true_label:
-                        stats["correctly_fixed"] += 1
-                    elif cur_label == true_label and pred != true_label:
-                        stats["clean_corrupted"] += 1
-                    elif cur_label != true_label and pred != true_label:
-                        stats["wrong_to_wrong"] += 1
-
-                _set_one_label(train_data, idx, pred)
-                labels[idx] = pred
-                changed.append(idx)
-                fixed += 1
-
-    logger.info("Label cleaning changed %d labels | stats=%s", fixed, stats)
-    return {"fixed": fixed, "changed_indices": changed, "stats": stats}
+    return noise_cleaning.run_checkpoint_cleaning(
+        train_data,
+        lSet,
+        cfg,
+        checkpoint_file,
+        train_al_module,
+        threshold=threshold,
+    )
 
 
-def run_aum(train_data: Any, lSet: np.ndarray, cfg: Any, checkpoint_file: Optional[str], train_al_module: Any) -> Dict[str, Any]:
-    if checkpoint_file is None:
-        return {"status": "skipped", "reason": "no checkpoint"}
+def run_aum(train_data: Any, lSet: np.ndarray, cfg: Any, checkpoint_file: Optional[str], train_al_module: Any,
+            pipeline: Dict[str, Any]) -> Dict[str, Any]:
+    state = pipeline.setdefault("_runtime_cleaning_state", {})
+    return noise_cleaning.run_aum_cleaning(
+        train_data,
+        lSet,
+        cfg,
+        checkpoint_file,
+        train_al_module,
+        state,
+        percentile=float(pipeline["noise_handling"].get("aum_percentile", 10.0)),
+        confidence_threshold=float(pipeline["noise_handling"].get("aum_conf_threshold", 0.8)),
+    )
 
-    try:
-        from aum import AUMCalculator
-    except Exception:
-        logger.exception("AUM package is unavailable")
-        return {"status": "skipped", "reason": "aum package unavailable"}
 
-    import torch
-
-    aum_dir = os.path.join(cfg.EPISODE_DIR, "aum_stats")
-    os.makedirs(aum_dir, exist_ok=True)
-    aum_calc = AUMCalculator(save_dir=aum_dir)
-
-    labels = get_current_train_labels(train_data)
-    model = train_al_module.mh.get_model(cfg, checkpoint_file)
-    device = "cuda" if (cfg.NUM_GPUS > 0 and torch.cuda.is_available()) else "cpu"
-    model.to(device)
-    model.eval()
-
-    with torch.no_grad():
-        for start in range(0, len(lSet), cfg.TRAIN.BATCH_SIZE):
-            batch_indices = lSet[start:start + cfg.TRAIN.BATCH_SIZE].astype(int)
-            samples = [train_data[int(idx)][0] for idx in batch_indices]
-            try:
-                inputs = torch.stack([x if isinstance(x, torch.Tensor) else torch.tensor(x) for x in samples]).to(device)
-            except Exception:
-                inputs = torch.tensor(np.stack([np.asarray(x) for x in samples])).to(device)
-            logits = model(inputs).cpu().numpy()
-            targets = labels[batch_indices]
-            aum_calc.update(logits, targets, batch_indices)
-
-    if hasattr(aum_calc, "save"):
-        aum_calc.save()
-    return {"status": "completed", "aum_dir": aum_dir}
+def run_temporal(train_data: Any, lSet: np.ndarray, cfg: Any, checkpoint_file: Optional[str], train_al_module: Any,
+                 pipeline: Dict[str, Any]) -> Dict[str, Any]:
+    state = pipeline.setdefault("_runtime_cleaning_state", {})
+    return noise_cleaning.run_temporal_cleaning(
+        train_data,
+        lSet,
+        cfg,
+        checkpoint_file,
+        train_al_module,
+        state,
+        threshold=float(pipeline["noise_handling"].get("temporal_conf_threshold", 0.8)),
+        momentum=float(pipeline["noise_handling"].get("temporal_momentum", 0.8)),
+        min_seen=int(pipeline["noise_handling"].get("temporal_min_seen", 2)),
+    )
 
 
 def run_noise_method(method: Optional[str], train_data: Any, lSet: np.ndarray, cfg: Any, checkpoint_file: Optional[str],
                      train_al_module: Any, cur_episode: int, final_val_acc: float, pipeline: Dict[str, Any]) -> Dict[str, Any]:
     method = "none" if method in [None, ""] else str(method).lower()
     if method not in SUPPORTED_NOISE_METHODS:
-        raise NotImplementedError(f"noise_method={method} is not implemented. Use: label_cleaning, aum, none")
+        raise NotImplementedError(f"noise_method={method} is not implemented. Use: {sorted(x for x in SUPPORTED_NOISE_METHODS if x)}")
     if method == "none":
         return {"status": "skipped", "method": "none"}
 
     warmup_episode = int(pipeline["noise_handling"].get("warmup_episode", 3))
     warmup_min_acc = float(pipeline["noise_handling"].get("warmup_min_acc", 60.0))
     if cur_episode < warmup_episode and final_val_acc < warmup_min_acc:
-        return {"status": "skipped", "reason": "warmup"}
+        return {"status": "skipped", "reason": "warmup", "method": method}
+
+    threshold = float(pipeline["noise_handling"].get("cleaning_conf_threshold", 0.9))
+    pred_source = str(pipeline["noise_handling"].get("cleaning_pred_source", "checkpoint")).lower()
+    crossval_folds = int(pipeline["noise_handling"].get("crossval_folds", 5))
+    crossval_max_iter = int(pipeline["noise_handling"].get("crossval_max_iter", 300))
 
     if method == "label_cleaning":
-        return run_label_cleaning(train_data, lSet, cfg, checkpoint_file, train_al_module)
-    if method == "aum":
-        return run_aum(train_data, lSet, cfg, checkpoint_file, train_al_module)
+        return run_label_cleaning(
+            train_data, lSet, cfg, checkpoint_file, train_al_module,
+            threshold=threshold,
+            pred_source=pred_source,
+            crossval_folds=crossval_folds,
+            crossval_max_iter=crossval_max_iter,
+        )
+
+    if method in {"crossval", "crossval_label_cleaning"}:
+        return run_label_cleaning(
+            train_data, lSet, cfg, checkpoint_file, train_al_module,
+            threshold=threshold,
+            pred_source="crossval",
+            crossval_folds=crossval_folds,
+            crossval_max_iter=crossval_max_iter,
+        )
+
+    if method in {"aum", "aum_relabel"}:
+        return run_aum(train_data, lSet, cfg, checkpoint_file, train_al_module, pipeline)
+
+    if method == "temporal":
+        return run_temporal(train_data, lSet, cfg, checkpoint_file, train_al_module, pipeline)
+
     raise NotImplementedError(method)
 
 
@@ -1158,6 +1145,9 @@ def evaluate_final_knn(
     train_x, train_y = _collect_dataset_numpy(train_data, lSet)
     val_x, val_y = _collect_dataset_numpy(train_data, valSet)
     test_x, test_y = _collect_dataset_numpy(test_data, None)
+    train_x = noise_cleaning.l2_normalize(train_x)
+    val_x = noise_cleaning.l2_normalize(val_x)
+    test_x = noise_cleaning.l2_normalize(test_x)
 
     if len(train_y) == 0:
         return {"status": "skipped", "reason": "empty labeled set"}
@@ -1219,6 +1209,15 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "method": noise_method_norm,
             "warmup_episode": args.warmup_episode,
             "warmup_min_acc": args.warmup_min_acc,
+            "cleaning_conf_threshold": args.cleaning_conf_threshold,
+            "cleaning_pred_source": args.cleaning_pred_source,
+            "crossval_folds": args.crossval_folds,
+            "crossval_max_iter": args.crossval_max_iter,
+            "temporal_momentum": args.temporal_momentum,
+            "temporal_min_seen": args.temporal_min_seen,
+            "temporal_conf_threshold": args.temporal_conf_threshold,
+            "aum_percentile": args.aum_percentile,
+            "aum_conf_threshold": args.aum_conf_threshold,
         },
         "evaluation": {
             "also_eval_knn": bool(args.also_eval_knn),
@@ -1234,6 +1233,9 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "initial_sigma": args.initial_sigma,
             "kernel_type": args.kernel_type,
             "eval_model_type": args.eval_model_type,
+            "loss_fun": args.loss_fun,
+            "gce_q": args.gce_q,
+            "bootstrap_beta": args.bootstrap_beta,
             "max_epoch": args.max_epoch,
             "base_lr": args.base_lr,
             "weight_decay": args.weight_decay,
@@ -1489,11 +1491,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--noise_method", default="none", type=str)
     parser.add_argument("--warmup_episode", default=3, type=int)
     parser.add_argument("--warmup_min_acc", default=60.0, type=float)
+    parser.add_argument("--cleaning_conf_threshold", default=0.9, type=float)
+    parser.add_argument("--cleaning_pred_source", default="checkpoint", choices=["checkpoint", "crossval"], type=str,
+                        help="Prediction source for label_cleaning: checkpoint model or K-fold cross-val head over frozen features.")
+    parser.add_argument("--crossval_folds", default=5, type=int)
+    parser.add_argument("--crossval_max_iter", default=300, type=int)
+    parser.add_argument("--temporal_momentum", default=0.8, type=float)
+    parser.add_argument("--temporal_min_seen", default=2, type=int)
+    parser.add_argument("--temporal_conf_threshold", default=0.8, type=float)
+    parser.add_argument("--aum_percentile", default=10.0, type=float)
+    parser.add_argument("--aum_conf_threshold", default=0.8, type=float)
 
     parser.add_argument("--grid_noise_types", default=None, type=str)
     parser.add_argument("--grid_al_methods", default=None, type=str)
     parser.add_argument("--grid_noise_methods", default=None, type=str)
     parser.add_argument("--grid_out_dir", default=None, type=str)
+    parser.add_argument("--grid_json_path", default=None, type=str,
+                        help="Path to one shared aggregate grid JSON file.")
+    parser.add_argument("--debug_json", action="store_true",
+                        help="Write full old-style JSON. Without this flag, write only light final-result entries.")
 
     parser.add_argument("--seed", default=None, type=int)
     parser.add_argument("--features_tag", default=None, type=str)
@@ -1501,6 +1517,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--initial_sigma", default=None, type=float)
     parser.add_argument("--kernel_type", default=None, type=str)
     parser.add_argument("--eval_model_type", default=None, type=str)
+    parser.add_argument("--loss_fun", default=None, choices=["cross_entropy", "gce", "bootstrap_soft", "bootstrap_hard"], type=str)
+    parser.add_argument("--gce_q", default=0.7, type=float)
+    parser.add_argument("--bootstrap_beta", default=0.8, type=float)
     parser.add_argument("--max_epoch", default=None, type=int)
     parser.add_argument("--base_lr", default=None, type=float)
     parser.add_argument("--weight_decay", default=None, type=float)
@@ -1552,6 +1571,129 @@ def _safe_name(s: str) -> str:
     return "".join(keep)
 
 
+def _sum_noise_cleaning_results(noise_method_results: Any) -> Dict[str, Any]:
+    totals = {
+        "num_cleaning_calls": 0,
+        "fixed": 0,
+        "correctly_fixed": 0,
+        "clean_corrupted": 0,
+        "wrong_to_wrong": 0,
+        "total_noisy_in_lSet": 0,
+        "skipped": 0,
+    }
+    if not isinstance(noise_method_results, list):
+        return totals
+
+    for item in noise_method_results:
+        if not isinstance(item, dict):
+            continue
+        if item.get("status") == "skipped":
+            totals["skipped"] += 1
+            continue
+        totals["num_cleaning_calls"] += 1
+        for key in ["fixed", "correctly_fixed", "clean_corrupted", "wrong_to_wrong", "total_noisy_in_lSet"]:
+            try:
+                totals[key] += int(item.get(key, 0) or 0)
+            except Exception:
+                pass
+    return totals
+
+
+def _safe_sum(xs: Any) -> Optional[float]:
+    try:
+        return float(sum(float(x) for x in xs))
+    except Exception:
+        return None
+
+
+def _light_grid_entry(combo_name: str, pipeline: Dict[str, Any], results: Dict[str, Any]) -> Dict[str, Any]:
+    """Compact final-result entry for aggregate JSON."""
+    if not isinstance(results, dict):
+        return {
+            "combo_name": combo_name,
+            "status": "failed",
+            "reason": "results is not a dict",
+        }
+
+    summary = results.get("summary", {}) if isinstance(results.get("summary", {}), dict) else {}
+    final_knn = summary.get("final_knn_eval", {}) if isinstance(summary.get("final_knn_eval", {}), dict) else {}
+
+    noise_cfg = pipeline.get("noise", {}) if isinstance(pipeline.get("noise", {}), dict) else {}
+    al_cfg = pipeline.get("active_learning", {}) if isinstance(pipeline.get("active_learning", {}), dict) else {}
+    nh_cfg = pipeline.get("noise_handling", {}) if isinstance(pipeline.get("noise_handling", {}), dict) else {}
+    run_args = pipeline.get("run_args", {}) if isinstance(pipeline.get("run_args", {}), dict) else {}
+
+    loss_fun = run_args.get("loss_fun") or "cross_entropy"
+
+    return _jsonify({
+        "combo_name": combo_name,
+        "status": results.get("status", "unknown"),
+        "reason": results.get("reason"),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "exp_dir": results.get("exp_dir"),
+
+        "noise_type": noise_cfg.get("type") or "clean",
+        "noise_rate": noise_cfg.get("rate"),
+        "al_method": al_cfg.get("method"),
+        "noise_method": nh_cfg.get("method") or "none",
+        "loss_fun": loss_fun,
+        "seed": run_args.get("seed"),
+
+        "initial_size": run_args.get("initial_size"),
+        "budget": al_cfg.get("budget"),
+        "max_iter": al_cfg.get("max_iter"),
+
+        "train_size": summary.get("train_size"),
+        "test_size": summary.get("test_size"),
+        "final_labeled_set_size": summary.get("final_lSet_len"),
+        "final_unlabeled_set_size": summary.get("final_uSet_len"),
+        "final_val_set_size": summary.get("final_valSet_len"),
+
+        "final_train_acc": summary.get("final_train_acc"),
+        "final_val_acc": summary.get("final_val_acc"),
+        "final_test_acc": summary.get("final_test_acc"),
+
+        "final_knn_train_acc": final_knn.get("train_acc"),
+        "final_knn_val_acc": final_knn.get("val_acc"),
+        "final_knn_test_acc": final_knn.get("test_acc"),
+        "knn_train_size": final_knn.get("train_size"),
+        "knn_val_size": final_knn.get("val_size"),
+        "knn_test_size": final_knn.get("test_size"),
+        "knn_k_effective": final_knn.get("k_effective"),
+
+        "noise_cleaning_totals": _sum_noise_cleaning_results(summary.get("noise_method_results", [])),
+
+        "total_training_time_s": _safe_sum(summary.get("episode_training_times", [])),
+        "total_al_time_s": _safe_sum(summary.get("episode_al_times", [])),
+    })
+
+
+def _grid_json_entry(combo_name: str, pipeline: Dict[str, Any], results: Dict[str, Any], debug_json: bool) -> Dict[str, Any]:
+    if debug_json:
+        return _jsonify({"pipeline": pipeline, "results": results})
+    return _light_grid_entry(combo_name, pipeline, results)
+
+
+def _load_existing_grid_json(path: str) -> Dict[str, Any]:
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r") as f:
+            obj = json.load(f)
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        logger.exception("Could not read existing aggregate JSON at %s; starting new object", path)
+        return {}
+
+
+def _write_grid_json(path: str, all_results: Dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(_jsonify(all_results), f, indent=2, sort_keys=True)
+    os.replace(tmp_path, path)
+
+
 def main() -> Dict[str, Any]:
     args = parse_args()
 
@@ -1562,10 +1704,22 @@ def main() -> Dict[str, Any]:
     grid_out_dir = args.grid_out_dir or os.path.join(os.getcwd(), "grid_runs")
     os.makedirs(grid_out_dir, exist_ok=True)
 
-    all_results = {}
+    # Important:
+    # - If --grid_json_path is supplied by the .sh, all Python stages append to the same JSON.
+    # - If not supplied, preserve old behavior name inside this stage directory.
+    grid_json_path = args.grid_json_path or os.path.join(grid_out_dir, "grid_full_log.json")
+    all_results = _load_existing_grid_json(grid_json_path)
+
     total = len(grid_noise) * len(grid_al) * len(grid_noise_methods)
     for run_idx, (noise_t, al_m, nmethod) in enumerate(itertools.product(grid_noise, grid_al, grid_noise_methods), start=1):
-        combo_name = f"noise={noise_t or 'clean'}__al={al_m or 'cfg'}__nm={nmethod or 'none'}__seed={args.seed or 'NA'}"
+        loss_name = args.loss_fun or "cross_entropy"
+        combo_name = (
+            f"noise={noise_t or 'clean'}"
+            f"__al={al_m or 'cfg'}"
+            f"__nm={nmethod or 'none'}"
+            f"__loss={loss_name}"
+            f"__seed={args.seed or 'NA'}"
+        )
         exp_name = args.exp_name if args.exp_name not in [None, "", "auto"] else combo_name
         logger.info("Starting run %d/%d: %s", run_idx, total, combo_name)
 
@@ -1577,20 +1731,25 @@ def main() -> Dict[str, Any]:
             pipeline = {"error": "pipeline construction failed"}
             results = {"status": "failed", "reason": repr(exc)}
 
-        all_results[combo_name] = {"pipeline": pipeline, "results": results}
+        # JSON: light by default, full old-style only with --debug_json.
+        all_results[combo_name] = _grid_json_entry(combo_name, pipeline, results, bool(args.debug_json))
+        _write_grid_json(grid_json_path, all_results)
+        logger.info("Updated aggregate JSON at %s", grid_json_path)
+
+        # Keep a text stage log for debugging convenience.
         grid_log_file = os.path.join(grid_out_dir, "grid_full_log.txt")
         with open(grid_log_file, "a") as f:
             f.write("\n" + "=" * 30 + f" GRID RESULT: {combo_name} " + "=" * 30 + "\n")
             f.write(json.dumps(_jsonify(all_results[combo_name]), indent=2, sort_keys=True) + "\n")
             f.write("=" * 80 + "\n")
-        logger.info("Updated single grid log at %s", grid_log_file)
+        logger.info("Updated stage text log at %s", grid_log_file)
 
     grid_log_file = os.path.join(grid_out_dir, "grid_full_log.txt")
     with open(grid_log_file, "a") as f:
-        f.write("\n" + "=" * 30 + " GRID AGGREGATE RESULTS " + "=" * 30 + "\n")
-        f.write(json.dumps(_jsonify(all_results), indent=2, sort_keys=True) + "\n")
+        f.write("\n" + "=" * 30 + " GRID AGGREGATE JSON PATH " + "=" * 30 + "\n")
+        f.write(grid_json_path + "\n")
         f.write("=" * 80 + "\n")
-    logger.info("Wrote all grid results to single log: %s", grid_log_file)
+    logger.info("Wrote aggregate JSON: %s", grid_json_path)
     return all_results
 
 

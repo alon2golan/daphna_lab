@@ -9,7 +9,6 @@ import os
 
 from yacs.config import CfgNode as CN
 
-
 # Global config object
 _C = CN()
 
@@ -34,7 +33,7 @@ _C.CFG_DEST = 'config.yaml'
 # operator implementations in GPU operator libraries
 _C.RNG_SEED = None
 # Folder name where best model logs etc are saved. "auto" creates a timestamp based folder 
-_C.EXP_NAME = 'auto' 
+_C.EXP_NAME = 'auto'
 # Eval model type used for downstream evaluation (options: 'NN1', 'from_features', 'from_images')
 _C.EVAL_MODEL_TYPE = 'from_features'
 # Which GPU to run on
@@ -44,10 +43,9 @@ _C.LOG_DEST = 'file'
 # Log period in iters
 _C.LOG_PERIOD = 10
 
-
-#------------------------------------------------------------------------------#
+# ------------------------------------------------------------------------------#
 # VAAL Options (Taken from https://arxiv.org/abs/1904.00370)
-#------------------------------------------------------------------------------#
+# ------------------------------------------------------------------------------#
 _C.VAAL = CN()
 _C.VAAL.TRAIN_VAAL = False
 _C.VAAL.Z_DIM = 32
@@ -59,9 +57,9 @@ _C.VAAL.BETA = 1.0
 _C.VAAL.ADVERSARY_PARAM = 1.0
 _C.VAAL.IM_SIZE = 32
 
-#------------------------------------------------------------------------------#
+# ------------------------------------------------------------------------------#
 # Ensemble Options
-#------------------------------------------------------------------------------#
+# ------------------------------------------------------------------------------#
 _C.ENSEMBLE = CN()
 _C.ENSEMBLE.NUM_MODELS = 3
 _C.ENSEMBLE.SAME_MODEL = True
@@ -75,12 +73,14 @@ _C.MODEL = CN()
 # Choose from vgg style ['vgg11', 'vgg11_bn', 'vgg13', 'vgg13_bn', 'vgg16', 'vgg16_bn', 'vgg19_bn', 'vgg19',]
 # or from resnet style ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152', 'resnext50_32x4d', 'resnext101_32x8d', 
 # 'wide_resnet50_2', 'wide_resnet101_2']
-_C.MODEL.TYPE = '' 
+_C.MODEL.TYPE = ''
 # Number of classes
 _C.MODEL.NUM_CLASSES = 10
 # Loss function (see pycls/models/loss.py for options)
 _C.MODEL.LOSS_FUN = 'cross_entropy'
-
+# Robust/noisy-label loss options
+_C.MODEL.GCE_Q = 0.7
+_C.MODEL.BOOTSTRAP_BETA = 0.8
 
 # ---------------------------------------------------------------------------- #
 # Batch norm options
@@ -100,12 +100,11 @@ _C.BN.ZERO_INIT_FINAL_GAMMA = False
 _C.BN.USE_CUSTOM_WEIGHT_DECAY = False
 _C.BN.CUSTOM_WEIGHT_DECAY = 0.0
 
-
 # ---------------------------------------------------------------------------- #
 # Optimizer options
 # ---------------------------------------------------------------------------- #
 _C.OPTIM = CN()
-_C.OPTIM.TYPE='sgd'
+_C.OPTIM.TYPE = 'sgd'
 # Learning rate ranges from BASE_LR to MIN_LR*BASE_LR according to the LR_POLICY
 _C.OPTIM.BASE_LR = 0.1
 _C.OPTIM.MIN_LR = 0.0
@@ -183,7 +182,7 @@ _C.RANDAUG.M = 5
 # #  ACTIVE LEARNING options
 # #-------------------------------------------------------------------------------#
 _C.ACTIVE_LEARNING = CN()
-_C.ACTIVE_LEARNING.SAMPLING_FN = 'random' # 'entropy', 'margin', 'vaal', 'coreset', 'ensemble_var_R'
+_C.ACTIVE_LEARNING.SAMPLING_FN = 'random'  # 'entropy', 'margin', 'vaal', 'coreset', 'ensemble_var_R'
 _C.ACTIVE_LEARNING.ACTIVATE = False
 _C.ACTIVE_LEARNING.LSET_PATH = ''
 _C.ACTIVE_LEARNING.USET_PATH = ''
@@ -191,14 +190,14 @@ _C.ACTIVE_LEARNING.VALSET_PATH = ''
 _C.ACTIVE_LEARNING.MODEL_LOAD_DIR = ''
 _C.ACTIVE_LEARNING.MODEL_SAVE_DIR = ''
 _C.ACTIVE_LEARNING.DATA_SPLIT = 0
-_C.ACTIVE_LEARNING.BUDGET_SIZE = 5000 # 10% of initial lSet
-_C.ACTIVE_LEARNING.N_BINS = 500 # Used by UC_uniform
-_C.ACTIVE_LEARNING.DROPOUT_ITERATIONS = 25 # Used by DBAL and BALD
-_C.ACTIVE_LEARNING.INIT_L_RATIO = 0.1 # Initial labeled pool ration
-_C.ACTIVE_LEARNING.MAX_ITER = 5 # Max AL iterations
-_C.ACTIVE_LEARNING.MAX_DELTA = 1.1 # Max Delta for DCoM algorithm
-_C.ACTIVE_LEARNING.DELTA_RESOLUTION = 0.05 # Delta resolution for the binary search in DCoM algorithm
-_C.ACTIVE_LEARNING.FINE_TUNE = True # continue after AL from existing model or from scratch
+_C.ACTIVE_LEARNING.BUDGET_SIZE = 5000  # 10% of initial lSet
+_C.ACTIVE_LEARNING.N_BINS = 500  # Used by UC_uniform
+_C.ACTIVE_LEARNING.DROPOUT_ITERATIONS = 25  # Used by DBAL and BALD
+_C.ACTIVE_LEARNING.INIT_L_RATIO = 0.1  # Initial labeled pool ration
+_C.ACTIVE_LEARNING.MAX_ITER = 5  # Max AL iterations
+_C.ACTIVE_LEARNING.MAX_DELTA = 1.1  # Max Delta for DCoM algorithm
+_C.ACTIVE_LEARNING.DELTA_RESOLUTION = 0.05  # Delta resolution for the binary search in DCoM algorithm
+_C.ACTIVE_LEARNING.FINE_TUNE = True  # continue after AL from existing model or from scratch
 
 # ---------------------------------------------------------------------------- #
 # Common train/test data loader options
@@ -230,9 +229,11 @@ _C.DATASET.ROOT_DIR = None
 # Specifies the proportion of data in train set that should be considered as the validation data
 _C.DATASET.VAL_RATIO = 0.1
 # Data augmentation methods - 'simclr', 'randaug', 'hflip'
-_C.DATASET.AUG_METHOD = 'hflip' 
+_C.DATASET.AUG_METHOD = 'hflip'
 # Accepted Datasets
-_C.DATASET.ACCEPTED = ['MNIST','SVHN','CIFAR10','CIFAR100','TINYIMAGENET', 'IMBALANCED_CIFAR10', 'IMBALANCED_CIFAR100', 'IMAGENET50', 'IMAGENET100', 'IMAGENET200', 'SCENARIO_A', 'HALF_MOON']
+_C.DATASET.ACCEPTED = ['MNIST', 'SVHN', 'CIFAR10', 'CIFAR100', 'TINYIMAGENET', 'IMBALANCED_CIFAR10',
+                       'IMBALANCED_CIFAR100', 'IMAGENET50', 'IMAGENET100', 'IMAGENET200', 'SCENARIO_A', 'HALF_MOON']
+
 
 def assert_cfg():
     """Checks config values invariants."""
@@ -247,11 +248,12 @@ def assert_cfg():
     assert _C.TEST.BATCH_SIZE % _C.NUM_GPUS == 0, \
         'Test mini-batch size should be a multiple of NUM_GPUS.'
 
-    #our assertions
+    # our assertions
     if _C.ACTIVE_LEARNING.SAMPLING_FN == "uncertainty_uniform_discretize":
-        assert _C.ACTIVE_LEARNING.N_BINS !=0, \
-        "The number of bins used cannot be 0. Please provide a number >0 for {} sampling function"\
-            .format(_C.ACTIVE_LEARNING.SAMPLING_FN)
+        assert _C.ACTIVE_LEARNING.N_BINS != 0, \
+            "The number of bins used cannot be 0. Please provide a number >0 for {} sampling function" \
+                .format(_C.ACTIVE_LEARNING.SAMPLING_FN)
+
 
 def custom_dump_cfg(temp_cfg):
     """Dumps the config to the output directory."""
@@ -276,26 +278,26 @@ def load_cfg(out_dir, cfg_dest='config.yaml'):
 def initialize_cfg(cfg_file, args_dict):
     """
     Unified config initialization function that merges all three config sources.
-    
+
     Priority order (highest to lowest):
     1. argparse arguments (args_dict) - highest priority
     2. yaml config file (cfg_file)
     3. config.py defaults (_C) - lowest priority
-    
+
     Args:
         cfg_file (str): Path to the YAML configuration file
         args_dict (dict): Dictionary of argparse arguments to override configs
-    
+
     Returns:
         cfg: The merged configuration object
     """
     # Start with default config from config.py
     cfg = _C.clone()
-    
+
     # Step 1: Merge YAML config file (lower priority than argparse)
     if cfg_file:
         cfg.merge_from_file(cfg_file)
-    
+
     # Step 2: Apply argparse arguments (highest priority - these override everything)
     if args_dict:
         # Filter out None values to only apply explicitly set arguments
@@ -315,7 +317,7 @@ def initialize_cfg(cfg_file, args_dict):
                     except Exception:
                         # If direct assignment fails, try nested access
                         pass
-    
+
     return cfg
 
 
@@ -324,7 +326,7 @@ def get_config_aliases():
     Returns a dictionary of configuration aliases.
     Each alias maps a single argument value to multiple config parameter updates.
     This allows setting multiple related config params with one argument.
-    
+
     Example:
         aliases['eval_model_type']['from_features'] = {
             'MODEL.USE_1NN': False,
@@ -363,46 +365,46 @@ def get_config_aliases():
 def apply_config_aliases(alias_name, alias_value, aliases):
     """
     Applies configuration aliases to get all related config parameter updates.
-    
+
     Args:
         alias_name (str): The name of the alias (e.g., 'eval_model_type')
         alias_value (str): The value of the alias (e.g., 'from_features')
         aliases (dict): The aliases dictionary from get_config_aliases()
-    
+
     Returns:
         dict: Dictionary of config parameters to update, or empty dict if alias not found
     """
     if alias_name not in aliases:
         return {}
-    
+
     alias_dict = aliases[alias_name]
     if alias_value not in alias_dict:
         return {}
-    
+
     return alias_dict[alias_value]
 
 
 def merge_alias_updates(args_dict, aliases_to_apply, overwrite=False):
     """
     Merges alias updates into the arguments dictionary.
-    
+
     Args:
         args_dict (dict): The arguments dictionary to merge updates into
         aliases_to_apply (list): List of tuples (alias_name, alias_value, aliases_dict)
         overwrite (bool): If True, aliases overwrite existing args_dict values.
                          If False, aliases only set values that don't exist in args_dict.
                          Default is False (non-invasive mode).
-    
+
     Returns:
         dict: The updated args_dict
     """
     for alias_name, alias_value, aliases_dict in aliases_to_apply:
         updates = apply_config_aliases(alias_name, alias_value, aliases_dict)
-        
+
         for key, value in updates.items():
             if overwrite or key not in args_dict:
                 args_dict[key] = value
-    
+
     return args_dict
 
 
@@ -410,19 +412,19 @@ def build_args_dict(args):
     """
     Builds the complete arguments dictionary from parsed command-line arguments,
     including alias updates.
-    
+
     This function consolidates:
     1. Direct argument mapping to config keys
     2. Alias-based config parameter updates
-    
+
     Args:
         args: Parsed arguments from argparser()
-    
+
     Returns:
         dict: The complete args_dict with all direct arguments and alias updates
     """
     debug = args.debug
-    
+
     # Build base arguments dictionary
     args_dict = {
         'EXP_NAME': args.exp_name,
@@ -450,79 +452,79 @@ def build_args_dict(args):
         'MATRIX_DTYPE': args.matrix_dtype,
         'DATASET.FEATURES_TAG': args.features_tag,
     }
-    
+
     # Add max_epoch if provided
     if args.max_epoch is not None:
         args_dict['OPTIM.MAX_EPOCH'] = args.max_epoch
-    
+
     # Get config aliases
     aliases = get_config_aliases()
-    
+
     # Apply eval_model_type alias with non-invasive mode (doesn't overwrite existing values)
     eval_model_updates = [('eval_model_type', args.eval_model_type, aliases)]
     merge_alias_updates(args_dict, eval_model_updates, overwrite=False)
-    
+
     # Apply debug alias with invasive mode (overwrites existing values)
     debug_updates = [('debug', debug, aliases)]
     merge_alias_updates(args_dict, debug_updates, overwrite=True)
-    
+
     return args_dict
 
 
 def normalize_cfg_paths(cfg):
     """
     Normalize configuration paths from relative to absolute paths from repo root.
-    
+
     Converts relative paths to absolute paths using the repository root as the base.
     This ensures paths work correctly regardless of the current working directory.
-    
+
     Normalizes:
     - DATASET.ROOT_DIR: Dataset root directory
     - OUT_DIR: Output directory for experiments
-    
+
     Args:
         cfg: Configuration object to normalize
-    
+
     Returns:
         cfg: The configuration object with normalized paths
     """
     # Get repo root (parent of deep_al/pycls/core/)
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    
+
     # Normalize DATASET.ROOT_DIR if set and relative
     if cfg.DATASET.ROOT_DIR is not None:
         if not os.path.isabs(cfg.DATASET.ROOT_DIR):
             cfg.DATASET.ROOT_DIR = os.path.join(repo_root, cfg.DATASET.ROOT_DIR)
-    
+
     # Normalize OUT_DIR (convert relative 'output' to absolute path)
     if cfg.OUT_DIR and not os.path.isabs(cfg.OUT_DIR):
         cfg.OUT_DIR = os.path.join(repo_root, cfg.OUT_DIR)
-    
+
     return cfg
 
 
 def setup_cfg(args):
     """
     One-shot configuration setup from command-line arguments.
-    
+
     Takes parsed arguments, builds the complete args_dict (including aliases),
     initializes the config with proper priority ordering, and prints RNG_SEED.
-    
+
     This is the main entry point for config setup in training scripts.
-    
+
     Args:
         args: Parsed arguments from argparser() (must have cfg_file attribute)
-    
+
     Returns:
         cfg: The initialized and merged configuration object
     """
     # Build args_dict from arguments (handles aliases, special cases)
     args_dict = build_args_dict(args)
-    
+
     # Initialize config with unified function
     # Priority: argparse (highest) > cfg_file > config.py defaults (lowest)
     cfg_instance = initialize_cfg(args.cfg_file, args_dict)
-    
+
     # Normalize paths from relative to absolute (based on repo root)
     normalize_cfg_paths(cfg_instance)
 
