@@ -307,6 +307,11 @@ _C.DATASET = CN()
 _C.DATASET.NAME = None
 # Optional tag to specify which feature representation to use (e.g., 'alon', 'itai')
 _C.DATASET.FEATURES_TAG = None
+# L2-normalize the features served to the from_features classifier (the AL-side
+# kernel/posterior features are ALWAYS normalized via ds_utils.load_features's
+# default; this flag only affects the training/eval dataset, which historically
+# served raw features).
+_C.DATASET.NORMALIZE_FEATURES = False
 # For Tiny ImageNet dataset, ROOT_DIR must be set to the dataset folder ("data/tiny-imagenet-200/"). For others, the outder "data" folder where all datasets can be stored is expected.
 _C.DATASET.ROOT_DIR = None
 # Specifies the proportion of data in train set that should be considered as the validation data
@@ -531,6 +536,7 @@ def build_args_dict(args):
         'SPARSE_K': args.sparse_K,
         'MATRIX_DTYPE': args.matrix_dtype,
         'DATASET.FEATURES_TAG': args.features_tag,
+        'DATASET.NORMALIZE_FEATURES': args.normalize_features,
     }
     
     # Add max_epoch if provided

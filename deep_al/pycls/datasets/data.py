@@ -209,17 +209,18 @@ class Data:
         preprocess_steps = transforms.Compose(preprocess_steps)
 
         only_features = self.cfg.MODEL.LINEAR_FROM_FEATURES
+        normalize_features = getattr(self.cfg.DATASET, 'NORMALIZE_FEATURES', False)
 
         if self.dataset == "MNIST":
             mnist = MNIST(save_dir, train=isTrain, transform=preprocess_steps, test_transform=test_preprocess_steps, download=isDownload)
             return mnist, len(mnist)
 
         elif self.dataset == "CIFAR10":
-            cifar10 = CIFAR10(save_dir, train=isTrain, transform=preprocess_steps, test_transform=test_preprocess_steps, download=isDownload, only_features=only_features, features_tag=self.cfg.DATASET.FEATURES_TAG)
+            cifar10 = CIFAR10(save_dir, train=isTrain, transform=preprocess_steps, test_transform=test_preprocess_steps, download=isDownload, only_features=only_features, features_tag=self.cfg.DATASET.FEATURES_TAG, normalize_features=normalize_features)
             return cifar10, len(cifar10)
 
         elif self.dataset == "CIFAR100":
-            cifar100 = CIFAR100(save_dir, train=isTrain, transform=preprocess_steps,  test_transform=test_preprocess_steps, download=isDownload, only_features=only_features, features_tag=self.cfg.DATASET.FEATURES_TAG)
+            cifar100 = CIFAR100(save_dir, train=isTrain, transform=preprocess_steps,  test_transform=test_preprocess_steps, download=isDownload, only_features=only_features, features_tag=self.cfg.DATASET.FEATURES_TAG, normalize_features=normalize_features)
             return cifar100, len(cifar100)
 
         elif self.dataset == "SVHN":

@@ -6,13 +6,30 @@ import deep_al.pycls.datasets.utils as ds_utils
 from torchvision.datasets import VisionDataset
 
 
+def _load_scale_preserving_normalized(ds_name, train, features_tag):
+    """
+    L2-normalize per sample, then rescale by the TRAIN split's mean raw norm.
+    Removes per-sample norm variance (what hurts distance-based methods and
+    biases the linear head) WITHOUT shrinking the global input scale — the
+    OPTIM hyperparameters (BASE_LR/MAX_EPOCH) were tuned on raw-scale features
+    and plain unit-normalization underfits badly at low budget (train acc
+    ~19% vs ~95% @100 labels on CIFAR100). The scale constant always comes
+    from the train split so train/test share one transform.
+    """
+    feats = ds_utils.load_features(ds_name, train=train, normalized=False, features_tag=features_tag)
+    train_feats = feats if train else ds_utils.load_features(ds_name, train=True, normalized=False, features_tag=features_tag)
+    scale = np.linalg.norm(train_feats, axis=1).mean()
+    return feats / np.linalg.norm(feats, axis=1, keepdims=True) * scale
+
+
 class CIFAR10(torchvision.datasets.CIFAR10):
-    def __init__(self, root, train, transform, test_transform, download=True, only_features=False, features_tag=None):
+    def __init__(self, root, train, transform, test_transform, download=True, only_features=False, features_tag=None, normalize_features=False):
         super(CIFAR10, self).__init__(root, train, transform=transform, download=download)
         self.test_transform = test_transform
         self.no_aug = False
         self.only_features = only_features
-        self.features = ds_utils.load_features("CIFAR10", train=train, normalized=False, features_tag=features_tag)
+        self.features = _load_scale_preserving_normalized("CIFAR10", train, features_tag) if normalize_features \
+            else ds_utils.load_features("CIFAR10", train=train, normalized=False, features_tag=features_tag)
 
 
     def __getitem__(self, index: int):
@@ -43,12 +60,13 @@ class CIFAR10(torchvision.datasets.CIFAR10):
 
 
 class CIFAR100(torchvision.datasets.CIFAR100):
-    def __init__(self, root, train, transform, test_transform, download=True, only_features=False, features_tag=None):
+    def __init__(self, root, train, transform, test_transform, download=True, only_features=False, features_tag=None, normalize_features=False):
         super(CIFAR100, self).__init__(root, train, transform=transform, download=download)
         self.test_transform = test_transform
         self.no_aug = False
         self.only_features = only_features
-        self.features = ds_utils.load_features("CIFAR100", train=train, normalized=False, features_tag=features_tag)
+        self.features = _load_scale_preserving_normalized("CIFAR100", train, features_tag) if normalize_features \
+            else ds_utils.load_features("CIFAR100", train=train, normalized=False, features_tag=features_tag)
 
     def __getitem__(self, index: int):
         """

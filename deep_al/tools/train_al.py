@@ -49,6 +49,11 @@ def argparser():
     parser.add_argument('--seed', help='Random seed', default=1, type=int)
     parser.add_argument('--eval_model_type', help='eval_model_type', type=str) # train the eval model from features not images
     parser.add_argument('--features_tag', help='Tag to specify which feature representation to use (e.g., "alon", "itai")', type=str, default=None)
+    parser.add_argument('--normalize_features', action='store_true',
+                        help='L2-normalize the features served to the from_features classifier '
+                             '(train + test), rescaled by the train-set mean norm so the global '
+                             'input scale (and hence the tuned LR) is preserved. The AL-side '
+                             'kernel/posterior already normalizes.')
     parser.add_argument('--initial_delta', help='Relevant only for ProbCover and DCoM', default=-1, type=float)
     parser.add_argument('--kernel_type', default='rbf', type=str)
     parser.add_argument('--diff_method', default='abs_diff', type=str)
@@ -920,10 +925,17 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
             return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
 
         train_data, train_labels = _collect_full(train_loader)
+        # The dataset serves raw SimCLR features unless DATASET.NORMALIZE_FEATURES;
+        # the ProbCover paper's 1-NN framework uses L2-normalized embeddings, and
+        # Euclidean 1-NN is highly sensitive to feature norms (~18 pts on CIFAR100
+        # @100 labels). Renormalizing already-unit rows is a no-op, so this is
+        # safe under either dataset setting.
+        train_data = train_data / np.linalg.norm(train_data, axis=1, keepdims=True)
         print(f"1NN fit: train_data={train_data.shape} labels={train_labels.shape}")
         model.fit(train_data, train_labels)
 
         val_data, val_labels = _collect_full(val_loader)
+        val_data = val_data / np.linalg.norm(val_data, axis=1, keepdims=True)
         print(f"1NN eval: val_data={val_data.shape} labels={val_labels.shape}")
         preds = model.predict(val_data)
         test_acc = 100. * (preds == np.array(val_labels)).mean()
@@ -1022,6 +1034,7 @@ def test_model(test_loader, checkpoint_file, cfg, cur_episode, model, plotting_m
     if cfg.MODEL.USE_1NN:
         # # 1NN model does not have a predict method, so we use the fit method to train it
         data = test_loader.dataset.features
+        data = data / np.linalg.norm(data, axis=1, keepdims=True)  # match the L2-normalized fit
         labels = test_loader.dataset.targets
         preds = model.predict(data)
         test_acc = 100. * (preds == np.array(labels)).mean()

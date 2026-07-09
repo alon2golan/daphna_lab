@@ -114,6 +114,12 @@ class ResultWriter:
             params["pseudo_scope"] = getattr(_bc, "PSEUDO_SCOPE", None)
             _sched = getattr(_bc, "PSEUDO_K_SCHEDULE", None) or []
             params["pseudo_k"] = ",".join(str(k) for k in _sched) or None
+        # Classifier-input L2 normalization — recorded ONLY when on, for the same
+        # config_key-stability reason as the pseudo knobs above. Must be a param
+        # (not just a tag) so normalized reruns get distinct config_keys from the
+        # historical unnormalized runs instead of collapsing into one seed-group.
+        if bool(getattr(args, "normalize_features", False)):
+            params["normalize_features"] = True
 
         sweep_name = getattr(args, "sweep_name", None) or sweep_id
 
