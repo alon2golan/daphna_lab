@@ -104,6 +104,16 @@ class ResultWriter:
                                         "TRAIN_LABEL_MODE", "observed"),
             "track_progress": bool(getattr(args, "track_progress", False)),
         }
+        # §7.5 pseudo-labeling knobs — recorded ONLY for pseudo runs so every
+        # other config's params dict (and hence its config_key hash / dashboard
+        # about= URL) is byte-identical to before. They must be params (not just
+        # tags): tags are excluded from config_key, so two pseudo arms differing
+        # only by scope/schedule would otherwise collapse into one seed-group.
+        if params["train_label_mode"] == "pseudo":
+            _bc = getattr(cfg, "BAYES_COVERAGE", None)
+            params["pseudo_scope"] = getattr(_bc, "PSEUDO_SCOPE", None)
+            _sched = getattr(_bc, "PSEUDO_K_SCHEDULE", None) or []
+            params["pseudo_k"] = ",".join(str(k) for k in _sched) or None
 
         sweep_name = getattr(args, "sweep_name", None) or sweep_id
 

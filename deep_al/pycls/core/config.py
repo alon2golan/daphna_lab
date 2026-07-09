@@ -272,6 +272,15 @@ _C.BAYES_COVERAGE.TRAIN_LABEL_MODE = 'observed'
 # Per-point reliability r_l source (design §4): 'prior' (annotator accuracy;
 # ship) | 'graph' | 'aum' (both future work -> NoiseAwareBayesianCoverage).
 _C.BAYES_COVERAGE.RELIABILITY_SOURCE = 'prior'
+# Curriculum pseudo-labeling (§7.5, only read when TRAIN_LABEL_MODE='pseudo'):
+# which UNLABELED points get soft-posterior training targets in addition to the
+# labeled set. 'all' = every covered (non-prior-only) pool point |
+# 'topk' = the k most-confident points per predicted class.
+_C.BAYES_COVERAGE.PSEUDO_SCOPE = 'topk'
+# Per-round k for PSEUDO_SCOPE='topk': entry i is k for the i-th training round
+# (round = labeled_size/budget, 1-based); the last entry repeats for later
+# rounds. Empty list = k equals the round index (1, 2, 3, ...).
+_C.BAYES_COVERAGE.PSEUDO_K_SCHEDULE = []
 
 # ---------------------------------------------------------------------------- #
 # Common train/test data loader options

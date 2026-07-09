@@ -98,14 +98,26 @@ def argparser():
                              "E.g. --tag nu_tag=sgd_b100 --tag owner=arik")
     parser.add_argument('--train_label_mode', default=None,
                         choices=['observed', 'map_posterior', 'filtered',
-                                 'soft_posterior', 'reweighted'],
+                                 'soft_posterior', 'reweighted', 'pseudo'],
                         help="BayesianCoverage §5 training-target policy: how the labeled "
                              "points are labelled for the supervised step. observed=raw noisy "
                              "(default); map_posterior=relabel to posterior argmax; "
                              "filtered=drop points whose leave-one-out posterior disagrees; "
                              "soft_posterior=train on the posterior distribution; "
-                             "reweighted=weight each observed label by its LOO reliability. "
+                             "reweighted=weight each observed label by its LOO reliability; "
+                             "pseudo=soft_posterior on the labeled set PLUS confident unlabeled "
+                             "points (§7.5 curriculum pseudo-labeling; see --pseudo_scope/--pseudo_k). "
                              "Sets cfg.BAYES_COVERAGE.TRAIN_LABEL_MODE. Only affects bayes_* runs.")
+    parser.add_argument('--pseudo_scope', default=None, choices=['all', 'topk'],
+                        help="TRAIN_LABEL_MODE=pseudo only: which unlabeled points get "
+                             "pseudo-labels. all=every covered (non-prior-only) pool point; "
+                             "topk=the k most-confident per predicted class (k from --pseudo_k). "
+                             "Sets cfg.BAYES_COVERAGE.PSEUDO_SCOPE.")
+    parser.add_argument('--pseudo_k', default=None, type=str, metavar='K1,K2,...',
+                        help="TRAIN_LABEL_MODE=pseudo + --pseudo_scope topk only: comma-separated "
+                             "per-round k schedule, e.g. '1,2,3,4,5,6,7,8,9,10' (round i of "
+                             "training uses the i-th entry; last entry repeats). Unset = k equals "
+                             "the round index. Sets cfg.BAYES_COVERAGE.PSEUDO_K_SCHEDULE.")
     parser.add_argument('--external_noisy_labels', default=None, type=str,
                         help="DIAGNOSTIC: path to a .npy array of shape (n_train,) of precomputed noisy "
                              "labels. When set, overrides the single noisy annotator's generated "
@@ -752,6 +764,8 @@ def _bayes_training_loader(cfg, data_obj, train_idx, train_data_wrapped, al_obj)
       filtered       -> train only on the leave-one-out-clean subset (int path).
       soft_posterior -> train on the posterior distribution (soft-target path).
       reweighted     -> observed labels weighted by LOO reliability (soft-target path).
+      pseudo         -> soft_posterior on the labeled set PLUS §7.5 pseudo-labeled
+                        unlabeled points (soft-target path; loader indexes grow).
     """
     from deep_al.pycls.al.bayesian_coverage import BayesianCoverage
     from deep_al.pycls.noise.noisy_label_wrapper import SoftTargetDatasetWrapper
@@ -770,6 +784,21 @@ def _bayes_training_loader(cfg, data_obj, train_idx, train_data_wrapped, al_obj)
     if (not isinstance(alg, BayesianCoverage) or mode == 'observed'
             or not getattr(alg, '_selection_done', False) or len(train_idx) == 0):
         return std(train_idx, train_data_wrapped), train_idx
+
+    if mode == 'pseudo':
+        # Training round index (1-based): 1 at the first trained episode
+        # (labeled = 1x budget), 2 at the next, ... — indexes the k schedule.
+        budget = max(1, int(cfg.ACTIVE_LEARNING.BUDGET_SIZE))
+        round_idx = max(1, int(round(len(train_idx) / budget)))
+        sched = list(getattr(cfg.BAYES_COVERAGE, 'PSEUDO_K_SCHEDULE', []) or [])
+        k = int(sched[min(round_idx, len(sched)) - 1]) if sched else round_idx
+        tt = alg.training_targets([int(i) for i in train_idx], mode, pseudo_k=k)
+        pseudo_idx = np.asarray(tt['pseudo_indices'], dtype=int)
+        all_idx = np.concatenate([train_idx, pseudo_idx]).astype(int)
+        soft_ds = SoftTargetDatasetWrapper(train_data_wrapped, tt['soft'], cfg.MODEL.NUM_CLASSES)
+        print(f"[bayes:pseudo] round {round_idx} (scope={alg.pseudo_scope}, k={k}): "
+              f"training on {len(train_idx)} labeled + {len(pseudo_idx)} pseudo-labeled points")
+        return std(all_idx, soft_ds), all_idx
 
     tt = alg.training_targets([int(i) for i in train_idx], mode)
     if tt['mode'] == 'map_posterior':
@@ -1125,5 +1154,11 @@ if __name__ == "__main__":
     # BayesianCoverage §5 training-target policy (CLI overrides the cfg default).
     if getattr(args, 'train_label_mode', None):
         cfg_instance.BAYES_COVERAGE.TRAIN_LABEL_MODE = args.train_label_mode
+    # §7.5 curriculum pseudo-labeling knobs (only read when the mode is 'pseudo').
+    if getattr(args, 'pseudo_scope', None):
+        cfg_instance.BAYES_COVERAGE.PSEUDO_SCOPE = args.pseudo_scope
+    if getattr(args, 'pseudo_k', None):
+        cfg_instance.BAYES_COVERAGE.PSEUDO_K_SCHEDULE = \
+            [int(k) for k in args.pseudo_k.split(',') if k.strip()]
     # Run main with the initialized config
     main(cfg_instance, args)

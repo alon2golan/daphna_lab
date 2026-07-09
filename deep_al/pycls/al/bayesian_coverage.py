@@ -67,6 +67,8 @@ class BayesianCoverage(CoverageMatrixMethod):
         self.selection = _get('SELECTION', 'coverage_gain')  # coverage_gain | entropy
         self.reliability_source = _get('RELIABILITY_SOURCE', 'prior')  # prior|graph|aum
         self.train_label_mode = _get('TRAIN_LABEL_MODE', 'observed')
+        self.pseudo_scope = _get('PSEUDO_SCOPE', 'topk')     # all | topk (§7.5)
+        self.pseudo_k_schedule = list(_get('PSEUDO_K_SCHEDULE', []) or [])
 
         if self.use_sparse:
             raise NotImplementedError(
@@ -320,9 +322,53 @@ class BayesianCoverage(CoverageMatrixMethod):
         return rows / rows.sum(dim=1, keepdim=True).clamp_min(self.log_eps)
 
     # ------------------------------------------------------------------ #
+    # curriculum pseudo-labeling (§7.5) — confident UNLABELED points
+    # ------------------------------------------------------------------ #
+    def pseudo_label_targets(self, exclude_gidxs, k_per_class=None):
+        """
+        Soft training targets for confident UNLABELED pool points (§7.5).
+        Candidates are the current pool (relevant_indices) minus `exclude_gidxs`
+        and minus every annotated point. Guard (a): prior-only points — whose
+        accumulator row was never touched by an in-ball neighbor and is therefore
+        constant (posterior == uniform prior, pure noise as a target) — are
+        excluded. Scope (PSEUDO_SCOPE):
+          'all'  -> every covered candidate;
+          'topk' -> the k_per_class most-confident candidates per PREDICTED
+                    class (confidence = max posterior prob).
+        Returns {global_idx: posterior np[C]}.
+        """
+        exclude = {int(g) for g in exclude_gidxs}
+        am = self.annotator_manager
+        if am is not None:
+            exclude |= {int(g) for g in am.annotated_labels}
+        pool = np.array([g for g in (int(x) for x in self.relevant_indices)
+                         if g not in exclude], dtype=int)
+        if pool.size == 0:
+            return {}
+        rows = self._accum_rows(pool)
+        covered = ((rows.max(dim=1).values - rows.min(dim=1).values) > 1e-9).cpu().numpy()
+        pool = pool[covered]
+        if pool.size == 0:
+            return {}
+        P = self.posterior_for(pool)                                   # [n, C]
+        conf, pred = P.max(dim=1)
+        if self.pseudo_scope == 'all':
+            chosen = np.arange(pool.size)
+        elif self.pseudo_scope == 'topk':
+            k = max(1, int(k_per_class or 1))
+            conf_np, pred_np = conf.cpu().numpy(), pred.cpu().numpy()
+            chosen = np.concatenate([
+                members[np.argsort(-conf_np[members])[:k]]
+                for members in (np.where(pred_np == c)[0] for c in np.unique(pred_np))
+            ])
+        else:
+            raise ValueError(f"Unknown PSEUDO_SCOPE={self.pseudo_scope!r}")
+        return {int(pool[i]): P[i].detach().cpu().numpy() for i in chosen}
+
+    # ------------------------------------------------------------------ #
     # training-target policy (design §5) -- CONFIGURABLE, to be compared
     # ------------------------------------------------------------------ #
-    def training_targets(self, global_indices, mode=None):
+    def training_targets(self, global_indices, mode=None, pseudo_k=None):
         """
         Build training targets for the given labeled GLOBAL indices according to
         TRAIN_LABEL_MODE (design §5) -- an experimental arm to compare, not a
@@ -335,6 +381,12 @@ class BayesianCoverage(CoverageMatrixMethod):
           soft_posterior -> {'mode', 'soft': {gidx: np[C]}}          (posterior as soft label)
           reweighted     -> {'mode', 'soft': {gidx: np[C]}}          (w*onehot(observed),
                                                                       w = LOO reliability)
+          pseudo         -> {'mode', 'soft', 'pseudo_indices'}       (soft_posterior on the
+                                                                      labeled set PLUS §7.5
+                                                                      pseudo-labeled unlabeled
+                                                                      points; `pseudo_k` = the
+                                                                      per-class top-k for
+                                                                      PSEUDO_SCOPE='topk')
 
         The clean/reliability signal is the method's OWN posterior (design §4b,
         no AUM); reweighted/filtered use the leave-one-out posterior so a point's
@@ -365,6 +417,14 @@ class BayesianCoverage(CoverageMatrixMethod):
             soft = {g: P[i].detach().cpu().numpy() for i, g in enumerate(gidxs)}
             return {'mode': mode, 'soft': soft}
 
+        if mode == 'pseudo':
+            P = self.posterior_for(gidxs)
+            soft = {g: P[i].detach().cpu().numpy() for i, g in enumerate(gidxs)}
+            pseudo = self.pseudo_label_targets(gidxs, k_per_class=pseudo_k)
+            soft.update(pseudo)
+            return {'mode': mode, 'soft': soft,
+                    'pseudo_indices': sorted(pseudo)}
+
         if mode == 'reweighted':
             Ploo = self._loo_posterior_for(gidxs)
             soft = {}
@@ -379,7 +439,7 @@ class BayesianCoverage(CoverageMatrixMethod):
 
         raise ValueError(
             f"Unknown TRAIN_LABEL_MODE={mode!r}. Expected one of: observed, "
-            "map_posterior, filtered, soft_posterior, reweighted.")
+            "map_posterior, filtered, soft_posterior, reweighted, pseudo.")
 
 
 class NoiseAwareBayesianCoverage(BayesianCoverage, NoiseAwareCoverage):
