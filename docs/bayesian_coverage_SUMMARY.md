@@ -20,13 +20,17 @@ We work with **noisy annotators** and act on **two planes**:
    each weighted by its **annotator's confusion matrix** and its **kernel distance**,
    fused as a **product of experts**. Select the point whose ball contains the most
    remaining *uncertainty mass*.
-2. **Training:** reuse the same posterior to build the training targets — five
-   configurable policies (`TRAIN_LABEL_MODE`), from raw noisy labels to full soft labels.
+2. **Training:** reuse the same posterior to build the training targets — six
+   configurable policies (`TRAIN_LABEL_MODE`), from raw noisy labels to full soft
+   labels to curriculum pseudo-labeling of unlabeled points (`pseudo`, §4.6).
 
 **Headline result (CIFAR100):** the selection plane alone $\approx$ ProbCover; the *training*
 plane is where the method pays. At noise 0.5/0.8, training on the posterior
 (`soft_posterior` / `map_posterior`) beats both raw-label training ($2.2\times$ at noise 0.8)
-**and Netta's NPC+AUM**. At noise 0.2, NPC+AUM is still slightly ahead.
+**and Netta's NPC+AUM**. The §7.5 **pseudo-labeling arm (§4.6) then beats every other
+arm at every noise level *including clean*** (e.g. 47.8 vs 45.1 observed at noise 0
+@1000; 45.8 vs NPC+AUM's 43.3 at noise 0.2) — closing the one regime where Netta's
+stack had led.
 
 ---
 
@@ -349,6 +353,7 @@ Like-for-like regime: CIFAR100 SimCLR features, budget 100/episode, tophat $\del
 | Bayes train-mode | 30980646 | bayes_product × 5 modes × noise {0, .2, .5, .8} × 3 seeds | 60/60 ✔ |
 | Netta NPC repro | 30811243 | {npc, probcover, random} + AUM/clean-train × noise {.2, .5, .8} × 3 seeds | 27/27 ✔ |
 | AUM clean ablation | 30863746 | {npc, probcover, random} × clean {on, off} × noise {.2, .5, .8} × 3 seeds | 54/54 ✔ |
+| §7.5 pseudo-labeling | 31047129 | bayes_product + pseudo × {all, lin10, agg50} × noise {0, .2, .5, .8} × 3 seeds | 36/36 ✔ |
 
 All `bayes_*` selection rows train on **raw observed labels** unless a train-mode is
 named. Netta's sweeps have **no noise-0 arm** (never run) — hence the dashes.
@@ -597,6 +602,77 @@ Three sharp conclusions:
 
 ---
 
+### 4.6 §7.5 curriculum pseudo-labeling — RESULTS (sweep 31047129, 36/36 ✔)
+
+`TRAIN_LABEL_MODE='pseudo'`: labeled points train on their soft posterior (exactly
+`soft_posterior`), **plus** confident *unlabeled* pool points enter the training set
+with their posterior as a soft target. Guard (a) is implemented (prior-only points —
+flat accumulator row — never pseudo-labeled); guard (b) (per-ball caps) is **not**.
+Three arms, selected by `--pseudo_scope` / `--pseudo_k`:
+
+- **all** — every covered pool point (~8.8k pts at 100 labels, noise .5; ~30k at 1000).
+- **lin10** — top-k most-confident per *predicted* class, k = training round (1→10).
+- **agg50** — same, k grows 1,2,3,5,8,13,20,30,40,50.
+
+Same regime and seeds {1,2,3} as the train-mode sweep, so rows are paired with the
+baselines (the `observed` rows below bit-match `bayes_product` in the §4 tables —
+deterministic pipeline). Figure + CSV: `results/bayes_pseudo/`.
+
+**Noise = 0.0**
+
+| Method | 100 | 300 | 500 | 700 | 1000 |
+|---|---|---|---|---|---|
+| observed | 24.6±1.3 | 38.1±1.3 | 41.6±0.0 | 43.6±0.2 | 45.1±0.1 |
+| map_posterior | 22.5±0.5 | 35.9±0.4 | 38.9±0.2 | 40.8±0.4 | 41.8±0.5 |
+| soft_posterior | 23.7±1.0 | 36.3±0.7 | 39.2±0.0 | 41.1±0.5 | 42.5±0.1 |
+| pseudo lin10 | 26.3±1.0 | 40.6±0.8 | 43.4±0.0 | 45.2±0.9 | 46.3±0.5 |
+| pseudo agg50 | 26.3±1.0 | 40.6±0.8 | 43.9±0.2 | 45.8±0.5 | **47.8±0.4** |
+| pseudo all | **37.6±0.4** | **42.6±0.7** | **44.9±0.1** | **46.5±0.1** | 47.5±0.2 |
+
+**Noise = 0.2**
+
+| Method | 100 | 300 | 500 | 700 | 1000 |
+|---|---|---|---|---|---|
+| observed | 21.6±1.5 | 32.8±1.5 | 36.6±0.5 | 37.7±0.7 | 39.2±0.3 |
+| map_posterior | 20.6±2.3 | 33.7±2.0 | 36.9±1.1 | 39.2±0.8 | 40.6±0.6 |
+| soft_posterior | 19.1±1.7 | 33.4±1.9 | 37.5±1.0 | 40.0±0.5 | 41.5±0.4 |
+| pseudo lin10 | 19.7±1.6 | 37.6±1.6 | 40.8±0.8 | 42.0±0.5 | 43.8±1.2 |
+| pseudo agg50 | 19.7±1.6 | 37.6±1.6 | 40.8±0.8 | 41.4±0.8 | 44.1±0.6 |
+| pseudo all | **28.6±1.7** | **37.7±1.7** | **41.7±0.6** | **43.6±0.2** | **45.8±0.6** |
+
+**Noise = 0.5**
+
+| Method | 100 | 300 | 500 | 700 | 1000 |
+|---|---|---|---|---|---|
+| observed | 14.9±1.4 | 23.1±0.1 | 26.4±0.6 | 28.1±0.6 | 29.5±0.4 |
+| map_posterior | 15.2±1.9 | 27.9±1.7 | 31.9±0.2 | 34.5±1.0 | 37.6±0.4 |
+| soft_posterior | 12.3±0.9 | 27.8±1.0 | 33.1±0.5 | 36.2±0.1 | 39.1±0.8 |
+| pseudo lin10 | 12.5±0.9 | 30.1±0.8 | 36.0±0.6 | 38.6±0.4 | 40.9±1.0 |
+| pseudo agg50 | 12.5±0.9 | 30.1±0.8 | **36.5±1.0** | 38.8±0.9 | 41.3±0.7 |
+| pseudo all | **18.0±2.9** | **31.1±1.1** | 36.1±0.5 | **39.1±0.6** | **41.8±0.7** |
+
+**Noise = 0.8**
+
+| Method | 100 | 300 | 500 | 700 | 1000 |
+|---|---|---|---|---|---|
+| observed | 4.6±0.5 | 9.7±2.0 | 10.9±1.5 | 11.8±1.5 | 12.6±1.6 |
+| map_posterior | 5.8±0.2 | 14.2±2.9 | 19.4±2.1 | 22.9±2.2 | 26.2±1.3 |
+| soft_posterior | 5.3±0.5 | 13.4±2.0 | 18.9±2.4 | 23.4±2.5 | 27.5±1.9 |
+| pseudo lin10 | 5.2±0.6 | 14.3±2.5 | 20.0±2.1 | 24.4±2.7 | 28.0±2.6 |
+| pseudo agg50 | 5.2±0.6 | 14.3±2.5 | **20.1±1.9** | **24.6±2.9** | **29.0±2.7** |
+| pseudo all | **6.2±0.7** | **14.4±3.2** | 19.7±2.5 | 24.3±3.4 | 28.1±2.5 |
+
+Reading: **pseudo wins at every noise level, including 0** — see takeaway 8.
+`lin10` ≡ `agg50` through 300 labels by construction (the schedules coincide at
+k = 1,2,3; identical numbers = the determinism trust-check again). The §4.5 B
+prediction (pseudo-labels cleaner than paid annotations wherever noise ≥ .2, worse
+when clean) is confirmed *directionally* by training, with one surprise: the arm
+helps on **clean** data too (47.8 vs observed 45.1 @1000; 37.6 vs 24.6 @100 for
+`all`) — §4.5 B under-sold it because even 67.9%-clean extra targets are soft
+(the wrongness is spread over classes, not committed to a hard wrong label) and
+the sheer volume (~9–30k points) dominates the classifier's data diet at these
+budgets.
+
 ## 5. Takeaways
 
 1. **Selection plane alone ≈ ProbCover.** `bayes_product` wins small at the very-low
@@ -626,13 +702,26 @@ Three sharp conclusions:
 7. **Trust checks:** NPC ≡ PC at episode 1 in Netta's sweep (filtering starts after the
    first training round); AUM-ablation `clean=off` arms reproduce the no-filter
    baselines bit-for-bit (deterministic pipeline).
+8. **Pseudo-labeling (§4.6) is the new best training arm at *every* noise level —
+   and it removes the noise gate's necessity.** It beats the previous per-noise
+   winners at 1000 labels: 47.8 vs 45.1 (observed) clean, 45.8 vs 41.5 (soft) at .2,
+   41.8 vs 39.1 at .5, 29.0 vs 27.5 at .8 — and, unlike soft/map, it also beats
+   NPC+AUM at noise 0.2 (45.8 vs 43.3), so the method now leads Netta's stack
+   everywhere. Within the arm: `all` dominates at low budget (37.6 vs 26.3 @100
+   clean — coverage volume matters most when labels are scarcest) and stays best
+   through noise .5; the curriculum arms catch up by 1000 and `agg50` is the safer
+   choice at noise .8 (29.0 vs 28.1), consistent with guard (b) being unimplemented —
+   `all` amplifies noisy balls hardest exactly where labels are least reliable.
+   Takeaway 5's clean-data penalty does *not* apply: pseudo helps clean data too,
+   so `pseudo` needs no noise gate (only the scope choice might be gated).
 
 ## 6. Reproducing the tables
 
 Per-run data: `episodes[].test_acc` keyed by `labeled_size` in each
 `output/CIFAR100/resnet18/<date>/<run>/result.json`, filtered by `sweep_id` ∈
-{30978366, 30980646, 30811243, 30863746}; group by `params.al_method` /
-`params.train_label_mode` / noise / seed. Aggregation script (session scratchpad,
+{30978366, 30980646, 30811243, 30863746, 31047129 (§4.6 pseudo)}; group by
+`params.al_method` / `params.train_label_mode` (+ `params.pseudo_scope` /
+`params.pseudo_k` for the pseudo arms) / noise / seed. Aggregation script (session scratchpad,
 copy into `batch_utils/` if wanted long-term): `build_tables.py` — or use the
 dashboard Comparison tab (Category = `bayesian_coverage` + `aum_filter`, shared
 `noise_rate` filter). The AUM sweep extends to 3000 labels if a longer x-axis is needed.
@@ -699,23 +788,21 @@ noise .5/.8 is ~36 runs — and §4.5's offline replay gives a shortcut: **pre-t
 $\beta$ by minimizing ECE offline**, then confirm the winner with a small training
 sweep. Expectation: $\beta < 1$ helps most exactly where the headline result lives.
 
-### 7.5 Semi-supervised training arm (pseudo-labeling)
+### 7.5 Semi-supervised training arm (pseudo-labeling) — ✅ DONE (2026-07-09)
 
-The posterior is already computed for *every* pool point, so points we never paid to
-annotate can still contribute training signal if their posterior is confident: add a
-train mode that also trains on the top-k most-confident **unlabeled** points per class,
-k growing per episode (curriculum pseudo-labeling). **Feasibility now measured (§4.5 B):
-at budget 1000 the top-10-per-class pseudo-labels are cleaner than the paid annotations
-wherever noise ≥ 0.2** (79.3% at noise .2 ≈ the annotations' 81%; 69.4 vs 49.5 at .5;
-42.8 vs 20.6 at .8) — a near-free doubling of the training set; on clean data they are
-worse (67.9%), so the arm shares 7.1's noise gate. Implementation is genuinely cheap —
-`SoftTargetDatasetWrapper` already accepts (index, distribution) pairs; the new mode
-just extends the training set. Two design guards: (a) **exclude prior-only points** —
-out-of-ball points have exactly the uniform prior, i.e. pure noise as a target; (b)
-**cap correlated evidence** — a ball's pseudo-labels are near-copies of its
-annotations, so unchecked, one noisy annotation gets amplified into dozens of training
-examples agreeing with it (the §1.4 double-counting problem moved to the training
-plane). Per-ball caps + slow-growing k mitigate.
+Implemented as `TRAIN_LABEL_MODE='pseudo'` (+ `PSEUDO_SCOPE`/`PSEUDO_K_SCHEDULE`,
+CLI `--pseudo_scope`/`--pseudo_k`; launcher `batch_utils/sweep_bayes_pseudo.py`) and
+swept as job 31047129 — **results in §4.6, takeaway 8: best training arm at every
+noise level, no noise gate needed.** Guard (a) (exclude prior-only points) is
+implemented — a prior-only point has a flat accumulator row and is never harvested.
+Guard (b) (**cap correlated evidence per ball**) is **still open**: one noisy
+annotation can be amplified into dozens of agreeing pseudo-targets (the §1.4
+double-counting problem moved to the training plane). The results show its
+fingerprint — `all` trails the slow-curriculum `agg50` only at noise .8 / high
+budget (28.1 vs 29.0) — so a per-ball cap is the natural next refinement if the
+high-noise cells matter for the writeup. Remaining follow-ups: per-ball caps, a
+confidence floor for `all` (harvest only above a posterior-max threshold), and
+scope gating (all→topk as noise grows).
 
 ### 7.6 Fix `filtered`/`reweighted` at low budget
 

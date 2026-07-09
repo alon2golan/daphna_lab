@@ -201,9 +201,10 @@ weighted by its <strong>annotator’s confusion matrix</strong> and its
 experts</strong>. Select the point whose ball contains the most
 remaining <em>uncertainty mass</em>.</li>
 <li><strong>Training:</strong> reuse the same posterior to build the
-training targets — five configurable policies
+training targets — six configurable policies
 (<code>TRAIN_LABEL_MODE</code>), from raw noisy labels to full soft
-labels.</li>
+labels to curriculum pseudo-labeling of unlabeled points
+(<code>pseudo</code>, §4.6).</li>
 </ol>
 <p><strong>Headline result (CIFAR100):</strong> the selection plane
 alone <span class="math inline">\approx</span> ProbCover; the
@@ -211,7 +212,11 @@ alone <span class="math inline">\approx</span> ProbCover; the
 training on the posterior (<code>soft_posterior</code> /
 <code>map_posterior</code>) beats both raw-label training (<span
 class="math inline">2.2\times</span> at noise 0.8) <strong>and Netta’s
-NPC+AUM</strong>. At noise 0.2, NPC+AUM is still slightly ahead.</p>
+NPC+AUM</strong>. The §7.5 <strong>pseudo-labeling arm (§4.6) then beats
+every other arm at every noise level <em>including clean</em></strong>
+(e.g. 47.8 vs 45.1 observed at noise 0 <span class="citation"
+data-cites="1000">@1000</span>; 45.8 vs NPC+AUM’s 43.3 at noise 0.2) —
+closing the one regime where Netta’s stack had led.</p>
 <hr />
 <h2 id="the-probabilistic-model-selection-plane">1. The probabilistic
 model (selection plane)</h2>
@@ -854,6 +859,13 @@ seeds</td>
 <td>{npc, probcover, random} × clean {on, off} × noise {.2, .5, .8} × 3
 seeds</td>
 <td>54/54 ✔</td>
+</tr>
+<tr class="odd">
+<td>§7.5 pseudo-labeling</td>
+<td>31047129</td>
+<td>bayes_product + pseudo × {all, lin10, agg50} × noise {0, .2, .5, .8}
+× 3 seeds</td>
+<td>36/36 ✔</td>
 </tr>
 </tbody>
 </table>
@@ -1931,6 +1943,326 @@ class="citation" data-cites="100">@100</span> collapse in §4 is exactly
 this.</li>
 </ol>
 <hr />
+<h3 id="curriculum-pseudo-labeling-results-sweep-31047129-3636">4.6 §7.5
+curriculum pseudo-labeling — RESULTS (sweep 31047129, 36/36 ✔)</h3>
+<p><code>TRAIN_LABEL_MODE='pseudo'</code>: labeled points train on their
+soft posterior (exactly <code>soft_posterior</code>),
+<strong>plus</strong> confident <em>unlabeled</em> pool points enter the
+training set with their posterior as a soft target. Guard (a) is
+implemented (prior-only points — flat accumulator row — never
+pseudo-labeled); guard (b) (per-ball caps) is <strong>not</strong>.
+Three arms, selected by <code>--pseudo_scope</code> /
+<code>--pseudo_k</code>:</p>
+<ul>
+<li><strong>all</strong> — every covered pool point (~8.8k pts at 100
+labels, noise .5; ~30k at 1000).</li>
+<li><strong>lin10</strong> — top-k most-confident per <em>predicted</em>
+class, k = training round (1→10).</li>
+<li><strong>agg50</strong> — same, k grows
+1,2,3,5,8,13,20,30,40,50.</li>
+</ul>
+<p>Same regime and seeds {1,2,3} as the train-mode sweep, so rows are
+paired with the baselines (the <code>observed</code> rows below
+bit-match <code>bayes_product</code> in the §4 tables — deterministic
+pipeline). Figure + CSV: <code>results/bayes_pseudo/</code>.</p>
+<p><strong>Noise = 0.0</strong></p>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>observed</td>
+<td>24.6±1.3</td>
+<td>38.1±1.3</td>
+<td>41.6±0.0</td>
+<td>43.6±0.2</td>
+<td>45.1±0.1</td>
+</tr>
+<tr class="even">
+<td>map_posterior</td>
+<td>22.5±0.5</td>
+<td>35.9±0.4</td>
+<td>38.9±0.2</td>
+<td>40.8±0.4</td>
+<td>41.8±0.5</td>
+</tr>
+<tr class="odd">
+<td>soft_posterior</td>
+<td>23.7±1.0</td>
+<td>36.3±0.7</td>
+<td>39.2±0.0</td>
+<td>41.1±0.5</td>
+<td>42.5±0.1</td>
+</tr>
+<tr class="even">
+<td>pseudo lin10</td>
+<td>26.3±1.0</td>
+<td>40.6±0.8</td>
+<td>43.4±0.0</td>
+<td>45.2±0.9</td>
+<td>46.3±0.5</td>
+</tr>
+<tr class="odd">
+<td>pseudo agg50</td>
+<td>26.3±1.0</td>
+<td>40.6±0.8</td>
+<td>43.9±0.2</td>
+<td>45.8±0.5</td>
+<td><strong>47.8±0.4</strong></td>
+</tr>
+<tr class="even">
+<td>pseudo all</td>
+<td><strong>37.6±0.4</strong></td>
+<td><strong>42.6±0.7</strong></td>
+<td><strong>44.9±0.1</strong></td>
+<td><strong>46.5±0.1</strong></td>
+<td>47.5±0.2</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Noise = 0.2</strong></p>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>observed</td>
+<td>21.6±1.5</td>
+<td>32.8±1.5</td>
+<td>36.6±0.5</td>
+<td>37.7±0.7</td>
+<td>39.2±0.3</td>
+</tr>
+<tr class="even">
+<td>map_posterior</td>
+<td>20.6±2.3</td>
+<td>33.7±2.0</td>
+<td>36.9±1.1</td>
+<td>39.2±0.8</td>
+<td>40.6±0.6</td>
+</tr>
+<tr class="odd">
+<td>soft_posterior</td>
+<td>19.1±1.7</td>
+<td>33.4±1.9</td>
+<td>37.5±1.0</td>
+<td>40.0±0.5</td>
+<td>41.5±0.4</td>
+</tr>
+<tr class="even">
+<td>pseudo lin10</td>
+<td>19.7±1.6</td>
+<td>37.6±1.6</td>
+<td>40.8±0.8</td>
+<td>42.0±0.5</td>
+<td>43.8±1.2</td>
+</tr>
+<tr class="odd">
+<td>pseudo agg50</td>
+<td>19.7±1.6</td>
+<td>37.6±1.6</td>
+<td>40.8±0.8</td>
+<td>41.4±0.8</td>
+<td>44.1±0.6</td>
+</tr>
+<tr class="even">
+<td>pseudo all</td>
+<td><strong>28.6±1.7</strong></td>
+<td><strong>37.7±1.7</strong></td>
+<td><strong>41.7±0.6</strong></td>
+<td><strong>43.6±0.2</strong></td>
+<td><strong>45.8±0.6</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Noise = 0.5</strong></p>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>observed</td>
+<td>14.9±1.4</td>
+<td>23.1±0.1</td>
+<td>26.4±0.6</td>
+<td>28.1±0.6</td>
+<td>29.5±0.4</td>
+</tr>
+<tr class="even">
+<td>map_posterior</td>
+<td>15.2±1.9</td>
+<td>27.9±1.7</td>
+<td>31.9±0.2</td>
+<td>34.5±1.0</td>
+<td>37.6±0.4</td>
+</tr>
+<tr class="odd">
+<td>soft_posterior</td>
+<td>12.3±0.9</td>
+<td>27.8±1.0</td>
+<td>33.1±0.5</td>
+<td>36.2±0.1</td>
+<td>39.1±0.8</td>
+</tr>
+<tr class="even">
+<td>pseudo lin10</td>
+<td>12.5±0.9</td>
+<td>30.1±0.8</td>
+<td>36.0±0.6</td>
+<td>38.6±0.4</td>
+<td>40.9±1.0</td>
+</tr>
+<tr class="odd">
+<td>pseudo agg50</td>
+<td>12.5±0.9</td>
+<td>30.1±0.8</td>
+<td><strong>36.5±1.0</strong></td>
+<td>38.8±0.9</td>
+<td>41.3±0.7</td>
+</tr>
+<tr class="even">
+<td>pseudo all</td>
+<td><strong>18.0±2.9</strong></td>
+<td><strong>31.1±1.1</strong></td>
+<td>36.1±0.5</td>
+<td><strong>39.1±0.6</strong></td>
+<td><strong>41.8±0.7</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Noise = 0.8</strong></p>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>observed</td>
+<td>4.6±0.5</td>
+<td>9.7±2.0</td>
+<td>10.9±1.5</td>
+<td>11.8±1.5</td>
+<td>12.6±1.6</td>
+</tr>
+<tr class="even">
+<td>map_posterior</td>
+<td>5.8±0.2</td>
+<td>14.2±2.9</td>
+<td>19.4±2.1</td>
+<td>22.9±2.2</td>
+<td>26.2±1.3</td>
+</tr>
+<tr class="odd">
+<td>soft_posterior</td>
+<td>5.3±0.5</td>
+<td>13.4±2.0</td>
+<td>18.9±2.4</td>
+<td>23.4±2.5</td>
+<td>27.5±1.9</td>
+</tr>
+<tr class="even">
+<td>pseudo lin10</td>
+<td>5.2±0.6</td>
+<td>14.3±2.5</td>
+<td>20.0±2.1</td>
+<td>24.4±2.7</td>
+<td>28.0±2.6</td>
+</tr>
+<tr class="odd">
+<td>pseudo agg50</td>
+<td>5.2±0.6</td>
+<td>14.3±2.5</td>
+<td><strong>20.1±1.9</strong></td>
+<td><strong>24.6±2.9</strong></td>
+<td><strong>29.0±2.7</strong></td>
+</tr>
+<tr class="even">
+<td>pseudo all</td>
+<td><strong>6.2±0.7</strong></td>
+<td><strong>14.4±3.2</strong></td>
+<td>19.7±2.5</td>
+<td>24.3±3.4</td>
+<td>28.1±2.5</td>
+</tr>
+</tbody>
+</table>
+<p>Reading: <strong>pseudo wins at every noise level, including
+0</strong> — see takeaway 8. <code>lin10</code> ≡ <code>agg50</code>
+through 300 labels by construction (the schedules coincide at k = 1,2,3;
+identical numbers = the determinism trust-check again). The §4.5 B
+prediction (pseudo-labels cleaner than paid annotations wherever noise ≥
+.2, worse when clean) is confirmed <em>directionally</em> by training,
+with one surprise: the arm helps on <strong>clean</strong> data too
+(47.8 vs observed 45.1 <span class="citation"
+data-cites="1000">@1000</span>; 37.6 vs 24.6 <span class="citation"
+data-cites="100">@100</span> for <code>all</code>) — §4.5 B under-sold
+it because even 67.9%-clean extra targets are soft (the wrongness is
+spread over classes, not committed to a hard wrong label) and the sheer
+volume (~9–30k points) dominates the classifier’s data diet at these
+budgets.</p>
 <h2 id="takeaways">5. Takeaways</h2>
 <ol type="1">
 <li><strong>Selection plane alone ≈ ProbCover.</strong>
@@ -1976,19 +2308,37 @@ minimum-neighbor gate if kept.</li>
 sweep (filtering starts after the first training round); AUM-ablation
 <code>clean=off</code> arms reproduce the no-filter baselines
 bit-for-bit (deterministic pipeline).</li>
+<li><strong>Pseudo-labeling (§4.6) is the new best training arm at
+<em>every</em> noise level — and it removes the noise gate’s
+necessity.</strong> It beats the previous per-noise winners at 1000
+labels: 47.8 vs 45.1 (observed) clean, 45.8 vs 41.5 (soft) at .2, 41.8
+vs 39.1 at .5, 29.0 vs 27.5 at .8 — and, unlike soft/map, it also beats
+NPC+AUM at noise 0.2 (45.8 vs 43.3), so the method now leads Netta’s
+stack everywhere. Within the arm: <code>all</code> dominates at low
+budget (37.6 vs 26.3 <span class="citation" data-cites="100">@100</span>
+clean — coverage volume matters most when labels are scarcest) and stays
+best through noise .5; the curriculum arms catch up by 1000 and
+<code>agg50</code> is the safer choice at noise .8 (29.0 vs 28.1),
+consistent with guard (b) being unimplemented — <code>all</code>
+amplifies noisy balls hardest exactly where labels are least reliable.
+Takeaway 5’s clean-data penalty does <em>not</em> apply: pseudo helps
+clean data too, so <code>pseudo</code> needs no noise gate (only the
+scope choice might be gated).</li>
 </ol>
 <h2 id="reproducing-the-tables">6. Reproducing the tables</h2>
 <p>Per-run data: <code>episodes[].test_acc</code> keyed by
 <code>labeled_size</code> in each
 <code>output/CIFAR100/resnet18/&lt;date&gt;/&lt;run&gt;/result.json</code>,
 filtered by <code>sweep_id</code> ∈ {30978366, 30980646, 30811243,
-30863746}; group by <code>params.al_method</code> /
-<code>params.train_label_mode</code> / noise / seed. Aggregation script
-(session scratchpad, copy into <code>batch_utils/</code> if wanted
-long-term): <code>build_tables.py</code> — or use the dashboard
-Comparison tab (Category = <code>bayesian_coverage</code> +
-<code>aum_filter</code>, shared <code>noise_rate</code> filter). The AUM
-sweep extends to 3000 labels if a longer x-axis is needed.</p>
+30863746, 31047129 (§4.6 pseudo)}; group by
+<code>params.al_method</code> / <code>params.train_label_mode</code> (+
+<code>params.pseudo_scope</code> / <code>params.pseudo_k</code> for the
+pseudo arms) / noise / seed. Aggregation script (session scratchpad,
+copy into <code>batch_utils/</code> if wanted long-term):
+<code>build_tables.py</code> — or use the dashboard Comparison tab
+(Category = <code>bayesian_coverage</code> + <code>aum_filter</code>,
+shared <code>noise_rate</code> filter). The AUM sweep extends to 3000
+labels if a longer x-axis is needed.</p>
 <p>Note: the CIFAR10 twin sweep (job 30969432, 44/48) exists but is the
 wrong regime for coverage methods (10–100 labels/class); read CIFAR100
 only.</p>
@@ -2058,28 +2408,28 @@ noise .5/.8 is ~36 runs — and §4.5’s offline replay gives a shortcut:
 ECE offline</strong>, then confirm the winner with a small training
 sweep. Expectation: <span class="math inline">\beta &lt; 1</span> helps
 most exactly where the headline result lives.</p>
-<h3 id="semi-supervised-training-arm-pseudo-labeling">7.5
-Semi-supervised training arm (pseudo-labeling)</h3>
-<p>The posterior is already computed for <em>every</em> pool point, so
-points we never paid to annotate can still contribute training signal if
-their posterior is confident: add a train mode that also trains on the
-top-k most-confident <strong>unlabeled</strong> points per class, k
-growing per episode (curriculum pseudo-labeling). <strong>Feasibility
-now measured (§4.5 B): at budget 1000 the top-10-per-class pseudo-labels
-are cleaner than the paid annotations wherever noise ≥ 0.2</strong>
-(79.3% at noise .2 ≈ the annotations’ 81%; 69.4 vs 49.5 at .5; 42.8 vs
-20.6 at .8) — a near-free doubling of the training set; on clean data
-they are worse (67.9%), so the arm shares 7.1’s noise gate.
-Implementation is genuinely cheap —
-<code>SoftTargetDatasetWrapper</code> already accepts (index,
-distribution) pairs; the new mode just extends the training set. Two
-design guards: (a) <strong>exclude prior-only points</strong> —
-out-of-ball points have exactly the uniform prior, i.e. pure noise as a
-target; (b) <strong>cap correlated evidence</strong> — a ball’s
-pseudo-labels are near-copies of its annotations, so unchecked, one
-noisy annotation gets amplified into dozens of training examples
-agreeing with it (the §1.4 double-counting problem moved to the training
-plane). Per-ball caps + slow-growing k mitigate.</p>
+<h3
+id="semi-supervised-training-arm-pseudo-labeling-done-2026-07-09">7.5
+Semi-supervised training arm (pseudo-labeling) — ✅ DONE
+(2026-07-09)</h3>
+<p>Implemented as <code>TRAIN_LABEL_MODE='pseudo'</code> (+
+<code>PSEUDO_SCOPE</code>/<code>PSEUDO_K_SCHEDULE</code>, CLI
+<code>--pseudo_scope</code>/<code>--pseudo_k</code>; launcher
+<code>batch_utils/sweep_bayes_pseudo.py</code>) and swept as job
+31047129 — <strong>results in §4.6, takeaway 8: best training arm at
+every noise level, no noise gate needed.</strong> Guard (a) (exclude
+prior-only points) is implemented — a prior-only point has a flat
+accumulator row and is never harvested. Guard (b) (<strong>cap
+correlated evidence per ball</strong>) is <strong>still open</strong>:
+one noisy annotation can be amplified into dozens of agreeing
+pseudo-targets (the §1.4 double-counting problem moved to the training
+plane). The results show its fingerprint — <code>all</code> trails the
+slow-curriculum <code>agg50</code> only at noise .8 / high budget (28.1
+vs 29.0) — so a per-ball cap is the natural next refinement if the
+high-noise cells matter for the writeup. Remaining follow-ups: per-ball
+caps, a confidence floor for <code>all</code> (harvest only above a
+posterior-max threshold), and scope gating (all→topk as noise
+grows).</p>
 <h3 id="fix-filteredreweighted-at-low-budget">7.6 Fix
 <code>filtered</code>/<code>reweighted</code> at low budget</h3>
 <p>Both modes collapse to ~5% at budget 100 <em>even on clean data</em>
