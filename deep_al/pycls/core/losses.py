@@ -4,7 +4,23 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from deep_al.pycls.core.config import cfg
+from deep_al.pycls.core.config import cfg as _DEFAULT_CFG
+
+_RUNTIME_CFG = _DEFAULT_CFG
+
+
+def set_runtime_cfg(active_cfg):
+    """Set the active cfg used by loss constructors.
+
+    This is needed because train_al.py calls losses.get_loss_fun() without
+    passing cfg, while run_noise_al_pipeline.py builds a per-run cloned cfg.
+    """
+    global _RUNTIME_CFG
+    _RUNTIME_CFG = active_cfg
+
+
+def _cfg():
+    return _RUNTIME_CFG if _RUNTIME_CFG is not None else _DEFAULT_CFG
 
 
 class GeneralizedCrossEntropyLoss(nn.Module):
@@ -15,7 +31,7 @@ class GeneralizedCrossEntropyLoss(nn.Module):
     """
     def __init__(self):
         super().__init__()
-        self.q = float(getattr(cfg.MODEL, "GCE_Q", 0.7))
+        self.q = float(getattr(_cfg().MODEL, "GCE_Q", 0.7))
 
     def forward(self, logits, targets):
         if self.q <= 1e-8:
@@ -34,7 +50,7 @@ class BootstrapSoftLoss(nn.Module):
     """
     def __init__(self):
         super().__init__()
-        self.beta = float(getattr(cfg.MODEL, "BOOTSTRAP_BETA", 0.8))
+        self.beta = float(getattr(_cfg().MODEL, "BOOTSTRAP_BETA", 0.8))
 
     def forward(self, logits, targets):
         num_classes = logits.shape[1]
@@ -52,7 +68,7 @@ class BootstrapHardLoss(nn.Module):
     """
     def __init__(self):
         super().__init__()
-        self.beta = float(getattr(cfg.MODEL, "BOOTSTRAP_BETA", 0.8))
+        self.beta = float(getattr(_cfg().MODEL, "BOOTSTRAP_BETA", 0.8))
 
     def forward(self, logits, targets):
         num_classes = logits.shape[1]
@@ -72,11 +88,16 @@ _loss_funs = {
 }
 
 
-def get_loss_fun():
+def get_loss_fun(active_cfg=None):
     """Retrieves the loss function."""
-    assert cfg.MODEL.LOSS_FUN in _loss_funs.keys(), \
-        "Loss function '{}' not supported. Supported: {}".format(cfg.MODEL.LOSS_FUN, sorted(_loss_funs))
-    return _loss_funs[cfg.MODEL.LOSS_FUN]().cuda()
+    if active_cfg is not None:
+        set_runtime_cfg(active_cfg)
+
+    active = _cfg()
+    loss_name = active.MODEL.LOSS_FUN
+    assert loss_name in _loss_funs.keys(), \
+        "Loss function '{}' not supported. Supported: {}".format(loss_name, sorted(_loss_funs))
+    return _loss_funs[loss_name]().cuda()
 
 
 def register_loss_fun(name, ctor):

@@ -1268,6 +1268,17 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
     from deep_al.tools import train_al as train_al_module
 
     cfg = build_cfg(pipeline["cfg"], pipeline)
+
+    # train_al.py calls losses.get_loss_fun() without passing cfg.
+    # Force its losses module to use this run-specific cloned cfg.
+    try:
+        if hasattr(train_al_module.losses, "set_runtime_cfg"):
+            train_al_module.losses.set_runtime_cfg(cfg)
+        else:
+            train_al_module.losses.cfg = cfg
+    except Exception:
+        logger.exception("Failed to set runtime cfg for losses module")
+
     if cfg.RNG_SEED is None:
         cfg.RNG_SEED = int(np.random.randint(100000))
     setup_experiment_directory(cfg)
@@ -1438,6 +1449,9 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         "final_val_acc": float(final_val_acc),
         "final_test_acc": float(final_test_acc),
         "final_knn_eval": final_knn_eval,
+        "effective_loss_fun": str(cfg.MODEL.LOSS_FUN),
+        "effective_gce_q": float(getattr(cfg.MODEL, "GCE_Q", 0.7)),
+        "effective_bootstrap_beta": float(getattr(cfg.MODEL, "BOOTSTRAP_BETA", 0.8)),
         "episode_training_times": episode_training_times,
         "episode_al_times": episode_al_times,
         "noise_method_results": noise_method_results,
@@ -1459,6 +1473,9 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
             "final_val_acc": float(final_val_acc),
             "final_test_acc": float(final_test_acc),
             "final_knn_eval": final_knn_eval,
+            "effective_loss_fun": str(cfg.MODEL.LOSS_FUN),
+            "effective_gce_q": float(getattr(cfg.MODEL, "GCE_Q", 0.7)),
+            "effective_bootstrap_beta": float(getattr(cfg.MODEL, "BOOTSTRAP_BETA", 0.8)),
             "episode_training_times": episode_training_times,
             "episode_al_times": episode_al_times,
             "noise_method_results": noise_method_results,
@@ -1572,6 +1589,13 @@ def _safe_name(s: str) -> str:
 
 
 def _sum_noise_cleaning_results(noise_method_results: Any) -> Dict[str, Any]:
+    """Aggregate cleaning counters from both old and new result formats.
+
+    Supported shapes:
+      {"episode": i, "result": {...}}
+      {"episode": i, "result": {"stats": {...}}}
+      {"fixed": ..., "total_noisy_in_lSet": ...}
+    """
     totals = {
         "num_cleaning_calls": 0,
         "fixed": 0,
@@ -1584,18 +1608,36 @@ def _sum_noise_cleaning_results(noise_method_results: Any) -> Dict[str, Any]:
     if not isinstance(noise_method_results, list):
         return totals
 
-    for item in noise_method_results:
+    counter_keys = ["fixed", "correctly_fixed", "clean_corrupted", "wrong_to_wrong", "total_noisy_in_lSet"]
+
+    for raw in noise_method_results:
+        if not isinstance(raw, dict):
+            continue
+
+        item = raw.get("result", raw)
         if not isinstance(item, dict):
             continue
-        if item.get("status") == "skipped":
+
+        status = item.get("status")
+        method = item.get("method")
+        if status == "skipped" or method == "none":
             totals["skipped"] += 1
             continue
+
+        # New format: counters are directly on result.
+        # Some older code: counters are under result["stats"].
+        stats = item.get("stats", item)
+        if not isinstance(stats, dict):
+            stats = {}
+
         totals["num_cleaning_calls"] += 1
-        for key in ["fixed", "correctly_fixed", "clean_corrupted", "wrong_to_wrong", "total_noisy_in_lSet"]:
+        for key in counter_keys:
+            value = stats.get(key, item.get(key, 0))
             try:
-                totals[key] += int(item.get(key, 0) or 0)
+                totals[key] += int(value or 0)
             except Exception:
                 pass
+
     return totals
 
 
@@ -1637,6 +1679,9 @@ def _light_grid_entry(combo_name: str, pipeline: Dict[str, Any], results: Dict[s
         "al_method": al_cfg.get("method"),
         "noise_method": nh_cfg.get("method") or "none",
         "loss_fun": loss_fun,
+        "effective_loss_fun": summary.get("effective_loss_fun"),
+        "effective_gce_q": summary.get("effective_gce_q"),
+        "effective_bootstrap_beta": summary.get("effective_bootstrap_beta"),
         "seed": run_args.get("seed"),
 
         "initial_size": run_args.get("initial_size"),

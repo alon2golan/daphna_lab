@@ -166,7 +166,6 @@ def predict_with_crossval(
         clf = LogisticRegression(
             max_iter=int(max_iter),
             solver="lbfgs",
-            multi_class="auto",
             n_jobs=-1,
         )
         clf.fit(x[train_pos], y_train)

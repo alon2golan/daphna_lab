@@ -18,21 +18,29 @@ cd "$REPO_DIR/deep_al/tools"
 
 CFG_PATH="../configs/cifar100/al/RESNET18.yaml"
 SEED=0
-EXP_NAME="grid_NAL_paper_hp"
+EXP_NAME="grid_NAL_paper_hp_aggressive_cleaning"
 CIFAR_N_VARIANT="auto"
-BASE_GRID_OUT_DIR="$REPO_DIR/grid_outputs/paper_hp_NAL_grid_noise_methods"
+BASE_GRID_OUT_DIR="$REPO_DIR/grid_outputs/paper_hp_NAL_grid_noise_methods_aggressive_cleaning"
 RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 DEBUG_JSON="${DEBUG_JSON:-0}"
 GRID_JSON_PATH="${GRID_JSON_PATH:-$BASE_GRID_OUT_DIR/aggregate_results_${RUN_TIMESTAMP}.json}"
 mkdir -p "$BASE_GRID_OUT_DIR"
 
 GRID_NOISE_TYPES="clean,sym,asym,cifar100n"
-GRID_AL_METHODS="typiclust,probcover,dcom,maxherding,margin,coreset,random"
+GRID_AL_METHODS="typiclust,probcover,maxherding,margin,coreset,random"
 
 NOISE_RATE=0.2
 INITIAL_SIZE=100
 BUDGET_SIZE=100
 MAX_ITER=4
+
+# More aggressive cleaning thresholds for the next debug run.
+# Override from command line if needed, e.g. AUM_CONF_THRESHOLD=0.6 sbatch ...
+LABEL_CLEANING_CONF_THRESHOLD="${LABEL_CLEANING_CONF_THRESHOLD:-0.7}"
+TEMPORAL_CONF_THRESHOLD="${TEMPORAL_CONF_THRESHOLD:-0.7}"
+TEMPORAL_MIN_SEEN="${TEMPORAL_MIN_SEEN:-1}"
+AUM_PERCENTILE="${AUM_PERCENTILE:-20}"
+AUM_CONF_THRESHOLD="${AUM_CONF_THRESHOLD:-0.7}"
 
 CIFAR_N_LABELS_PATH="$REPO_DIR/deep_al/tools/data/CIFAR-100_human.pt"
 SUPERCLASS_GROUPS_PATH=""
@@ -84,6 +92,11 @@ echo "GRID_AL_METHODS=$GRID_AL_METHODS"
 echo "BASE_GRID_OUT_DIR=$BASE_GRID_OUT_DIR"
 echo "GRID_JSON_PATH=$GRID_JSON_PATH"
 echo "DEBUG_JSON=$DEBUG_JSON"
+echo "LABEL_CLEANING_CONF_THRESHOLD=$LABEL_CLEANING_CONF_THRESHOLD"
+echo "TEMPORAL_CONF_THRESHOLD=$TEMPORAL_CONF_THRESHOLD"
+echo "TEMPORAL_MIN_SEEN=$TEMPORAL_MIN_SEEN"
+echo "AUM_PERCENTILE=$AUM_PERCENTILE"
+echo "AUM_CONF_THRESHOLD=$AUM_CONF_THRESHOLD"
 echo "NOISE_RATE=$NOISE_RATE"
 echo "INITIAL_SIZE=$INITIAL_SIZE"
 echo "BUDGET_SIZE=$BUDGET_SIZE"
@@ -101,15 +114,15 @@ python3 -u run_noise_al_pipeline.py \
   --grid_out_dir "$CE_GRID_OUT_DIR" \
   --grid_noise_methods "none,label_cleaning,crossval,temporal,aum" \
   --loss_fun cross_entropy \
-  --cleaning_conf_threshold 0.9 \
+  --cleaning_conf_threshold "$LABEL_CLEANING_CONF_THRESHOLD" \
   --cleaning_pred_source checkpoint \
   --crossval_folds 5 \
   --crossval_max_iter 300 \
   --temporal_momentum 0.8 \
-  --temporal_min_seen 2 \
-  --temporal_conf_threshold 0.8 \
-  --aum_percentile 10 \
-  --aum_conf_threshold 0.8
+  --temporal_min_seen "$TEMPORAL_MIN_SEEN" \
+  --temporal_conf_threshold "$TEMPORAL_CONF_THRESHOLD" \
+  --aum_percentile "$AUM_PERCENTILE" \
+  --aum_conf_threshold "$AUM_CONF_THRESHOLD"
 
 for LOSS_FUN in gce bootstrap_soft bootstrap_hard; do
   ROBUST_GRID_OUT_DIR="$BASE_GRID_OUT_DIR/robust_${LOSS_FUN}"
