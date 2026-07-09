@@ -1,0 +1,2137 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="dcterms.date" content="2026-07-08" />
+  <title>Bayesian Coverage — How It Works + Results vs. Netta's NPC/AUM</title>
+  <style>
+    html {
+      line-height: 1.5;
+      font-family: Georgia, serif;
+      font-size: 20px;
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 1em;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, 'Lucida Console', Consolas, monospace;
+      font-size: 85%;
+      margin: 0;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      background-color: #1a1a1a;
+      border: none;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+  </style>
+  <script defer=""
+  src="/usr/share/javascript/katex/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <link rel="stylesheet"
+  href="/usr/share/javascript/katex/katex.min.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Bayesian Coverage — How It Works + Results vs. Netta's
+NPC/AUM</h1>
+<p class="date">2026-07-08</p>
+</header>
+<p><strong>Branch:</strong> <code>bayesian_coverage</code> (HEAD
+<code>236cf81</code>) <strong>Companion docs:</strong> design spec in
+<code>docs/bayesian_coverage_DESIGN.md</code>; implementation in
+<code>deep_al/pycls/al/bayesian_coverage.py</code>; training wiring in
+<code>deep_al/tools/train_al.py</code>
+(<code>_bayes_training_loader</code>) +
+<code>deep_al/pycls/noise/noisy_label_wrapper.py</code>. Everything in
+this file is verified against the code and the actual
+<code>result.json</code> files on disk.</p>
+<hr />
+<h2 id="tldr">0. TL;DR</h2>
+<p>We work with <strong>noisy annotators</strong> and act on <strong>two
+planes</strong>:</p>
+<ol type="1">
+<li><strong>Point selection (AL):</strong> replace ProbCover’s binary
+covered/not-covered with a <strong>per-class posterior
+distribution</strong> per point, built from neighbor annotations, each
+weighted by its <strong>annotator’s confusion matrix</strong> and its
+<strong>kernel distance</strong>, fused as a <strong>product of
+experts</strong>. Select the point whose ball contains the most
+remaining <em>uncertainty mass</em>.</li>
+<li><strong>Training:</strong> reuse the same posterior to build the
+training targets — five configurable policies
+(<code>TRAIN_LABEL_MODE</code>), from raw noisy labels to full soft
+labels.</li>
+</ol>
+<p><strong>Headline result (CIFAR100):</strong> the selection plane
+alone <span class="math inline">\approx</span> ProbCover; the
+<em>training</em> plane is where the method pays. At noise 0.5/0.8,
+training on the posterior (<code>soft_posterior</code> /
+<code>map_posterior</code>) beats both raw-label training (<span
+class="math inline">2.2\times</span> at noise 0.8) <strong>and Netta’s
+NPC+AUM</strong>. At noise 0.2, NPC+AUM is still slightly ahead.</p>
+<hr />
+<h2 id="the-probabilistic-model-selection-plane">1. The probabilistic
+model (selection plane)</h2>
+<p>Class: <code>BayesianCoverage(CoverageMatrixMethod)</code> — a new
+subclass; the base ProbCover/NPC path is byte-untouched.</p>
+<h3 id="notation-every-symbol-used-below">1.0 Notation — every symbol
+used below</h3>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Symbol</th>
+<th>Meaning</th>
+<th>In the code</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><span class="math inline">C</span></td>
+<td>number of classes (100 for CIFAR100)</td>
+<td><code>num_of_classes</code></td>
+</tr>
+<tr class="even">
+<td><span class="math inline">u, v</span></td>
+<td>an arbitrary / candidate <strong>pool point</strong></td>
+<td>row index into <code>self.C</code></td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\ell</span></td>
+<td>a <strong>labeled point</strong> (a “neighbor” once annotated);
+<span class="math inline">L</span> = the set of all labeled points</td>
+<td><code>lSet</code> + in-episode picks</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">y_u</span></td>
+<td>the (unknown) <strong>true label</strong> of point <span
+class="math inline">u</span></td>
+<td>—</td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\tilde{y}_\ell</span></td>
+<td>the <strong>observed label</strong> the annotator gave <span
+class="math inline">\ell</span> — possibly a noise flip of the true
+<span class="math inline">y_\ell</span></td>
+<td><code>annotated_labels[g]</code></td>
+</tr>
+<tr class="even">
+<td><span class="math inline">a(\ell)</span>, <span
+class="math inline">\rho_a</span></td>
+<td>the annotator that labeled <span class="math inline">\ell</span>;
+its accuracy <span class="math inline">\rho_a = 1-\text{noise
+rate}</span></td>
+<td><code>Annotator.accuracy</code></td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">M^a[k,j]</span></td>
+<td>the annotator’s <strong>confusion matrix</strong> (<span
+class="math inline">C{\times}C</span>, rows sum to 1): <span
+class="math inline">M^a[k,j] = P(\text{annotator says } j \mid
+\text{true class is } k)</span>. The entry <span
+class="math inline">M^a[k,\tilde{y}_\ell]</span> used in Step A reads:
+“if <span class="math inline">\ell</span>’s true class were <span
+class="math inline">k</span>, how likely was this annotator to answer
+<span class="math inline">\tilde{y}_\ell</span>?” — the
+<strong>likelihood</strong> in Bayes’ rule. Symmetric annotator:
+diagonal <span class="math inline">=\rho_a</span>, off-diagonal <span
+class="math inline">=(1-\rho_a)/(C-1)</span>; an asymmetric annotator
+just supplies a different matrix</td>
+<td><code>Annotator.confusion_matrix</code>,
+<code>_confusion_matrix()</code></td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\pi(k)</span></td>
+<td>the <strong>class prior</strong> — belief about any point’s class
+before seeing labels; uniform <span class="math inline">1/C</span> in
+all runs</td>
+<td><code>self.pi</code></td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">K[u,\ell]</span></td>
+<td>the <strong>kernel</strong>: the probability that <span
+class="math inline">u</span> shares <span
+class="math inline">\ell</span>’s true label, from feature distance —
+ProbCover’s “same <span class="math inline">\delta</span>-ball <span
+class="math inline">\Rightarrow</span> same label” assumption made
+explicit. Tophat: <span class="math inline">K[u,\ell]=1</span> if <span
+class="math inline">\lVert f_u - f_\ell\rVert \le \delta</span>, else
+<span class="math inline">0</span></td>
+<td><code>self.K</code> (base class), <span
+class="math inline">\delta=0.75</span></td>
+</tr>
+<tr class="even">
+<td><span class="math inline">b_\ell(k)</span></td>
+<td><strong>Step-A belief</strong>: <span class="math inline">P(y_\ell =
+k \mid \tilde{y}_\ell)</span> — what we believe about <span
+class="math inline">\ell</span>’s <strong>own</strong> true label after
+passing the annotation through the confusion matrix</td>
+<td><code>_belief()</code></td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">q_\ell(u,k)</span></td>
+<td><strong>Step-B message</strong>: the likelihood that neighbor <span
+class="math inline">\ell</span> contributes about <strong>point <span
+class="math inline">u</span>’s</strong> label — <span
+class="math inline">b_\ell</span> diluted toward the prior by distance.
+See the “how to read <span class="math inline">q_\ell</span>” box in
+Step B</td>
+<td><code>_neighbor_loglik()</code></td>
+</tr>
+<tr class="even">
+<td><span class="math inline">w_{u\ell}</span></td>
+<td>per-neighbor <strong>weight</strong> on that message; default
+<code>kernel</code>: <span
+class="math inline">w_{u\ell}=K[u,\ell]</span></td>
+<td><code>NEIGHBOR_WEIGHT</code></td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\beta</span></td>
+<td>global <strong>tempering exponent</strong> applied to every message
+(§1.4); default <span class="math inline">1.0</span> = off</td>
+<td><code>TEMPER_BETA</code></td>
+</tr>
+<tr class="even">
+<td><span class="math inline">C[u]</span></td>
+<td><span class="math inline">u</span>’s row of the coverage accumulator
+= the <strong>log unnormalized posterior</strong> over classes (product
+mode)</td>
+<td><code>self.C</code></td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">P(y_u=\cdot)</span></td>
+<td>the usable <strong>posterior</strong> <span
+class="math inline">=\operatorname{softmax}(C[u])</span></td>
+<td><code>posterior()</code></td>
+</tr>
+<tr class="even">
+<td><span class="math inline">P^{\text{LOO}}_\ell</span></td>
+<td><strong>leave-one-out posterior</strong> of a labeled point — its
+posterior with its own vote subtracted (§2)</td>
+<td><code>_loo_posterior_for()</code></td>
+</tr>
+</tbody>
+</table>
+<p>Every pool point <span class="math inline">u</span> carries a
+distribution <span class="math inline">P(y_u = k)</span> over all
+classes instead of a covered bit. It is built in three steps:</p>
+<h3
+id="step-a-annotator-noise-enters-_belief-bayesian_coverage.py171">Step
+A — annotator noise enters (<code>_belief</code>,
+bayesian_coverage.py:171)</h3>
+<p>For a labeled point <span class="math inline">\ell</span> with
+observed label <span class="math inline">\tilde{y}_\ell</span> from
+annotator <span class="math inline">a</span>, the belief over its
+<strong>own true label</strong> is Bayes’ rule through the annotator’s
+confusion matrix <span class="math inline">M^a[k,j] = P(\text{observed }
+j \mid \text{true } k)</span>:</p>
+<p><span class="math display">
+b_\ell(k) \;\propto\; \pi(k)\cdot M^a[k,\, \tilde{y}_\ell]
+</span></p>
+<ul>
+<li><span class="math inline">\pi</span> = the <strong>class
+prior</strong> (uniform, <span class="math inline">1/C</span>).
+Terminology note: the prior is <span class="math inline">\pi</span>,
+<em>not</em> the annotator-confidence vector — <span
+class="math inline">b_\ell</span> is already a (Step-A) posterior on
+<span class="math inline">\ell</span>’s own label.</li>
+<li>Symmetric annotator with accuracy <span
+class="math inline">\rho</span>:</li>
+</ul>
+<p><span class="math display">
+b_\ell(k) =
+\begin{cases}
+\rho &amp; k = \tilde{y}_\ell \\[2pt]
+\dfrac{1-\rho}{C-1} &amp; k \neq \tilde{y}_\ell
+\end{cases}
+</span></p>
+<p>E.g. a 50%-noise annotator on CIFAR100: <span
+class="math inline">0.5</span> on the observed class, <span
+class="math inline">0.5/99</span> elsewhere. - The <strong>full
+confusion matrix</strong> is used, so asymmetric annotators work for
+free (commit <code>9b54ce0</code>;
+<code>Annotator.confusion_matrix</code>).</p>
+<h3 id="step-b-geometry-enters-_neighbor_loglik-line-189">Step B —
+geometry enters (<code>_neighbor_loglik</code>, line 189)</h3>
+<p>The belief propagates to any other point <span
+class="math inline">u</span> through the kernel edge, diluted by
+distance:</p>
+<p><span class="math display">
+q_\ell(u,k) \;=\; K[u,\ell]\cdot b_\ell(k) \;+\;
+\bigl(1-K[u,\ell]\bigr)\cdot \pi(k)
+</span></p>
+<p><strong>How to read <span
+class="math inline">q_\ell(u,k)</span>.</strong> It answers: <em>“given
+only what neighbor <span class="math inline">\ell</span> knows, how
+likely is it that point <span class="math inline">u</span> belongs to
+class <span class="math inline">k</span>?”</em> — one neighbor’s
+“message” about <span class="math inline">u</span>, a full distribution
+over the <span class="math inline">C</span> classes (one <span
+class="math inline">q_\ell(u,\cdot)</span> vector per (neighbor, point)
+pair). It is a <strong>mixture of two hypotheses</strong>, weighted by
+the kernel:</p>
+<ul>
+<li>With probability <span class="math inline">K[u,\ell]</span>: “<span
+class="math inline">u</span> and <span class="math inline">\ell</span>
+share the same true label” (the ProbCover ball assumption holds) — then
+everything we believe about <span class="math inline">\ell</span>’s
+label, <span class="math inline">b_\ell</span>, transfers to <span
+class="math inline">u</span> as-is.</li>
+<li>With probability <span class="math inline">1-K[u,\ell]</span>:
+“<span class="math inline">u</span> is unrelated to <span
+class="math inline">\ell</span>” — then <span
+class="math inline">\ell</span> tells us nothing about <span
+class="math inline">u</span>, and the message falls back to the prior
+<span class="math inline">\pi</span>.</li>
+</ul>
+<p>Limit cases, with a 60%-accurate annotator on CIFAR100 that said
+class 7:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Situation</th>
+<th><span class="math inline">K[u,\ell]</span></th>
+<th><span class="math inline">q_\ell(u,\cdot)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><span class="math inline">u</span> right next to <span
+class="math inline">\ell</span></td>
+<td><span class="math inline">1</span></td>
+<td><span class="math inline">= b_\ell</span>: <span
+class="math inline">0.6</span> on class 7, <span
+class="math inline">0.4/99</span> elsewhere</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">u</span> far from <span
+class="math inline">\ell</span></td>
+<td><span class="math inline">0</span></td>
+<td><span class="math inline">= \pi</span>: uniform <span
+class="math inline">1/100</span> — no information</td>
+</tr>
+<tr class="odd">
+<td>smooth kernel, mid-distance</td>
+<td><span class="math inline">0.5</span></td>
+<td>halfway: <span class="math inline">0.303</span> on class 7, ~<span
+class="math inline">0.007</span> elsewhere</td>
+</tr>
+</tbody>
+</table>
+<p>Close neighbor + accurate annotator <span
+class="math inline">\Rightarrow</span> peaked toward <span
+class="math inline">\tilde{y}_\ell</span>. Far neighbor
+<strong>or</strong> noisy annotator <span
+class="math inline">\Rightarrow</span> flat toward the prior. With the
+tophat kernel (what all our runs use), <span class="math inline">K \in
+\{0,1\}</span> — inside/outside the <span
+class="math inline">\delta</span>-ball — so distance acts as a gate:
+in-ball neighbors send <span class="math inline">b_\ell</span>,
+out-of-ball neighbors send the (information-free) prior.</p>
+<h3 id="step-c-fuse-all-labeled-neighbors-product-of-experts">Step C —
+fuse all labeled neighbors (product of experts)</h3>
+<p>All labeled neighbors are combined in log-space (naive Bayes over
+neighbors):</p>
+<p><span class="math display">
+C[u] \;=\; \log \pi \;+\; \sum_{\ell \in L} \beta\, w_{u\ell}\, \log
+q_\ell(u,\cdot),
+\qquad
+P(y_u = \cdot) \;=\; \operatorname{softmax}\bigl(C[u]\bigr)
+</span></p>
+<p>Equivalently in probability space — each neighbor’s message enters as
+a <strong>fractional vote</strong> with exponent <span
+class="math inline">\beta\, w_{u\ell}</span>:</p>
+<p><span class="math display">
+P(y_u = k) \;\propto\; \pi(k)\, \prod_{\ell \in L}
+q_\ell(u,k)^{\,\beta\, w_{u\ell}}
+</span></p>
+<p>(In the code, <code>_neighbor_loglik</code> returns exactly
+<code>temper_beta * w * log q</code>, accumulated into
+<code>self.C</code> by <code>_fold_neighbor</code>.)</p>
+<ul>
+<li><strong>Product, not addition</strong>: agreeing neighbors
+<em>sharpen</em> the posterior; a single confident-but-wrong neighbor is
+overridable. The <strong>additive</strong> rule (<span
+class="math inline">C[:,\text{label}] \mathrel{+}= K_{\text{row}}</span>
+— Itai David’s <code>BAYES_MISP</code>) is kept behind
+<code>COMBINE=additive</code> as the empirical control (design §3
+demanded the comparison, not an assumption). Result: product wins
+decisively (see §5.4).</li>
+</ul>
+<h3
+id="the-weights-w_uell-and-the-temper-beta-correlated-neighbor-overconfidence">1.4
+The weights <span class="math inline">w_{u\ell}</span> and the temper
+<span class="math inline">\beta</span> — correlated-neighbor
+overconfidence</h3>
+<p>The product above is naive Bayes: it assumes every labeled neighbor
+is an <strong>independent</strong> piece of evidence. Neighbors that are
+close <em>to each other</em> violate this — they describe the same local
+patch, so their labels are near-duplicates of one measurement, and a raw
+product counts the same information several times over.</p>
+<p>Worked example (2 classes): five clustered neighbors, each giving
+<span class="math inline">u</span> a message that is <span
+class="math inline">0.7</span>-confident for class A.</p>
+<ul>
+<li>Naive product (<span class="math inline">\beta = 1</span>, full
+votes): odds <span class="math inline">= (0.7/0.3)^5 \approx 69{:}1
+\Rightarrow P(A) \approx 0.99</span>.</li>
+<li>But if the five points are effectively one measurement, the honest
+belief is <span class="math inline">\approx 0.7</span>. The raw product
+is badly <strong>overconfident</strong>.</li>
+</ul>
+<p>Overconfidence hurts both planes: an overconfident posterior looks
+“covered”, so the acquisition score stops sampling that region; and
+<code>soft_posterior</code> training targets inherit the false peak.</p>
+<p>Two knobs shrink the per-neighbor exponent (design §2.4):</p>
+<ol type="1">
+<li><strong>Kernel weighting</strong> —
+<code>NEIGHBOR_WEIGHT='kernel'</code> (default): <span
+class="math inline">w_{u\ell} = K[u,\ell]</span>. Each message is scaled
+by its relevance to <span class="math inline">u</span>: a neighbor on
+top of <span class="math inline">u</span> casts a full vote, a marginal
+one a fraction. <em>Caveat for our runs:</em> with the tophat kernel
+<span class="math inline">K \in \{0,1\}</span>, so this degenerates to a
+gate — every in-ball neighbor still casts a full vote. It only becomes a
+real gradient with a smooth kernel (e.g. RBF).</li>
+<li><strong>Tempering</strong> — <code>TEMPER_BETA</code> <span
+class="math inline">= \beta &lt; 1</span>: multiply <em>every</em>
+message uniformly, i.e. raise every likelihood to the power <span
+class="math inline">\beta</span> (“fractional Bayes”). With <span
+class="math inline">N</span> agreeing neighbors the effective evidence
+count becomes <span class="math inline">\beta N</span> instead of <span
+class="math inline">N</span>: in the example, <span
+class="math inline">\beta = 0.2</span> turns <span
+class="math inline">(0.7/0.3)^5</span> back into <span
+class="math inline">(0.7/0.3)^1 = 0.7</span>.</li>
+</ol>
+<p>The two are complementary and multiply: <span
+class="math inline">w_{u\ell}</span> discounts <strong>per neighbor by
+relevance</strong> (“this neighbor is far”), <span
+class="math inline">\beta</span> discounts <strong>all neighbors
+uniformly</strong> (“I distrust the independence assumption as
+such”).</p>
+<p><strong>“Isn’t distance already inside <span
+class="math inline">q_\ell</span> — why multiply by <span
+class="math inline">\beta w</span> again?”</strong> Legitimate question;
+three-part answer.</p>
+<ol type="1">
+<li><p><em>The exponent is not needed for correctness.</em> With a
+uniform prior, <span class="math inline">q_\ell(u,k)</span> is exactly
+the naive-Bayes likelihood <span class="math inline">P(\tilde{y}_\ell
+\mid y_u = k)</span> up to a class-independent constant (marginalize
+over “do <span class="math inline">u,\ell</span> share a label?”: w.p.
+<span class="math inline">K</span> the likelihood is <span
+class="math inline">M^a[k,\tilde{y}_\ell]</span>, w.p. <span
+class="math inline">1-K</span> it is constant in <span
+class="math inline">k</span>). So the <em>exact</em> Bayesian fusion is
+the plain product: exponent <span class="math inline">1</span>,
+i.e. <code>w=equal</code>, <span
+class="math inline">\beta=1</span>.</p></li>
+<li><p><em>But the two factors do different jobs.</em> Inside-<span
+class="math inline">K</span> sets the <strong>content</strong> of one
+message (how peaked); the exponent sets its <strong>evidence
+count</strong> (how many votes). Dilution alone cannot bound
+accumulation: <span class="math inline">N</span> correlated neighbors
+each sending a mild message still accumulate <span
+class="math inline">N\log q</span>, and as <span
+class="math inline">N</span> grows the softmax converges to a one-hot —
+any slightly-peaked message, repeated, multiplies into (false)
+certainty. Only an exponent <span class="math inline">&lt;1</span> slows
+the accumulation itself.</p></li>
+<li><p><em>Using <span class="math inline">w=K</span> as that exponent
+is a heuristic, and it does double-count distance</em> under a smooth
+kernel (a <span class="math inline">K=0.5</span> neighbor is diluted
+<em>and</em> half-weighted). It is §2.4’s cheap proxy — and note it
+doesn’t even measure what causes the correlation (neighbor-to-neighbor
+closeness, not distance to <span class="math inline">u</span>). The
+principled knob is the uniform <span class="math inline">\beta</span>
+(standard power/fractional-posterior practice). For smooth-kernel runs,
+<code>NEIGHBOR_WEIGHT=equal</code> + tuned <span
+class="math inline">\beta</span> is the cleaner configuration.</p>
+<p>With tophat this is all moot: <span
+class="math inline">K\in\{0,1\}</span> makes the exponent exactly <span
+class="math inline">1</span> in-ball, and an out-of-ball neighbor
+contributes nothing under either weighting (its <span
+class="math inline">q=\pi</span> is class-constant and cancels in the
+softmax) — so the experiments in §4 ran the exact naive-Bayes rule, with
+no double counting.</p></li>
+</ol>
+<p><strong>Status in the experiments below:</strong> defaults are <span
+class="math inline">\beta = 1.0</span> (tempering off) and tophat kernel
+(weights degenerate to 1 in-ball) — so all results in §4 were obtained
+with the <strong>raw, untempered product</strong>. The design-§10 check
+“overconfidence controlled by <code>TEMPER_BETA</code> /
+<code>NEIGHBOR_WEIGHT</code>” is still unverified; a cheap <span
+class="math inline">\beta</span>-sweep (<span class="math inline">\beta
+\in \{0.25, 0.5, 1.0\}</span>) is an open follow-up and might
+specifically help <code>soft_posterior</code> at high noise, where
+posterior sharpness directly shapes the training targets.</p>
+<h3
+id="selection-criterion-what-maximizing-the-updated-cover-means">Selection
+criterion — what “maximizing the updated cover” means</h3>
+<p>Coverage is now <strong>graded</strong>: a point is well-covered when
+its posterior is peaked, uncovered when flat. The acquisition score
+(<code>_acquisition_scores</code>, line 211):</p>
+<p><span class="math display">
+\text{uncertainty}(u) \;=\; 1 - \max_k P(y_u = k)
+</span></p>
+<p><span class="math display">
+\text{score}(v) \;=\; \sum_u K[v,u]\cdot \text{uncertainty}(u)
+\qquad \text{(unresolved mass inside } v\text{&#39;s ball)}
+</span></p>
+<p>Greedy loop picks <span class="math inline">\arg\max_v
+\text{score}(v)</span> — the soft generalization of ProbCover’s “ball
+covering the most uncovered points”. Two load-bearing mechanics:</p>
+<ul>
+<li><strong>Annotation is in-loop</strong> (<code>_select_one</code>,
+line 250): each pick is annotated immediately and folded into <span
+class="math inline">C</span>, so the <em>next</em> pick already sees the
+updated posteriors.</li>
+<li><strong>Noise-awareness for free:</strong> a label from a noisy
+annotator barely sharpens its ball’s posteriors, so the region <em>stays
+attractive for re-sampling</em> — the method knows one noisy label
+didn’t really cover it.</li>
+<li>Cross-episode: <span class="math inline">C</span> resets to the
+prior each AL episode, then the whole labeled set is
+<strong>re-folded</strong> from annotation records
+(<code>_fold_labeled_set</code>, line 124); without this, prior
+episodes’ evidence would be lost and episode 2+ would re-sample regions
+episode 1 already labeled (their neighbors would look uncovered again).
+<em>Note — this is an engineering choice, not part of the
+algorithm:</em> the posterior is in fact persisted
+(<code>C_general</code>, global-indexed — training reads it from there),
+but the per-episode <span class="math inline">C</span> is locally
+indexed and the index order changes as the labeled set grows, so
+rebuilding is simpler than remapping. Replaying costs one vector-add per
+labeled point (milliseconds) and is correct by construction: the
+posterior is a pure function of the recorded (label, annotator)
+pairs.</li>
+</ul>
+<p>Still <code>NotImplementedError</code>: <code>entropy</code>
+(BALD-style) acquisition, empirical prior, sparse-K,
+<code>NoiseAwareBayesianCoverage</code> (soft per-point reliability
+<span class="math inline">r_\ell</span>, design §4).</p>
+<hr />
+<h2 id="training-plane-train_label_mode-design-5-commit-61e7557">2.
+Training plane — <code>TRAIN_LABEL_MODE</code> (design §5, commit
+<code>61e7557</code>)</h2>
+<p>After selection, the same posterior builds the training targets.
+Wired in <code>train_al.py::_bayes_training_loader</code> (line 744);
+soft modes go through <code>SoftTargetDatasetWrapper</code> + a
+soft-cross-entropy branch. <strong>Five arms, all swept:</strong></p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Mode</th>
+<th>Classifier trains on</th>
+<th>Loss path</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>observed</code></td>
+<td>raw annotated (noisy) labels — baseline</td>
+<td>standard CE</td>
+</tr>
+<tr class="even">
+<td><code>map_posterior</code></td>
+<td>each labeled point <strong>relabeled to argmax of its
+posterior</strong> (self-correction)</td>
+<td>standard CE</td>
+</tr>
+<tr class="odd">
+<td><code>filtered</code></td>
+<td>only points whose <strong>neighbors agree</strong> with their
+annotation</td>
+<td>standard CE, subset</td>
+</tr>
+<tr class="even">
+<td><code>soft_posterior</code></td>
+<td>the full posterior vector as a <strong>soft label</strong></td>
+<td>soft CE</td>
+</tr>
+<tr class="odd">
+<td><code>reweighted</code></td>
+<td>one-hot on observed label, <strong>scaled by reliability</strong>
+<span class="math inline">w</span></td>
+<td>soft CE (weight = row sum)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>“Loss path”</strong> = which cross-entropy (CE) branch the
+mode takes in the training loop (<code>train_al.py:1044</code>) — it
+<em>is</em> the loss:</p>
+<ul>
+<li><strong>standard CE</strong>: the usual hard cross-entropy against
+an integer class label — equivalently a <strong>one-hot</strong> target
+vector.</li>
+<li><strong>soft CE</strong>: the target is a <strong>full probability
+vector</strong> <span class="math inline">t \in [0,1]^C</span> (e.g. the
+posterior, sums to 1), and the loss is <span class="math inline">-\sum_k
+t_k \log \operatorname{softmax}(z)_k</span>. Mechanically: soft modes
+ship a 2-D float label batch <span class="math inline">[B, C]</span>,
+and the loop switches on <code>labels.dim() == 2</code>.</li>
+<li><strong><code>reweighted</code> twist</strong>: its target row is
+<span class="math inline">w_\ell \times</span> one-hot, which sums to
+<span class="math inline">w_\ell</span>, <em>not</em> 1 — running it
+through the same soft-CE formula automatically scales that sample’s loss
+by <span class="math inline">w_\ell</span>, so the row sum doubles as
+the per-sample weight (no separate weighting code).</li>
+</ul>
+<p><strong><code>filtered</code> in detail</strong> (common misreading —
+it is <em>not</em> a threshold on the posterior value): it computes the
+<strong>leave-one-out (LOO) posterior</strong> <span
+class="math inline">P^{\text{LOO}}_\ell</span> — the point’s posterior
+with its <em>own vote removed</em> (<code>_loo_posterior_for</code>,
+line 295). Necessary because the self-vote (<span
+class="math inline">K[\ell,\ell]=1</span>) dominates and a point would
+almost never disagree with itself.</p>
+<p><span class="math display">
+\text{keep } \ell \iff \arg\max_k P^{\text{LOO}}_\ell(k) \;=\;
+\tilde{y}_\ell
+</span></p>
+<p><em>Your neighbors, judging you without your input, agree with the
+annotator.</em> <code>reweighted</code> uses the same signal
+continuously:</p>
+<p><span class="math display">
+w_\ell \;=\; P^{\text{LOO}}_\ell\bigl(\tilde{y}_\ell\bigr)
+</span></p>
+<p>— suspect points are down-weighted, not dropped.</p>
+<p><strong>Key design point:</strong> the clean/dirty signal is the
+<strong>graph posterior itself</strong> (design §4b) — no trained model,
+no AUM, available from round one, and non-circular (AUM judges labels
+with a network trained on those same labels).</p>
+<hr />
+<h2 id="the-comparison-baseline-nettas-npc-aum">3. The comparison
+baseline — Netta’s NPC + AUM</h2>
+<p>Same problem, two <em>hard</em> mechanisms
+(<code>noise_filters.py</code>, <code>NoiseAwareCoverage</code> in
+<code>coverage_matrix_methods.py</code>):</p>
+<ul>
+<li><strong>AUM filter (training plane).</strong> AUM = Area Under the
+Margin: while training on the noisy labeled set, accumulate per-sample
+over epochs the margin between the assigned-label logit and the largest
+other logit:</li>
+</ul>
+<p><span class="math display">
+\text{AUM}(x,\tilde{y}) \;=\; \frac{1}{T}\sum_{t=1}^{T}
+\Bigl( z^{(t)}_{\tilde{y}}(x) \;-\; \max_{k \neq \tilde{y}}
+z^{(t)}_{k}(x) \Bigr)
+</span></p>
+<p>Symbols: <span class="math inline">x</span> = one training sample;
+<span class="math inline">\tilde{y}</span> = its
+<strong>assigned</strong> (possibly noisy) label; <span
+class="math inline">t</span> = training-epoch index, <span
+class="math inline">T</span> = number of epochs measured over; <span
+class="math inline">z^{(t)}_k(x)</span> = the network’s
+<strong>logit</strong> (pre-softmax score) for class <span
+class="math inline">k</span> on sample <span
+class="math inline">x</span> at epoch <span
+class="math inline">t</span>. So <span
+class="math inline">z^{(t)}_{\tilde{y}}(x)</span> is the score of the
+label the sample was given, <span class="math inline">\max_{k \neq
+\tilde{y}} z^{(t)}_k(x)</span> is the score of the strongest
+<em>competing</em> class, and their difference is the
+<strong>margin</strong> at epoch <span class="math inline">t</span>
+(positive = the network currently agrees with the assigned label). AUM
+is that margin <strong>averaged over the whole training run</strong> —
+the “area under” the margin-vs-epoch curve. Mislabeled samples fight the
+network <span class="math inline">\Rightarrow</span> low/negative AUM.
+Threshold <span class="math inline">\Rightarrow</span> binary
+clean/noisy mask <span class="math inline">\Rightarrow</span>
+<strong>train only on the clean subset</strong>
+(<code>TRAIN_ON_CLEAN</code>). - <strong>NPC (selection plane).</strong>
+ProbCover, except coverage contributed by points flagged noisy is
+<strong>removed</strong> — a noisy point’s ball no longer counts as
+covered, so the region gets re-sampled.</p>
+<p><strong>Relationship:</strong> NPC is exactly the limiting case of
+Bayesian coverage with reliability hard-thresholded to <span
+class="math inline">r_\ell \in \{0,1\}</span> (design §4) — delete
+vs. down-weight, and AUM-as-judge vs. graph-as-judge.</p>
+<hr />
+<h2 id="results-cifar100-test-accuracy-meanstd-over-seeds-123">4.
+Results — CIFAR100, test accuracy (%), mean±std over seeds {1,2,3}</h2>
+<p>Like-for-like regime: CIFAR100 SimCLR features, budget 100/episode,
+tophat <span class="math inline">\delta=0.75</span>,
+<code>from_features</code> eval. Sources (all complete, per-run
+<code>result.json</code> on disk):</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Sweep</th>
+<th>SLURM job</th>
+<th>Grid</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Bayes comparison</td>
+<td>30978366</td>
+<td>{random, probcover, bayes_additive, bayes_product} × noise {0, .2,
+.5, .8} × 3 seeds</td>
+<td>48/48 ✔</td>
+</tr>
+<tr class="even">
+<td>Bayes train-mode</td>
+<td>30980646</td>
+<td>bayes_product × 5 modes × noise {0, .2, .5, .8} × 3 seeds</td>
+<td>60/60 ✔</td>
+</tr>
+<tr class="odd">
+<td>Netta NPC repro</td>
+<td>30811243</td>
+<td>{npc, probcover, random} + AUM/clean-train × noise {.2, .5, .8} × 3
+seeds</td>
+<td>27/27 ✔</td>
+</tr>
+<tr class="even">
+<td>AUM clean ablation</td>
+<td>30863746</td>
+<td>{npc, probcover, random} × clean {on, off} × noise {.2, .5, .8} × 3
+seeds</td>
+<td>54/54 ✔</td>
+</tr>
+</tbody>
+</table>
+<p>All <code>bayes_*</code> selection rows train on <strong>raw observed
+labels</strong> unless a train-mode is named. Netta’s sweeps have
+<strong>no noise-0 arm</strong> (never run) — hence the dashes.
+Regenerate these tables with the script noted in §6.</p>
+<p><strong>Netta-side decomposition (rows from the AUM ablation, job
+30863746):</strong> the two <code>npc</code> rows separate her two
+mechanisms. <em>npc, no clean-train</em> = NPC <strong>selection
+only</strong>, trained on all (noisy) labels — it is <span
+class="math inline">\approx</span> probcover everywhere (identical at
+100 by construction: the AUM filter only kicks in after the first
+training round). <em>npc + AUM clean-train</em> = the full Netta stack.
+So on her side too, <strong>nearly all the gain over ProbCover comes
+from the training plane</strong> (clean-train), not from selection —
+mirroring our own selection-vs-training split (§5.1–2). Note clean-train
+<em>hurts</em> at small budgets under low noise (0.2: 32.0 vs 33.9 at
+300 — dropping data you can’t spare) and only pays from ~700 labels
+on.</p>
+<p><strong>“graph posterior alone” row:</strong> the posterior used as a
+classifier directly on the test set, with <strong>no trained
+network</strong> — each test point is classified by the argmax of its
+in-ball posterior (bayes_product trajectories; an uncovered test point
+keeps the uniform prior and counts as wrong). Test-set coverage is only
+36–46% at 1000 labels, so this row is bounded by <em>reach</em>, not
+knowledge: on <strong>covered</strong> test points alone it scores 67.1
+/ 63.5 / 56.1 / 39.5 (%) at noise 0/.2/.5/.8 <span class="citation"
+data-cites="1000">@1000</span> — under heavy noise that beats every
+trained classifier in the table. Computed by
+<code>batch_utils/test_posterior_acc.py</code>; the full
+posterior-quality analysis is §4.5.</p>
+<h3 id="noise-0.0-clean-sanity">Noise = 0.0 (clean sanity)</h3>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>random</td>
+<td>8.5±2.6</td>
+<td>25.1±0.7</td>
+<td>33.8±0.2</td>
+<td>38.4±1.4</td>
+<td>42.6±1.0</td>
+</tr>
+<tr class="even">
+<td>probcover</td>
+<td>23.6±1.8</td>
+<td><strong>39.9±0.4</strong></td>
+<td><strong>43.3±0.3</strong></td>
+<td><strong>44.6±0.2</strong></td>
+<td><strong>46.5±0.6</strong></td>
+</tr>
+<tr class="odd">
+<td>bayes_additive (Itai)</td>
+<td>13.4±0.7</td>
+<td>18.2±1.1</td>
+<td>20.9±0.5</td>
+<td>23.2±0.9</td>
+<td>26.9±0.0</td>
+</tr>
+<tr class="even">
+<td>bayes_product</td>
+<td><strong>24.6±1.3</strong></td>
+<td>38.1±1.3</td>
+<td>41.6±0.0</td>
+<td>43.6±0.2</td>
+<td>45.1±0.1</td>
+</tr>
+<tr class="odd">
+<td>bayes_product + map_posterior</td>
+<td>22.5±0.5</td>
+<td>35.9±0.4</td>
+<td>38.9±0.2</td>
+<td>40.8±0.4</td>
+<td>41.8±0.5</td>
+</tr>
+<tr class="even">
+<td>bayes_product + soft_posterior</td>
+<td>23.7±1.0</td>
+<td>36.3±0.7</td>
+<td>39.2±0.0</td>
+<td>41.1±0.5</td>
+<td>42.5±0.1</td>
+</tr>
+<tr class="odd">
+<td>bayes_product + filtered</td>
+<td>5.6±1.4</td>
+<td>24.2±0.4</td>
+<td>31.3±0.9</td>
+<td>36.1±1.0</td>
+<td>38.6±0.6</td>
+</tr>
+<tr class="even">
+<td>bayes_product + reweighted</td>
+<td>5.8±1.0</td>
+<td>25.1±1.1</td>
+<td>32.9±1.0</td>
+<td>36.9±0.7</td>
+<td>39.6±0.5</td>
+</tr>
+<tr class="odd">
+<td>graph posterior alone (no training)</td>
+<td>18.1±0.2</td>
+<td>23.9±0.4</td>
+<td>26.8±0.3</td>
+<td>28.8±0.3</td>
+<td>30.8±0.2</td>
+</tr>
+<tr class="even">
+<td>probcover + AUM clean-train</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr class="odd">
+<td>npc + AUM (Netta)</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h3 id="noise-0.2">Noise = 0.2</h3>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>random</td>
+<td>5.8±2.3</td>
+<td>19.9±1.6</td>
+<td>28.2±0.9</td>
+<td>33.3±1.8</td>
+<td>37.7±1.6</td>
+</tr>
+<tr class="even">
+<td>probcover</td>
+<td>19.7±0.7</td>
+<td>33.4±1.3</td>
+<td>37.4±0.4</td>
+<td>39.5±0.3</td>
+<td>41.2±0.8</td>
+</tr>
+<tr class="odd">
+<td>bayes_additive (Itai)</td>
+<td>7.7±1.6</td>
+<td>12.7±0.8</td>
+<td>14.3±0.8</td>
+<td>16.9±1.0</td>
+<td>19.5±0.9</td>
+</tr>
+<tr class="even">
+<td>bayes_product</td>
+<td>21.6±1.5</td>
+<td>32.8±1.5</td>
+<td>36.6±0.5</td>
+<td>37.7±0.7</td>
+<td>39.2±0.3</td>
+</tr>
+<tr class="odd">
+<td>bayes_product + map_posterior</td>
+<td>20.6±2.3</td>
+<td>33.7±2.0</td>
+<td>36.9±1.1</td>
+<td>39.2±0.8</td>
+<td>40.6±0.6</td>
+</tr>
+<tr class="even">
+<td>bayes_product + soft_posterior</td>
+<td>19.1±1.7</td>
+<td>33.4±1.9</td>
+<td><strong>37.5±1.0</strong></td>
+<td>40.0±0.5</td>
+<td>41.5±0.4</td>
+</tr>
+<tr class="odd">
+<td>bayes_product + filtered</td>
+<td><strong>22.4±2.4</strong></td>
+<td>28.9±1.5</td>
+<td>35.8±1.0</td>
+<td>38.7±1.6</td>
+<td>40.8±0.7</td>
+</tr>
+<tr class="even">
+<td>bayes_product + reweighted</td>
+<td>8.6±1.5</td>
+<td>26.3±2.6</td>
+<td>33.5±1.5</td>
+<td>37.1±0.8</td>
+<td>40.2±0.5</td>
+</tr>
+<tr class="odd">
+<td>graph posterior alone (no training)</td>
+<td>14.3±0.8</td>
+<td>21.4±0.7</td>
+<td>24.5±0.1</td>
+<td>26.4±0.4</td>
+<td>28.6±0.5</td>
+</tr>
+<tr class="even">
+<td>probcover + AUM clean-train</td>
+<td>20.2±0.7</td>
+<td>31.2±1.1</td>
+<td>36.4±0.5</td>
+<td>39.5±1.3</td>
+<td>42.3±0.1</td>
+</tr>
+<tr class="odd">
+<td>npc, no clean-train (selection only)</td>
+<td>19.7±0.7</td>
+<td><strong>33.9±1.0</strong></td>
+<td>37.4±1.7</td>
+<td>39.8±1.1</td>
+<td>42.0±0.7</td>
+</tr>
+<tr class="even">
+<td>npc + AUM clean-train (Netta)</td>
+<td>20.2±0.7</td>
+<td>32.0±0.6</td>
+<td>36.5±0.6</td>
+<td><strong>40.4±0.8</strong></td>
+<td><strong>43.3±0.6</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 id="noise-0.5">Noise = 0.5</h3>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>random</td>
+<td>4.6±1.6</td>
+<td>12.7±2.2</td>
+<td>18.4±1.4</td>
+<td>23.5±1.0</td>
+<td>27.1±1.0</td>
+</tr>
+<tr class="even">
+<td>probcover</td>
+<td>13.1±1.3</td>
+<td>21.5±1.8</td>
+<td>26.0±1.3</td>
+<td>28.1±0.7</td>
+<td>30.3±1.2</td>
+</tr>
+<tr class="odd">
+<td>bayes_additive (Itai)</td>
+<td>5.6±1.1</td>
+<td>6.0±0.8</td>
+<td>8.3±1.1</td>
+<td>9.9±1.5</td>
+<td>12.4±1.1</td>
+</tr>
+<tr class="even">
+<td>bayes_product</td>
+<td>14.9±1.4</td>
+<td>23.1±0.1</td>
+<td>26.4±0.6</td>
+<td>28.1±0.6</td>
+<td>29.5±0.4</td>
+</tr>
+<tr class="odd">
+<td>bayes_product + map_posterior</td>
+<td><strong>15.2±1.9</strong></td>
+<td><strong>27.9±1.7</strong></td>
+<td>31.9±0.2</td>
+<td>34.5±1.0</td>
+<td>37.6±0.4</td>
+</tr>
+<tr class="even">
+<td>bayes_product + soft_posterior</td>
+<td>12.3±0.9</td>
+<td>27.8±1.0</td>
+<td><strong>33.1±0.5</strong></td>
+<td><strong>36.2±0.1</strong></td>
+<td><strong>39.1±0.8</strong></td>
+</tr>
+<tr class="odd">
+<td>bayes_product + filtered</td>
+<td>4.3±1.0</td>
+<td>16.5±2.3</td>
+<td>23.8±2.7</td>
+<td>29.5±1.3</td>
+<td>34.3±0.5</td>
+</tr>
+<tr class="even">
+<td>bayes_product + reweighted</td>
+<td>5.0±2.6</td>
+<td>17.6±2.4</td>
+<td>26.3±1.4</td>
+<td>32.1±0.6</td>
+<td>36.5±0.8</td>
+</tr>
+<tr class="odd">
+<td>graph posterior alone (no training)</td>
+<td>8.7±1.2</td>
+<td>16.0±0.7</td>
+<td>19.1±0.4</td>
+<td>21.4±0.1</td>
+<td>23.8±0.3</td>
+</tr>
+<tr class="even">
+<td>probcover + AUM clean-train</td>
+<td>13.3±1.5</td>
+<td>20.4±2.6</td>
+<td>26.0±1.7</td>
+<td>29.6±1.7</td>
+<td>33.7±0.8</td>
+</tr>
+<tr class="odd">
+<td>npc, no clean-train (selection only)</td>
+<td>13.1±1.3</td>
+<td>22.1±1.3</td>
+<td>25.8±1.5</td>
+<td>28.6±1.4</td>
+<td>30.9±1.0</td>
+</tr>
+<tr class="even">
+<td>npc + AUM clean-train (Netta)</td>
+<td>13.3±1.5</td>
+<td>20.7±1.0</td>
+<td>26.6±1.3</td>
+<td>30.4±1.7</td>
+<td>35.6±1.0</td>
+</tr>
+</tbody>
+</table>
+<h3 id="noise-0.8">Noise = 0.8</h3>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>random</td>
+<td>2.6±0.6</td>
+<td>4.9±2.2</td>
+<td>7.2±1.7</td>
+<td>9.4±1.1</td>
+<td>10.3±1.5</td>
+</tr>
+<tr class="even">
+<td>probcover</td>
+<td><strong>5.9±0.9</strong></td>
+<td>8.2±1.1</td>
+<td>10.4±0.4</td>
+<td>11.6±0.3</td>
+<td>12.7±0.1</td>
+</tr>
+<tr class="odd">
+<td>bayes_additive (Itai)</td>
+<td>2.0±0.0</td>
+<td>3.3±0.4</td>
+<td>3.5±0.4</td>
+<td>4.8±0.1</td>
+<td>5.4±0.4</td>
+</tr>
+<tr class="even">
+<td>bayes_product</td>
+<td>4.6±0.5</td>
+<td>9.7±2.0</td>
+<td>10.9±1.5</td>
+<td>11.8±1.5</td>
+<td>12.6±1.6</td>
+</tr>
+<tr class="odd">
+<td>bayes_product + map_posterior</td>
+<td>5.8±0.2</td>
+<td><strong>14.2±2.9</strong></td>
+<td><strong>19.4±2.1</strong></td>
+<td>22.9±2.2</td>
+<td>26.2±1.3</td>
+</tr>
+<tr class="even">
+<td>bayes_product + soft_posterior</td>
+<td>5.3±0.5</td>
+<td>13.3±2.0</td>
+<td>18.9±2.4</td>
+<td><strong>23.4±2.5</strong></td>
+<td><strong>27.5±1.9</strong></td>
+</tr>
+<tr class="odd">
+<td>bayes_product + filtered</td>
+<td>1.3±0.6</td>
+<td>6.5±0.9</td>
+<td>10.2±0.2</td>
+<td>15.7±1.3</td>
+<td>20.6±2.5</td>
+</tr>
+<tr class="even">
+<td>bayes_product + reweighted</td>
+<td>1.3±0.6</td>
+<td>5.2±0.6</td>
+<td>11.1±1.1</td>
+<td>17.0±1.3</td>
+<td>23.4±1.6</td>
+</tr>
+<tr class="odd">
+<td>graph posterior alone (no training)</td>
+<td>2.5±0.3</td>
+<td>7.0±1.9</td>
+<td>9.5±1.6</td>
+<td>11.6±1.9</td>
+<td>14.3±1.4</td>
+</tr>
+<tr class="even">
+<td>probcover + AUM clean-train</td>
+<td>5.7±1.6</td>
+<td>7.1±1.1</td>
+<td>10.3±1.1</td>
+<td>11.9±0.7</td>
+<td>14.7±0.2</td>
+</tr>
+<tr class="odd">
+<td>npc, no clean-train (selection only)</td>
+<td><strong>5.9±0.9</strong></td>
+<td>8.1±0.9</td>
+<td>9.8±1.2</td>
+<td>10.8±0.4</td>
+<td>12.5±0.4</td>
+</tr>
+<tr class="even">
+<td>npc + AUM clean-train (Netta)</td>
+<td>5.7±1.6</td>
+<td>7.4±0.6</td>
+<td>10.3±0.7</td>
+<td>11.7±1.0</td>
+<td>15.0±0.8</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3
+id="the-posterior-itself-measured-directly-offline-replay-no-classifier">4.5
+The posterior itself, measured directly (offline replay — no
+classifier)</h3>
+<p>The posterior is a pure function of (features, labeled ids,
+annotation records), so it can be rebuilt offline and scored against
+ground truth with no classifier in the loop. Script:
+<code>batch_utils/eval_posterior_quality.py</code> (aggregation:
+<code>aggregate_posterior_quality.py</code>; raw numbers:
+<code>results/cifar100/posterior_eval/posterior_eval.json</code>). One
+trajectory per (noise, seed) covers <strong>all</strong> train-mode arms
+— training never feeds back into selection, so all 5 modes share
+identical lSets (verified). <strong>Replay is bit-exact</strong>,
+validated three ways: regenerated annotator labels match the recorded
+annotations (12/12 cells); the LOO <code>filtered</code> keep-counts
+match the counts the real runs printed to their SLURM logs
+(<strong>120/120</strong> episode checks — this required replicating the
+float32 accumulation order, since isolated points’ LOO argmax is decided
+by rounding residues); and at noise 0 with no disagreeing neighbors the
+posterior recovers labels exactly. All numbers below: CIFAR100,
+bayes_product trajectories, mean±std over seeds {1,2,3}.</p>
+<h4
+id="a.-label-denoising-labeled-points-posterior-argmax-vs-the-annotations">A.
+Label denoising (labeled points): posterior argmax vs the
+annotations</h4>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>noise</th>
+<th>labels</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>0.0</td>
+<td>observed</td>
+<td>100.0</td>
+<td>100.0</td>
+<td>100.0</td>
+<td>100.0</td>
+<td>100.0</td>
+</tr>
+<tr class="even">
+<td>0.0</td>
+<td>posterior argmax</td>
+<td>87.0±2.6</td>
+<td>75.7±3.3</td>
+<td>71.9±0.7</td>
+<td>70.7±1.1</td>
+<td>68.3±1.3</td>
+</tr>
+<tr class="odd">
+<td>0.2</td>
+<td>observed</td>
+<td>81.0±4.4</td>
+<td>78.8±4.5</td>
+<td>79.9±3.0</td>
+<td>80.2±1.7</td>
+<td>81.0±1.0</td>
+</tr>
+<tr class="even">
+<td>0.2</td>
+<td>posterior argmax</td>
+<td>71.7±2.9</td>
+<td>70.8±4.4</td>
+<td>68.5±2.0</td>
+<td>67.1±2.9</td>
+<td>66.2±0.5</td>
+</tr>
+<tr class="odd">
+<td>0.5</td>
+<td>observed</td>
+<td>48.3±4.7</td>
+<td>49.9±1.1</td>
+<td>49.5±1.4</td>
+<td>49.1±0.5</td>
+<td>49.5±1.2</td>
+</tr>
+<tr class="even">
+<td>0.5</td>
+<td>posterior argmax</td>
+<td>65.0±9.5</td>
+<td>70.2±5.3</td>
+<td>66.7±0.6</td>
+<td>68.5±0.8</td>
+<td>67.7±2.6</td>
+</tr>
+<tr class="odd">
+<td>0.8</td>
+<td>observed</td>
+<td>19.7±0.6</td>
+<td>20.1±2.0</td>
+<td>20.4±0.9</td>
+<td>20.6±1.9</td>
+<td>20.6±1.3</td>
+</tr>
+<tr class="even">
+<td>0.8</td>
+<td>posterior argmax</td>
+<td>39.0±10.1</td>
+<td>51.9±10.8</td>
+<td>58.0±8.2</td>
+<td>59.7±6.0</td>
+<td><strong>61.6±2.8</strong></td>
+</tr>
+</tbody>
+</table>
+<p>(Both rows: accuracy vs <strong>true</strong> labels, evaluated
+<strong>on the labeled set</strong> at each budget — e.g. column 500 =
+over those 500 annotated points. <em>observed</em> = the annotator’s
+labels as given; <em>posterior argmax</em> = each point relabeled to
+<span class="math inline">\arg\max_k P(y_\ell = k)</span> of its own
+posterior — i.e. exactly the labels <code>map_posterior</code> trains
+on. The argmax is over the 100 classes, not over points.)</p>
+<p>Flip breakdown at budget 1000 (mean counts /1000): noise 0.8 — 811
+relabels, <strong>462 fix a wrong label, only 52 break a correct
+one</strong>; noise 0.5 — 613 relabels, 315 fix, 133 break; noise 0.2 —
+435 relabels, only 111 fix, 258 break; noise 0 — 317 relabels, all by
+definition breaking correct labels.</p>
+<p><strong>The denoising crossover, isolated.</strong> At noise ≥ 0.5
+the posterior argmax is a far better label than the annotation (61.6% vs
+20.6% at 0.8 — <strong>3× cleaner</strong>; 67.7 vs 49.5 at 0.5): the §4
+training-plane wins traced to their source. At noise ≤ 0.2 it is
+<em>worse</em> (66.2 vs 81.0 at 0.2; 68.3 vs 100 clean). The mechanism
+is <strong>δ-ball impurity</strong>: in-ball neighbors of <em>other</em>
+classes outvote the point’s own annotation — on perfectly clean data,
+31.7% of labeled points sit in balls whose neighbor-vote prefers another
+class, so ~32% is the measured impurity of the “same ball ⇒ same label”
+assumption on CIFAR100 SimCLR features at δ=0.75. This is the root cause
+of takeaway 5 (correction costs on clean data) and of NPC+AUM’s
+remaining edge at noise 0.2. Curious tension: at 0.2,
+<code>map_posterior</code> matches <code>observed</code> in test
+accuracy (§4) despite training on 15-points-worse labels — the wrong
+relabels agree with the feature geometry, so they are
+<em>consistent</em> targets; raw label accuracy understates a target’s
+usefulness.</p>
+<h4 id="b.-pseudo-label-quality-unlabeled-pool">B. Pseudo-label quality
+(unlabeled pool)</h4>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>noise</th>
+<th>metric</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>0.0</td>
+<td>covered (% of pool)</td>
+<td>25.6±0.2</td>
+<td>36.4±1.0</td>
+<td>41.6±0.7</td>
+<td>45.6±0.4</td>
+<td>49.5±0.4</td>
+</tr>
+<tr class="even">
+<td>0.0</td>
+<td>acc on covered</td>
+<td>71.7±0.3</td>
+<td>69.0±0.6</td>
+<td>68.1±0.4</td>
+<td>67.4±0.3</td>
+<td>66.7±0.4</td>
+</tr>
+<tr class="odd">
+<td>0.0</td>
+<td>acc all pool</td>
+<td>18.8±0.2</td>
+<td>25.4±0.5</td>
+<td>28.6±0.3</td>
+<td>30.9±0.3</td>
+<td>33.2±0.3</td>
+</tr>
+<tr class="even">
+<td>0.0</td>
+<td>acc top-10/class</td>
+<td>76.4±1.2</td>
+<td>70.1±2.8</td>
+<td>68.4±1.3</td>
+<td>68.1±0.7</td>
+<td>67.9±0.3</td>
+</tr>
+<tr class="odd">
+<td>0.2</td>
+<td>covered (% of pool)</td>
+<td>24.4±0.3</td>
+<td>35.1±0.4</td>
+<td>40.1±0.3</td>
+<td>43.9±0.3</td>
+<td>47.8±0.4</td>
+</tr>
+<tr class="even">
+<td>0.2</td>
+<td>acc on covered</td>
+<td>58.5±3.1</td>
+<td>61.6±1.7</td>
+<td>62.8±0.8</td>
+<td>62.2±0.6</td>
+<td>62.6±0.3</td>
+</tr>
+<tr class="odd">
+<td>0.2</td>
+<td>acc all pool</td>
+<td>14.6±0.8</td>
+<td>21.9±0.6</td>
+<td>25.4±0.2</td>
+<td>27.5±0.2</td>
+<td>30.1±0.2</td>
+</tr>
+<tr class="even">
+<td>0.2</td>
+<td>acc top-10/class</td>
+<td>64.2±0.4</td>
+<td>69.1±1.7</td>
+<td>71.8±1.3</td>
+<td>74.9±1.5</td>
+<td><strong>79.3±1.1</strong></td>
+</tr>
+<tr class="odd">
+<td>0.5</td>
+<td>covered (% of pool)</td>
+<td>19.9±0.3</td>
+<td>30.7±0.4</td>
+<td>36.1±0.6</td>
+<td>39.9±0.6</td>
+<td>44.0±0.2</td>
+</tr>
+<tr class="even">
+<td>0.5</td>
+<td>acc on covered</td>
+<td>43.9±6.3</td>
+<td>52.8±1.5</td>
+<td>54.1±1.0</td>
+<td>54.6±1.3</td>
+<td>55.0±0.6</td>
+</tr>
+<tr class="odd">
+<td>0.5</td>
+<td>acc all pool</td>
+<td>9.2±1.4</td>
+<td>16.5±0.6</td>
+<td>19.8±0.3</td>
+<td>22.0±0.2</td>
+<td>24.4±0.2</td>
+</tr>
+<tr class="even">
+<td>0.5</td>
+<td>acc top-10/class</td>
+<td>35.2±5.7</td>
+<td>52.2±4.3</td>
+<td>59.2±2.1</td>
+<td>65.7±1.3</td>
+<td><strong>69.4±0.2</strong></td>
+</tr>
+<tr class="odd">
+<td>0.8</td>
+<td>covered (% of pool)</td>
+<td>12.6±0.5</td>
+<td>22.9±0.8</td>
+<td>28.1±0.7</td>
+<td>32.1±0.4</td>
+<td>36.0±0.4</td>
+</tr>
+<tr class="even">
+<td>0.8</td>
+<td>acc on covered</td>
+<td>20.4±1.4</td>
+<td>30.1±5.9</td>
+<td>33.3±4.7</td>
+<td>35.3±4.9</td>
+<td>37.5±3.2</td>
+</tr>
+<tr class="odd">
+<td>0.8</td>
+<td>acc all pool</td>
+<td>3.1±0.3</td>
+<td>7.3±1.5</td>
+<td>9.7±1.1</td>
+<td>11.6±1.5</td>
+<td>13.7±1.2</td>
+</tr>
+<tr class="even">
+<td>0.8</td>
+<td>acc top-10/class</td>
+<td>11.1±2.4</td>
+<td>23.0±7.0</td>
+<td>29.4±2.1</td>
+<td>35.5±5.0</td>
+<td><strong>42.8±4.2</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Row definitions — all on the unlabeled pool (uSet):
+<strong>covered</strong> = fraction of pool points with ≥1 labeled point
+inside their δ-ball (only these carry information — an uncovered point’s
+posterior is exactly the uniform prior); <strong>acc on covered</strong>
+= posterior-argmax accuracy vs true labels over covered points only;
+<strong>acc all pool</strong> = the same over <em>all</em> pool points
+including uncovered ones (uncovered argmax ≈ 0.3–0.6%, sub-chance
+tie-breaking, so this row ≈ covered × acc-on-covered — it measures
+knowledge-times-reach); <strong>acc top-10/class</strong> = accuracy of
+the 10 most-confident covered points per <em>predicted</em> class (≈1000
+points at budget 1000) — what a pseudo-labeling arm would harvest.
+Adding the labeled set to “all pool” changes the numbers by &lt;1pt
+(e.g. 34.0 vs 33.2 clean <span class="citation"
+data-cites="1000">@1000</span>; the pool is 45–49× larger than lSet).
+The all-pool row also frames the classifier’s role sharply: the
+posterior alone scores 33.2% on the pool (clean, <span class="citation"
+data-cites="1000">@1000</span>) vs the trained classifier’s 46.5% test
+accuracy — the network’s contribution is precisely <em>generalizing past
+the δ-balls</em> to the uncovered 50–64%; conversely on covered points
+at noise 0.8 the posterior (37.5%) still beats the best classifier
+(27.5%), so under heavy noise the classifier extracts only part of what
+the graph already knows.</p>
+<p><strong>Pseudo-labeling (7.5) is justified before running a single
+training job.</strong> At budget 1000, the top-10-per-class
+pseudo-labels are <em>cleaner than the annotations we paid for</em>
+wherever noise ≥ 0.2: 79.3% vs 81.0 observed at noise 0.2 (a free
+doubling of the labeled set at equal quality), <strong>69.4 vs 49.5 at
+0.5, 42.8 vs 20.6 at 0.8</strong>. On clean data they are worse (67.9 vs
+100 — ball impurity again), so the arm needs the same noise gate as the
+other correction modes. Also note the headroom signal: at noise 0.8 the
+posterior alone gets 37.5% on covered pool points while the best trained
+classifier reaches 27.5% — the classifier has not yet extracted
+everything the posterior knows.</p>
+<h4
+id="c.-calibration-covered-unlabeled-points-the-1.4-prediction-confirmed">C.
+Calibration (covered unlabeled points) — the §1.4 prediction,
+confirmed</h4>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>noise</th>
+<th>metric</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>0.0</td>
+<td>ECE</td>
+<td>0.251±0.003</td>
+<td>0.264±0.004</td>
+<td>0.274±0.002</td>
+<td>0.281±0.001</td>
+<td>0.286±0.003</td>
+</tr>
+<tr class="even">
+<td>0.0</td>
+<td>mean conf / acc (%)</td>
+<td>96.7 / 71.7</td>
+<td>95.4 / 69.0</td>
+<td>95.5 / 68.1</td>
+<td>95.5 / 67.4</td>
+<td>95.4 / 66.7</td>
+</tr>
+<tr class="odd">
+<td>0.2</td>
+<td>ECE</td>
+<td>0.230±0.032</td>
+<td>0.228±0.015</td>
+<td>0.226±0.009</td>
+<td>0.236±0.006</td>
+<td>0.239±0.005</td>
+</tr>
+<tr class="even">
+<td>0.2</td>
+<td>mean conf / acc (%)</td>
+<td>81.5 / 58.5</td>
+<td>84.4 / 61.6</td>
+<td>85.3 / 62.8</td>
+<td>85.8 / 62.2</td>
+<td>86.4 / 62.6</td>
+</tr>
+<tr class="odd">
+<td>0.5</td>
+<td>ECE</td>
+<td>0.189±0.062</td>
+<td>0.149±0.008</td>
+<td>0.155±0.012</td>
+<td>0.164±0.013</td>
+<td>0.168±0.006</td>
+</tr>
+<tr class="even">
+<td>0.5</td>
+<td>mean conf / acc (%)</td>
+<td>62.0 / 43.9</td>
+<td>67.6 / 52.8</td>
+<td>69.6 / 54.1</td>
+<td>70.9 / 54.6</td>
+<td>71.8 / 55.0</td>
+</tr>
+<tr class="odd">
+<td>0.8</td>
+<td>ECE</td>
+<td>0.152±0.018</td>
+<td>0.110±0.046</td>
+<td>0.107±0.042</td>
+<td>0.103±0.041</td>
+<td>0.102±0.027</td>
+</tr>
+<tr class="even">
+<td>0.8</td>
+<td>mean conf / acc (%)</td>
+<td>33.8 / 20.4</td>
+<td>39.4 / 30.1</td>
+<td>43.5 / 33.3</td>
+<td>45.2 / 35.3</td>
+<td>47.4 / 37.5</td>
+</tr>
+</tbody>
+</table>
+<p>The untempered product is <strong>systematically overconfident at
+every noise level</strong> (confidence exceeds accuracy everywhere; ECE
+0.10–0.29, worst on clean data where agreeing correlated neighbors
+multiply hardest) — exactly the §1.4 correlated-neighbor prediction.
+This is direct evidence for the β-temper sweep (7.4), and it opens a
+shortcut: <strong>β can be tuned offline</strong> by minimizing ECE in
+this replay, without any training runs.</p>
+<h4 id="d.-the-loo-reliability-signal-good-score-broken-threshold">D.
+The LOO reliability signal: good score, broken threshold</h4>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>noise</th>
+<th>metric</th>
+<th>100</th>
+<th>300</th>
+<th>500</th>
+<th>700</th>
+<th>1000</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>0.2</td>
+<td>ROC-AUC (detect noisy)</td>
+<td>0.757±0.010</td>
+<td>0.857±0.022</td>
+<td>0.864±0.008</td>
+<td>0.863±0.012</td>
+<td>0.865±0.013</td>
+</tr>
+<tr class="even">
+<td>0.2</td>
+<td>flag precision (%)</td>
+<td>31.5±10.3</td>
+<td>37.3±4.1</td>
+<td>35.7±4.1</td>
+<td>35.0±2.1</td>
+<td>34.3±1.7</td>
+</tr>
+<tr class="odd">
+<td>0.5</td>
+<td>ROC-AUC</td>
+<td>0.860±0.013</td>
+<td>0.912±0.026</td>
+<td>0.899±0.015</td>
+<td>0.908±0.002</td>
+<td>0.902±0.010</td>
+</tr>
+<tr class="even">
+<td>0.5</td>
+<td>flag precision (%)</td>
+<td>57.6±4.1</td>
+<td>62.2±2.0</td>
+<td>65.2±4.6</td>
+<td>67.4±1.5</td>
+<td>68.1±1.2</td>
+</tr>
+<tr class="odd">
+<td>0.8</td>
+<td>ROC-AUC</td>
+<td>0.821±0.037</td>
+<td>0.871±0.044</td>
+<td>0.887±0.047</td>
+<td>0.907±0.036</td>
+<td>0.915±0.022</td>
+</tr>
+<tr class="even">
+<td>0.8</td>
+<td>flag precision (%)</td>
+<td>83.0±1.5</td>
+<td>83.6±2.1</td>
+<td>85.4±1.6</td>
+<td>86.5±1.3</td>
+<td>87.4±0.7</td>
+</tr>
+<tr class="odd">
+<td>—</td>
+<td>LOO-disagree frac <span class="citation"
+data-cites="1000">@1000</span> (%)</td>
+<td>noise 0: <strong>52.9</strong></td>
+<td>noise .2: <strong>52.6</strong></td>
+<td>noise .5: 73.9</td>
+<td>noise .8: 90.2</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Flag recall is ~99% at noise ≥ 0.5 (nearly every truly-noisy label
+gets flagged). Three sharp conclusions:</p>
+<ol type="1">
+<li><strong>The score is good, the threshold is broken.</strong> As a
+<em>ranking</em>, LOO reliability detects noisy labels well (AUC
+0.86–0.92 from 300 labels on). But the <code>filtered</code> keep-rule
+(“LOO argmax == observed”) flags <strong>53% of perfectly clean
+labels</strong> at noise 0 — ball impurity makes neighbor-argmax a
+hopeless bar. <code>filtered</code>/ <code>reweighted</code> fail
+because of the <em>threshold</em>, not the signal (sharpens 7.6: use a
+percentile / calibrated cut on the continuous <span
+class="math inline">w_\ell</span>, not argmax agreement).</li>
+<li><strong>The naive 7.1 gate signal saturates.</strong> The
+LOO-disagreement fraction cannot tell clean from 20%-noise (52.9 vs
+52.6) — the ~53% impurity floor swamps it. The noise-gate needs the
+continuous <span class="math inline">w_\ell</span> distribution or an
+impurity-corrected baseline, not the raw disagree fraction.</li>
+<li><strong>Budget-100 LOO verdicts are numerically arbitrary.</strong>
+Most labeled points have no other labeled neighbor in-ball at 100
+labels; their LOO posterior is uniform and the keep/drop decision comes
+down to float32 rounding residues (reproducing the runs’ exact counts
+required replicating summation order). The <code>filtered</code><span
+class="citation" data-cites="100">@100</span> collapse in §4 is exactly
+this.</li>
+</ol>
+<hr />
+<h2 id="takeaways">5. Takeaways</h2>
+<ol type="1">
+<li><strong>Selection plane alone ≈ ProbCover.</strong>
+<code>bayes_product</code> wins small at the very-low end (1/class: 21.6
+vs 19.7 <span class="citation" data-cites="noise">@noise</span> .2; 14.9
+vs 13.1 @.5), converges or trails slightly by 1000 labels.
+Annotator-accuracy weighting matters most when labels are scarcest, but
+selection alone is not the win.</li>
+<li><strong>The training plane is the win — and it beats Netta’s AUM at
+noise ≥ 0.5.</strong> Noise 0.8 <span class="citation"
+data-cites="1000">@1000</span>: <code>soft_posterior</code>
+<strong>27.5</strong> vs observed 12.6 (<span
+class="math inline">2.2\times</span>) vs NPC+AUM <strong>15.0</strong>.
+Noise 0.5 <span class="citation" data-cites="1000">@1000</span>:
+<strong>39.1</strong> vs 29.5 vs 35.6. Soft graph-posterior label
+correction dominates hard AUM filtering exactly where noise is heaviest
+— plausibly because AUM’s judge network was itself trained on 50–80%
+wrong labels, while the graph posterior needs no trained model.</li>
+<li><strong>At noise 0.2, NPC+AUM still slightly ahead</strong> (43.3 vs
+41.5 <span class="citation" data-cites="1000">@1000</span>). Few flips ⇒
+AUM is reliable, and hard-dropping a few bad points beats softening
+every label.</li>
+<li><strong>Product ≫ additive at every cell</strong> — design-§3 gate
+passes decisively; additive collapses on CIFAR100 (26.9 vs 45.1 clean
+<span class="citation" data-cites="1000">@1000</span>). ⚠ Caveat: at
+noise 0 on CIFAR100 the additive arm also fails the “reproduces Itai ≈
+probcover” sanity check (13.4 vs 23.6 <span class="citation"
+data-cites="100">@100</span>; it <em>passed</em> on CIFAR10) — so on
+CIFAR100 our additive branch is not a faithful Itai control (likely the
+Dirichlet(<span class="math inline">\pi</span>) init vs. his
+scalar-<span class="math inline">\alpha</span>; open item).</li>
+<li><strong>Clean-data sanity holds:</strong> at noise 0,
+<code>observed</code> is best; every correction mode costs a little
+(soft 42.5 vs 45.1). Correcting labels that aren’t wrong removes signal
+⇒ the mode should be <strong>noise-gated</strong>: observed when clean,
+soft/map when noisy.</li>
+<li><strong><code>filtered</code>/<code>reweighted</code> collapse at
+budget 100</strong> (~5% even at noise 0): with ~1 label/class the LOO
+posterior has almost no neighbors to judge with, so it
+drops/down-weights good points. Respectable only from ~500 on ⇒ needs a
+minimum-neighbor gate if kept.</li>
+<li><strong>Trust checks:</strong> NPC ≡ PC at episode 1 in Netta’s
+sweep (filtering starts after the first training round); AUM-ablation
+<code>clean=off</code> arms reproduce the no-filter baselines
+bit-for-bit (deterministic pipeline).</li>
+</ol>
+<h2 id="reproducing-the-tables">6. Reproducing the tables</h2>
+<p>Per-run data: <code>episodes[].test_acc</code> keyed by
+<code>labeled_size</code> in each
+<code>output/CIFAR100/resnet18/&lt;date&gt;/&lt;run&gt;/result.json</code>,
+filtered by <code>sweep_id</code> ∈ {30978366, 30980646, 30811243,
+30863746}; group by <code>params.al_method</code> /
+<code>params.train_label_mode</code> / noise / seed. Aggregation script
+(session scratchpad, copy into <code>batch_utils/</code> if wanted
+long-term): <code>build_tables.py</code> — or use the dashboard
+Comparison tab (Category = <code>bayesian_coverage</code> +
+<code>aum_filter</code>, shared <code>noise_rate</code> filter). The AUM
+sweep extends to 3000 labels if a longer x-axis is needed.</p>
+<p>Note: the CIFAR10 twin sweep (job 30969432, 44/48) exists but is the
+wrong regime for coverage methods (10–100 labels/class); read CIFAR100
+only.</p>
+<hr />
+<h2 id="next-steps">7. Next steps</h2>
+<p>Ordered roughly by value; items 1–3 follow directly from the §5
+takeaways.</p>
+<h3 id="noise-gated-training-policy">7.1 Noise-gated training
+policy</h3>
+<p>The sweep showed a clean trade-off: under noise, posterior-based
+training wins big (+15 pts at noise 0.8 <span class="citation"
+data-cites="1000">@1000</span>), but on clean data it <em>costs</em>
+~2–3 pts — correcting labels that aren’t wrong throws away signal
+(takeaway 5). So the right production policy isn’t “always
+<code>soft_posterior</code>,” it’s a switch. The open question is how
+the method <em>knows</em> it’s in a noisy regime without being told.
+Candidate gate: for each labeled point we already compute the LOO
+posterior (its neighbors’ verdict without its own vote, §2); the
+fraction of points where that verdict disagrees with the annotation is
+essentially a <strong>free noise-rate estimate</strong> — no trained
+model needed. Clean data → few disagreements → stay on
+<code>observed</code>; noisy → many → switch to soft/map. <strong>⚠
+Measured (§4.5 D):</strong> the <em>raw</em> disagree fraction saturates
+at a ~53% ball-impurity floor and cannot distinguish noise 0 from 0.2
+(52.9 vs 52.6) — the gate must use the continuous <span
+class="math inline">w_\ell</span> distribution or an impurity-corrected
+baseline instead. Work items: design that corrected statistic (calibrate
+against §4.5’s replay across 0/.2/.5/.8), then wire as
+<code>TRAIN_LABEL_MODE=auto</code>.</p>
+<h3 id="writeup-plot-more-seeds">7.2 Writeup plot + more seeds</h3>
+<p>The headline claim (soft_posterior 27.5 vs observed 12.6 at noise
+0.8) currently rests on 3 seeds with ±2–3 pt stds at mid-budgets — fine
+for a direction, thin for a figure someone will scrutinize. Concretely:
+a <strong>gain plot</strong> (soft_posterior − observed, per budget per
+noise) with error bars, plus ~3 extra seeds at the cells where the std
+is widest (noise 0.8, 300–500 labels). Cheap: a re-run of existing
+configs with new seeds, ~15 GPU-runs.</p>
+<h3 id="head-to-head-clean-signal-comparison-judge-vs-judge">7.3
+Head-to-head clean-signal comparison (judge vs judge)</h3>
+<p>The Bayes-vs-Netta comparison currently confounds two differences at
+once: selection rule (bayes_product vs npc) <em>and</em> clean-signal
+(graph posterior vs AUM). The §4 decomposition note showed selection
+barely matters for either method — so the interesting fight is
+<strong>judge-vs-judge</strong>, and the current tables never stage it
+directly. The 2×2 to fill in: {bayes_product, npc} × {posterior-based
+training, AUM clean-train}. The two missing cells: bayes_product + AUM
+clean-train (mostly config wiring — <code>NOISE_FILTER=aum</code> on a
+bayes run) and npc + soft_posterior (needs the posterior computed on an
+npc run; slightly more plumbing). If graph-judge wins even on npc
+selection, the story is clean: <em>the posterior is a better
+label-quality judge than AUM, independent of selection</em>.</p>
+<h3 id="beta-temper-sweep">7.4 <span
+class="math inline">\beta</span>-temper sweep</h3>
+<p>All results so far use the raw untempered product (<span
+class="math inline">\beta = 1</span>), which naive-Bayes-overcounts
+correlated neighbors (§1.4): five clustered neighbors saying “class A at
+0.7” multiply into ~0.99 certainty when the honest belief is ~0.7. This
+false sharpness feeds directly into <code>soft_posterior</code> training
+targets (over-peaked = closer to a possibly-wrong one-hot) and into
+selection (overconfident regions stop being sampled). <strong>Now
+confirmed empirically (§4.5 C):</strong> the posterior is overconfident
+at every noise level (ECE 0.10–0.29, confidence &gt; accuracy
+everywhere, worst on clean data). A <span class="math inline">\beta \in
+\{0.25, 0.5, 1.0\}</span> sweep on bayes_product + soft_posterior at
+noise .5/.8 is ~36 runs — and §4.5’s offline replay gives a shortcut:
+<strong>pre-tune <span class="math inline">\beta</span> by minimizing
+ECE offline</strong>, then confirm the winner with a small training
+sweep. Expectation: <span class="math inline">\beta &lt; 1</span> helps
+most exactly where the headline result lives.</p>
+<h3 id="semi-supervised-training-arm-pseudo-labeling">7.5
+Semi-supervised training arm (pseudo-labeling)</h3>
+<p>The posterior is already computed for <em>every</em> pool point, so
+points we never paid to annotate can still contribute training signal if
+their posterior is confident: add a train mode that also trains on the
+top-k most-confident <strong>unlabeled</strong> points per class, k
+growing per episode (curriculum pseudo-labeling). <strong>Feasibility
+now measured (§4.5 B): at budget 1000 the top-10-per-class pseudo-labels
+are cleaner than the paid annotations wherever noise ≥ 0.2</strong>
+(79.3% at noise .2 ≈ the annotations’ 81%; 69.4 vs 49.5 at .5; 42.8 vs
+20.6 at .8) — a near-free doubling of the training set; on clean data
+they are worse (67.9%), so the arm shares 7.1’s noise gate.
+Implementation is genuinely cheap —
+<code>SoftTargetDatasetWrapper</code> already accepts (index,
+distribution) pairs; the new mode just extends the training set. Two
+design guards: (a) <strong>exclude prior-only points</strong> —
+out-of-ball points have exactly the uniform prior, i.e. pure noise as a
+target; (b) <strong>cap correlated evidence</strong> — a ball’s
+pseudo-labels are near-copies of its annotations, so unchecked, one
+noisy annotation gets amplified into dozens of training examples
+agreeing with it (the §1.4 double-counting problem moved to the training
+plane). Per-ball caps + slow-growing k mitigate.</p>
+<h3 id="fix-filteredreweighted-at-low-budget">7.6 Fix
+<code>filtered</code>/<code>reweighted</code> at low budget</h3>
+<p>Both modes collapse to ~5% at budget 100 <em>even on clean data</em>
+(takeaway 6): with ~1 label/class, a point’s LOO posterior is built from
+almost no neighbors, so the “judge” fires on noise and
+drops/down-weights good points — §4.5 D showed the budget-100 verdicts
+are literally decided by float rounding (no in-ball neighbors → uniform
+LOO). §4.5 D also relocated the real defect: the LOO <em>score</em>
+ranks noisy labels well (AUC 0.86–0.92), but the “argmax == observed”
+<em>threshold</em> flags 53% of clean labels. Fix accordingly: (a)
+minimum-neighbor gate (fall back to <code>observed</code> below N
+in-ball neighbors), and (b) replace the argmax rule with a percentile /
+calibrated cut on the continuous <span
+class="math inline">w_\ell</span>. Worth doing only if these modes stay
+in the story; if soft/map remain the winners, this becomes documentation
+rather than code.</p>
+<h3 id="additive-arm-fidelity-itai-control">7.7 Additive-arm fidelity
+(Itai control)</h3>
+<p>On CIFAR100 our additive branch scores 13.4 <span class="citation"
+data-cites="100">@100</span> clean vs probcover’s 23.6 — it fails the
+“reproduces Itai ≈ probcover” sanity check that it <em>passed</em> on
+CIFAR10 (takeaway 4). So the CIFAR100 “product ≫ additive” margin, while
+surely real in direction, is measured against a possibly-unfaithful Itai
+control. Suspected cause: our Dirichlet(<span
+class="math inline">\pi</span>) row-init vs his scalar-<span
+class="math inline">\alpha</span> pseudocount (different effective prior
+strength as counts accumulate). Fix: expose <span
+class="math inline">\alpha</span> as a config knob, match his value,
+re-run the additive arm only (12 runs). Matters mainly if the writeup
+cites the additive comparison as an Itai reproduction.</p>
+<h3 id="remaining-notimplementederror-stubs">7.8 Remaining
+<code>NotImplementedError</code> stubs</h3>
+<p>In rough order of interest:</p>
+<ul>
+<li><strong><code>entropy</code> acquisition</strong> (BALD-style):
+select by posterior entropy in the ball rather than <span
+class="math inline">1-\max</span> — could differ where the posterior is
+multi-modal.</li>
+<li><strong><code>NoiseAwareBayesianCoverage</code></strong> (design
+§4): per-point soft reliability <span class="math inline">r_\ell</span>
+— the theoretical umbrella under which NPC is the hard <span
+class="math inline">r_\ell \in \{0,1\}</span> limit; nice for the
+paper’s framing.</li>
+<li><strong>Empirical prior</strong>: <span
+class="math inline">\pi</span> from observed label frequencies instead
+of uniform — only matters off CIFAR’s balanced classes.</li>
+<li><strong>Sparse-K</strong>: memory scaling for bigger pools — pure
+engineering; blocks ImageNet-scale runs, nothing else.</li>
+</ul>
+<hr />
+<p><em>Rendered versions: <code>bayesian_coverage_SUMMARY.html</code>
+(browser, KaTeX/MathML) and <code>bayesian_coverage_SUMMARY.pdf</code> —
+regenerate with pandoc after editing this file.</em></p>
+</body>
+</html>
