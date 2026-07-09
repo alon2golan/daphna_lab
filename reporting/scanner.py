@@ -68,6 +68,16 @@ _COMMAND_BACKFILL: dict[str, type] = {
     "target_nu": float,
 }
 
+# Free-form --tag keys that are really aliases of a canonical param. Folded onto
+# that param at load time so a sweep tagged `--tag noise=0.5` doesn't sprout a
+# separate p_noise column (string "0.5") that duplicates the real p_noise_rate
+# param (float 0.5) but only for that sweep — which would fragment the dashboard's
+# "noise" filter/facet and silently drop every sweep lacking the tag from a
+# cross-sweep comparison. {tag_key: canonical_param}.
+_TAG_ALIASES: dict[str, str] = {
+    "noise": "noise_rate",
+}
+
 
 # ── Config key / label ────────────────────────────────────────────────────────
 
@@ -155,6 +165,22 @@ def load_all_results(output_root=None) -> pd.DataFrame:
         tags = dict(data.get("tags") or {})
         if "nu_tag" in tags:
             params["nu_tag"] = tags["nu_tag"]
+
+        # Fold aliased tags onto their canonical param (see _TAG_ALIASES) so the
+        # dashboard offers ONE noise column shared by every sweep. When the
+        # canonical param is already recorded (the usual case), the redundant tag
+        # is simply dropped — leaving config_key / about= hashes untouched; when
+        # it's absent, the tag value fills it (numeric when parseable).
+        for _tk, _canon in _TAG_ALIASES.items():
+            if _tk not in tags:
+                continue
+            if params.get(_canon) is None:
+                _tv = tags[_tk]
+                try:
+                    params[_canon] = float(_tv)
+                except (TypeError, ValueError):
+                    params[_canon] = _tv
+            tags.pop(_tk, None)
 
         # Provenance of the nu' (injected noise level) this run used, as a single
         # readable tag. Used when the run carries no explicit nu_tag. Derived from

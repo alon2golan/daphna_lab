@@ -65,6 +65,11 @@ CATEGORY_RULES = [
     # NPC / probcover / random × {train-on-clean on,off} × noise × seeds, all
     # sharing the AUM noise filter. Matched on the "AUMFILTER" sweep-name token.
     ("aum_filter",      re.compile(r"aumfilter|aum_filter", re.IGNORECASE)),
+    # Bayesian per-class coverage: soft posterior coverage with annotator-accuracy
+    # weighting, product/additive neighbor fusion (albayes_product / albayes_additive
+    # arms). Matched on the "BAYESCOV" sweep-name token. Placed before nu_estimation
+    # because its commands carry "--nu_prime" tokens that rule could otherwise grab.
+    ("bayesian_coverage", re.compile(r"bayescov|bayesian_coverage|albayes", re.IGNORECASE)),
     ("oracle_vs_noisy", re.compile(r"probcover_random|oracle_vs_noisy")),
     # The 3000-oracle-cost-cap family (probcover/random × noisy-τ AND oracle arms,
     # ν'-cache decoupled from budget). Matched on the shared "3000cap" sweep-name
@@ -87,7 +92,7 @@ KNOWN_CATEGORIES = (
 # that predate the per-run --track_progress flag (the recorded flag always wins).
 # Everything else (fig55, nu_caching, npc-repro diagnostics, …) is a figure
 # ingredient and surfaces under Additional data instead.
-TRACK_PROGRESS_CATEGORIES = {"train_noise_nu_prime", "aum_filter"}
+TRACK_PROGRESS_CATEGORIES = {"train_noise_nu_prime", "aum_filter", "bayesian_coverage"}
 
 _NU_CACHE_RX = re.compile(r"nu_prime|nu_optcompare|sweep_nu", re.IGNORECASE)
 _TRAIN_AL_RX = re.compile(r"train_al\.py")
@@ -99,6 +104,7 @@ ARTIFACT_CATEGORY_RULES = [
     ("tomer_embedding_graphs", re.compile(r"tomer_embedding|fig55", re.IGNORECASE)),
     ("train_noise_nu_prime", re.compile(r"3000cap", re.IGNORECASE)),
     ("aum_filter",           re.compile(r"aumfilter|aum_filter", re.IGNORECASE)),
+    ("bayesian_coverage",    re.compile(r"bayescov|bayesian_coverage|albayes", re.IGNORECASE)),
     ("oracle_vs_noisy",      re.compile(r"repro_4_15|oracle_vs_noisy|probcover_random", re.IGNORECASE)),
     ("npc_repro",            re.compile(r"netta|npc", re.IGNORECASE)),
     ("nu_caching",           re.compile(r"nu_prime|nu_optcompare|nu_vs_tau|tau_vs_nu|heatmap", re.IGNORECASE)),

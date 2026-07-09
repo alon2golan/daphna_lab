@@ -829,15 +829,19 @@ def _render_comparison():
              "Tick to also include runs that only feed offline figures.")
     base = gdf if show_untracked else gdf[gdf["track_progress"]]
 
-    # ── Category scope (prevents mixing unrelated curves). Only categories that
-    #    actually have runs in scope are offered, so empty ones don't clutter it.
-    cat_opts = ["(all)"] + sorted(base["category"].unique())
-    cats_present = cat_opts[1:]
-    sel_cat = st.selectbox(
-        "Category", options=cat_opts,
-        index=_qp_index(cat_opts, _qp_get("cat"), 1 if cats_present else 0),
-        key="cmp_cat")
-    scoped = base if sel_cat == "(all)" else base[base["category"] == sel_cat]
+    # ── Category scope. A multiselect (empty = all) so curves can be COMBINED
+    #    across categories — pick e.g. bayesian_coverage + aum_filter to compare
+    #    them on one chart, or a single category to isolate it. Only categories
+    #    that actually have runs in scope are offered, so empty ones don't clutter.
+    cats_present = sorted(base["category"].unique())
+    cat_seed = [c for c in _qp_list("cat") if c in cats_present]
+    sel_cats = st.multiselect(
+        "Category (empty = all)", options=cats_present, default=cat_seed,
+        key="cmp_cat",
+        help="Scope curves to one or more categories. Leave empty to pool all "
+             "runs in scope; select several (e.g. bayesian_coverage + aum_filter) "
+             "to compare them on a single chart.")
+    scoped = base if not sel_cats else base[base["category"].isin(sel_cats)]
 
     # ── Hide flagged sweeps by default (Feature 1) — BEFORE the sweep filter,
     #    so deprecated/buggy sweeps don't even appear in the picker unless shown.
@@ -1071,7 +1075,7 @@ def _render_comparison():
                                 key="cmp_group")
     qp_out.update(x=x_label, y=y_field,
                   group="" if group_label == "(none)" else group_label,
-                  cat="" if sel_cat == "(all)" else sel_cat,
+                  cat=",".join(sel_cats),
                   showhidden="1" if show_hidden else "")
     if x_field == "budget_units":
         st.caption("ℹ️ Oracle budget units = #labeled examples × τ "
@@ -1093,7 +1097,7 @@ def _render_comparison():
                 return enc_opts.index(n)
         return 0
 
-    dash_prefs = (["tau", "noise"] if sel_cat == "train_noise_nu_prime"
+    dash_prefs = (["tau", "noise"] if sel_cats == ["train_noise_nu_prime"]
                   else ["noise", "tau"])
     ec1, ec2, _ = st.columns(3)
     color_sel = ec1.selectbox("Color by", enc_opts,
