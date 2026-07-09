@@ -354,6 +354,7 @@ Like-for-like regime: CIFAR100 SimCLR features, budget 100/episode, tophat $\del
 | Netta NPC repro | 30811243 | {npc, probcover, random} + AUM/clean-train × noise {.2, .5, .8} × 3 seeds | 27/27 ✔ |
 | AUM clean ablation | 30863746 | {npc, probcover, random} × clean {on, off} × noise {.2, .5, .8} × 3 seeds | 54/54 ✔ |
 | §7.5 pseudo-labeling | 31047129 | bayes_product + pseudo × {all, lin10, agg50} × noise {0, .2, .5, .8} × 3 seeds | 36/36 ✔ |
+| ProbCover + 1-NN eval | 31048649 | probcover × `--eval_model_type NN1` × noise {0, .2, .5, .8} × 3 seeds | 12/12 ✔ |
 
 All `bayes_*` selection rows train on **raw observed labels** unless a train-mode is
 named. Netta's sweeps have **no noise-0 arm** (never run) — hence the dashes.
@@ -361,10 +362,10 @@ Regenerate these tables with the script noted in §6.
 
 **Netta-side decomposition (rows from the AUM ablation, job 30863746):** the two `npc`
 rows separate her two mechanisms. *npc, no clean-train* = NPC **selection only**, trained
-on all (noisy) labels — it is $\approx$ probcover everywhere (identical at 100 by
-construction: the AUM filter only kicks in after the first training round). *npc + AUM
+on all (noisy) labels — it is $\approx$ probcover + training everywhere (identical at 100
+by construction: the AUM filter only kicks in after the first training round). *npc + AUM
 clean-train* = the full Netta stack. So on her side too, **nearly all the gain over
-ProbCover comes from the training plane** (clean-train), not from selection — mirroring
+probcover + training comes from the training plane** (clean-train), not from selection — mirroring
 our own selection-vs-training split (§5.1–2). Note clean-train *hurts* at small budgets
 under low noise (0.2: 32.0 vs 33.9 at 300 — dropping data you can't spare) and only pays
 from ~700 labels on.
@@ -378,18 +379,37 @@ scores 67.1 / 63.5 / 56.1 / 39.5 (%) at noise 0/.2/.5/.8 @1000 — under heavy n
 that beats every trained classifier in the table. Computed by
 `batch_utils/test_posterior_acc.py`; the full posterior-quality analysis is §4.5.
 
+**"probcover + 1nn" row:** ProbCover's paper evaluation framework (ii) — no trained
+network at all; a `KNeighborsClassifier(n_neighbors=1)` is fitted each episode on the
+labeled set's **L2-normalized** SimCLR features and evaluated on the test set
+(`--eval_model_type NN1`, `MODEL.USE_1NN`; launcher `batch_utils/sweep_probcover_1nn.py`,
+sweep 31048649). Selection is identical to `probcover + training` — only the evaluator
+differs. **Normalization is load-bearing**: the features datasets serve raw
+(`normalized=False`) SimCLR features, and Euclidean 1-NN on raw features loses ~18 pts
+@100 (19.9 vs 38.1; buggy first sweep 31048609, fixed in `train_al.py`'s USE_1NN branch —
+verified by offline replay on the identical lSets). With the paper convention, 1-NN
+**beats training a linear head at every clean budget except 1000** — reproducing the
+paper's low-budget claim (~35% @100 on CIFAR100). Seeds still matter without training:
+the seed shifts the train/val split (hence ProbCover's candidate pool) and, under noise,
+the noise realization the 1-NN fits on. The arm exists at all noise levels (0.2/0.5/0.8
+@100: 30.9 / 19.9 / 7.6, @1000: 36.9 / 23.8 / 9.9): even fitted on noisy labels, 1-NN
+beats the trained head at 100–300 labels at *every* noise level and loses only from
+~500–700 on. The `probcover + 1nn` row appears in all four noise tables below.
+
 ### Noise = 0.0 (clean sanity)
 
 | Method | 100 | 300 | 500 | 700 | 1000 |
 |---|---|---|---|---|---|
 | random | 8.5±2.6 | 25.1±0.7 | 33.8±0.2 | 38.4±1.4 | 42.6±1.0 |
-| probcover | 23.6±1.8 | **39.9±0.4** | **43.3±0.3** | **44.6±0.2** | **46.5±0.6** |
+| probcover + training | 23.6±1.8 | 39.9±0.4 | 43.3±0.3 | 44.6±0.2 | 46.5±0.6 |
+| probcover + 1nn | **38.1±0.4** | **42.9±0.2** | 44.5±0.2 | 44.9±0.3 | 45.6±0.6 |
 | bayes_additive (Itai) | 13.4±0.7 | 18.2±1.1 | 20.9±0.5 | 23.2±0.9 | 26.9±0.0 |
-| bayes_product | **24.6±1.3** | 38.1±1.3 | 41.6±0.0 | 43.6±0.2 | 45.1±0.1 |
+| bayes_product | 24.6±1.3 | 38.1±1.3 | 41.6±0.0 | 43.6±0.2 | 45.1±0.1 |
 | bayes_product + map_posterior | 22.5±0.5 | 35.9±0.4 | 38.9±0.2 | 40.8±0.4 | 41.8±0.5 |
 | bayes_product + soft_posterior | 23.7±1.0 | 36.3±0.7 | 39.2±0.0 | 41.1±0.5 | 42.5±0.1 |
 | bayes_product + filtered | 5.6±1.4 | 24.2±0.4 | 31.3±0.9 | 36.1±1.0 | 38.6±0.6 |
 | bayes_product + reweighted | 5.8±1.0 | 25.1±1.1 | 32.9±1.0 | 36.9±0.7 | 39.6±0.5 |
+| bayes_product + pseudo all (§4.6) | 37.6±0.4 | 42.6±0.7 | **44.9±0.1** | **46.5±0.1** | **47.5±0.2** |
 | graph posterior alone (no training) | 18.1±0.2 | 23.9±0.4 | 26.8±0.3 | 28.8±0.3 | 30.8±0.2 |
 | probcover + AUM clean-train | — | — | — | — | — |
 | npc + AUM (Netta) | — | — | — | — | — |
@@ -399,30 +419,34 @@ that beats every trained classifier in the table. Computed by
 | Method | 100 | 300 | 500 | 700 | 1000 |
 |---|---|---|---|---|---|
 | random | 5.8±2.3 | 19.9±1.6 | 28.2±0.9 | 33.3±1.8 | 37.7±1.6 |
-| probcover | 19.7±0.7 | 33.4±1.3 | 37.4±0.4 | 39.5±0.3 | 41.2±0.8 |
+| probcover + training | 19.7±0.7 | 33.4±1.3 | 37.4±0.4 | 39.5±0.3 | 41.2±0.8 |
+| probcover + 1nn | **30.9±1.1** | 34.6±0.3 | 36.2±0.6 | 36.7±0.3 | 36.9±0.5 |
 | bayes_additive (Itai) | 7.7±1.6 | 12.7±0.8 | 14.3±0.8 | 16.9±1.0 | 19.5±0.9 |
 | bayes_product | 21.6±1.5 | 32.8±1.5 | 36.6±0.5 | 37.7±0.7 | 39.2±0.3 |
 | bayes_product + map_posterior | 20.6±2.3 | 33.7±2.0 | 36.9±1.1 | 39.2±0.8 | 40.6±0.6 |
-| bayes_product + soft_posterior | 19.1±1.7 | 33.4±1.9 | **37.5±1.0** | 40.0±0.5 | 41.5±0.4 |
-| bayes_product + filtered | **22.4±2.4** | 28.9±1.5 | 35.8±1.0 | 38.7±1.6 | 40.8±0.7 |
+| bayes_product + soft_posterior | 19.1±1.7 | 33.4±1.9 | 37.5±1.0 | 40.0±0.5 | 41.5±0.4 |
+| bayes_product + filtered | 22.4±2.4 | 28.9±1.5 | 35.8±1.0 | 38.7±1.6 | 40.8±0.7 |
 | bayes_product + reweighted | 8.6±1.5 | 26.3±2.6 | 33.5±1.5 | 37.1±0.8 | 40.2±0.5 |
+| bayes_product + pseudo all (§4.6) | 28.6±1.7 | **37.7±1.7** | **41.7±0.6** | **43.6±0.2** | **45.8±0.6** |
 | graph posterior alone (no training) | 14.3±0.8 | 21.4±0.7 | 24.5±0.1 | 26.4±0.4 | 28.6±0.5 |
 | probcover + AUM clean-train | 20.2±0.7 | 31.2±1.1 | 36.4±0.5 | 39.5±1.3 | 42.3±0.1 |
-| npc, no clean-train (selection only) | 19.7±0.7 | **33.9±1.0** | 37.4±1.7 | 39.8±1.1 | 42.0±0.7 |
-| npc + AUM clean-train (Netta) | 20.2±0.7 | 32.0±0.6 | 36.5±0.6 | **40.4±0.8** | **43.3±0.6** |
+| npc, no clean-train (selection only) | 19.7±0.7 | 33.9±1.0 | 37.4±1.7 | 39.8±1.1 | 42.0±0.7 |
+| npc + AUM clean-train (Netta) | 20.2±0.7 | 32.0±0.6 | 36.5±0.6 | 40.4±0.8 | 43.3±0.6 |
 
 ### Noise = 0.5
 
 | Method | 100 | 300 | 500 | 700 | 1000 |
 |---|---|---|---|---|---|
 | random | 4.6±1.6 | 12.7±2.2 | 18.4±1.4 | 23.5±1.0 | 27.1±1.0 |
-| probcover | 13.1±1.3 | 21.5±1.8 | 26.0±1.3 | 28.1±0.7 | 30.3±1.2 |
+| probcover + training | 13.1±1.3 | 21.5±1.8 | 26.0±1.3 | 28.1±0.7 | 30.3±1.2 |
+| probcover + 1nn | **19.9±1.4** | 22.5±1.6 | 23.7±1.2 | 23.7±1.1 | 23.8±1.3 |
 | bayes_additive (Itai) | 5.6±1.1 | 6.0±0.8 | 8.3±1.1 | 9.9±1.5 | 12.4±1.1 |
 | bayes_product | 14.9±1.4 | 23.1±0.1 | 26.4±0.6 | 28.1±0.6 | 29.5±0.4 |
-| bayes_product + map_posterior | **15.2±1.9** | **27.9±1.7** | 31.9±0.2 | 34.5±1.0 | 37.6±0.4 |
-| bayes_product + soft_posterior | 12.3±0.9 | 27.8±1.0 | **33.1±0.5** | **36.2±0.1** | **39.1±0.8** |
+| bayes_product + map_posterior | 15.2±1.9 | 27.9±1.7 | 31.9±0.2 | 34.5±1.0 | 37.6±0.4 |
+| bayes_product + soft_posterior | 12.3±0.9 | 27.8±1.0 | 33.1±0.5 | 36.2±0.1 | 39.1±0.8 |
 | bayes_product + filtered | 4.3±1.0 | 16.5±2.3 | 23.8±2.7 | 29.5±1.3 | 34.3±0.5 |
 | bayes_product + reweighted | 5.0±2.6 | 17.6±2.4 | 26.3±1.4 | 32.1±0.6 | 36.5±0.8 |
+| bayes_product + pseudo all (§4.6) | 18.0±2.9 | **31.1±1.1** | **36.1±0.5** | **39.1±0.6** | **41.8±0.7** |
 | graph posterior alone (no training) | 8.7±1.2 | 16.0±0.7 | 19.1±0.4 | 21.4±0.1 | 23.8±0.3 |
 | probcover + AUM clean-train | 13.3±1.5 | 20.4±2.6 | 26.0±1.7 | 29.6±1.7 | 33.7±0.8 |
 | npc, no clean-train (selection only) | 13.1±1.3 | 22.1±1.3 | 25.8±1.5 | 28.6±1.4 | 30.9±1.0 |
@@ -433,16 +457,18 @@ that beats every trained classifier in the table. Computed by
 | Method | 100 | 300 | 500 | 700 | 1000 |
 |---|---|---|---|---|---|
 | random | 2.6±0.6 | 4.9±2.2 | 7.2±1.7 | 9.4±1.1 | 10.3±1.5 |
-| probcover | **5.9±0.9** | 8.2±1.1 | 10.4±0.4 | 11.6±0.3 | 12.7±0.1 |
+| probcover + training | 5.9±0.9 | 8.2±1.1 | 10.4±0.4 | 11.6±0.3 | 12.7±0.1 |
+| probcover + 1nn | **7.6±0.5** | 9.3±0.1 | 9.7±0.5 | 9.7±0.4 | 9.9±0.9 |
 | bayes_additive (Itai) | 2.0±0.0 | 3.3±0.4 | 3.5±0.4 | 4.8±0.1 | 5.4±0.4 |
 | bayes_product | 4.6±0.5 | 9.7±2.0 | 10.9±1.5 | 11.8±1.5 | 12.6±1.6 |
-| bayes_product + map_posterior | 5.8±0.2 | **14.2±2.9** | **19.4±2.1** | 22.9±2.2 | 26.2±1.3 |
-| bayes_product + soft_posterior | 5.3±0.5 | 13.3±2.0 | 18.9±2.4 | **23.4±2.5** | **27.5±1.9** |
+| bayes_product + map_posterior | 5.8±0.2 | 14.2±2.9 | 19.4±2.1 | 22.9±2.2 | 26.2±1.3 |
+| bayes_product + soft_posterior | 5.3±0.5 | 13.3±2.0 | 18.9±2.4 | 23.4±2.5 | 27.5±1.9 |
 | bayes_product + filtered | 1.3±0.6 | 6.5±0.9 | 10.2±0.2 | 15.7±1.3 | 20.6±2.5 |
 | bayes_product + reweighted | 1.3±0.6 | 5.2±0.6 | 11.1±1.1 | 17.0±1.3 | 23.4±1.6 |
+| bayes_product + pseudo all (§4.6) | 6.2±0.7 | **14.4±3.2** | **19.7±2.5** | **24.3±3.4** | **28.1±2.5** |
 | graph posterior alone (no training) | 2.5±0.3 | 7.0±1.9 | 9.5±1.6 | 11.6±1.9 | 14.3±1.4 |
 | probcover + AUM clean-train | 5.7±1.6 | 7.1±1.1 | 10.3±1.1 | 11.9±0.7 | 14.7±0.2 |
-| npc, no clean-train (selection only) | **5.9±0.9** | 8.1±0.9 | 9.8±1.2 | 10.8±0.4 | 12.5±0.4 |
+| npc, no clean-train (selection only) | 5.9±0.9 | 8.1±0.9 | 9.8±1.2 | 10.8±0.4 | 12.5±0.4 |
 | npc + AUM clean-train (Netta) | 5.7±1.6 | 7.4±0.6 | 10.3±0.7 | 11.7±1.0 | 15.0±0.8 |
 
 ---
@@ -614,9 +640,11 @@ Three arms, selected by `--pseudo_scope` / `--pseudo_k`:
 - **lin10** — top-k most-confident per *predicted* class, k = training round (1→10).
 - **agg50** — same, k grows 1,2,3,5,8,13,20,30,40,50.
 
-Same regime and seeds {1,2,3} as the train-mode sweep, so rows are paired with the
-baselines (the `observed` rows below bit-match `bayes_product` in the §4 tables —
-deterministic pipeline). Unlike the §4 tables (5 canonical budgets), these show
+Same regime and seeds {1,2,3} as the train-mode sweep, so the posterior-mode rows are
+paired with each other. The baseline row is **probcover + 1nn** (sweep 31048649, no
+trained network — see the §4 note); it replaced the former `observed` row
+(bayes_product selection trained on raw observed labels), whose numbers remain as the
+`bayes_product` rows of the §4 tables. Unlike the §4 tables (5 canonical budgets), these show
 **all 10 episodes** (labeled size 100…1000, one column per episode); the baseline
 rows are re-aggregated at the same resolution. Figure + CSV (also all episodes):
 `results/bayes_pseudo/`.
@@ -625,52 +653,57 @@ rows are re-aggregated at the same resolution. Figure + CSV (also all episodes):
 
 | Method | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900 | 1000 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| observed | 24.6±1.3 | 33.7±0.1 | 38.1±1.3 | 40.2±0.6 | 41.6±0.0 | 42.7±0.4 | 43.6±0.2 | 44.4±0.3 | 44.8±0.4 | 45.1±0.1 |
+| probcover + 1nn | **38.1±0.4** | **41.1±0.1** | **42.9±0.2** | **44.3±0.1** | 44.5±0.2 | 44.8±0.2 | 44.9±0.3 | 45.2±0.3 | 45.4±0.4 | 45.6±0.6 |
 | map_posterior | 22.5±0.5 | 31.5±0.4 | 35.9±0.4 | 37.9±0.3 | 38.9±0.2 | 40.4±0.3 | 40.8±0.4 | 41.3±0.5 | 41.4±0.6 | 41.8±0.5 |
 | soft_posterior | 23.7±1.0 | 32.0±0.8 | 36.3±0.7 | 38.0±0.2 | 39.2±0.0 | 40.9±0.3 | 41.1±0.5 | 41.8±0.6 | 42.6±0.6 | 42.5±0.1 |
 | pseudo lin10 | 26.3±1.0 | 37.2±0.4 | 40.6±0.8 | 42.2±0.5 | 43.4±0.0 | 44.6±0.5 | 45.2±0.9 | 45.8±0.7 | 46.0±0.6 | 46.3±0.5 |
 | pseudo agg50 | 26.3±1.0 | 37.2±0.4 | 40.6±0.8 | 42.5±0.2 | 43.9±0.2 | 45.1±0.4 | 45.8±0.5 | 46.5±0.6 | 47.2±0.4 | **47.8±0.4** |
-| pseudo all | **37.6±0.4** | **40.5±0.4** | **42.6±0.7** | **44.0±0.5** | **44.9±0.1** | **45.8±0.1** | **46.5±0.1** | **46.8±0.2** | **47.3±0.4** | 47.5±0.2 |
+| pseudo all | 37.6±0.4 | 40.5±0.4 | 42.6±0.7 | 44.0±0.5 | **44.9±0.1** | **45.8±0.1** | **46.5±0.1** | **46.8±0.2** | **47.3±0.4** | 47.5±0.2 |
 
 **Noise = 0.2** (all 10 episodes)
 
 | Method | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900 | 1000 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| observed | 21.6±1.5 | 30.1±1.7 | 32.8±1.5 | 35.1±1.0 | 36.6±0.5 | 37.6±1.0 | 37.7±0.7 | 38.2±0.4 | 38.6±0.3 | 39.2±0.3 |
+| probcover + 1nn | **30.9±1.1** | 33.4±1.2 | 34.6±0.3 | 35.9±0.2 | 36.2±0.6 | 36.6±0.4 | 36.7±0.3 | 36.9±0.5 | 37.0±0.3 | 36.9±0.5 |
 | map_posterior | 20.6±2.3 | 29.6±0.5 | 33.7±2.0 | 35.3±1.5 | 36.9±1.1 | 38.2±0.5 | 39.2±0.8 | 39.8±0.1 | 40.1±0.2 | 40.6±0.6 |
 | soft_posterior | 19.1±1.7 | 29.5±0.9 | 33.4±1.9 | 35.6±2.1 | 37.5±1.0 | 39.3±0.4 | 40.0±0.5 | 40.7±0.4 | 41.2±0.3 | 41.5±0.4 |
 | pseudo lin10 | 19.7±1.6 | 33.2±1.1 | 37.6±1.6 | 39.7±1.2 | 40.8±0.8 | 41.5±0.3 | 42.0±0.5 | 42.7±0.8 | 43.4±0.8 | 43.8±1.2 |
 | pseudo agg50 | 19.7±1.6 | 33.2±1.1 | 37.6±1.6 | **40.1±1.0** | 40.8±0.8 | 41.1±0.4 | 41.4±0.8 | 42.3±1.0 | 43.5±0.9 | 44.1±0.6 |
-| pseudo all | **28.6±1.7** | **35.0±2.0** | **37.7±1.7** | 39.9±1.0 | **41.7±0.6** | **43.0±0.4** | **43.6±0.2** | **44.5±0.1** | **45.3±0.1** | **45.8±0.6** |
+| pseudo all | 28.6±1.7 | **35.0±2.0** | **37.7±1.7** | 39.9±1.0 | **41.7±0.6** | **43.0±0.4** | **43.6±0.2** | **44.5±0.1** | **45.3±0.1** | **45.8±0.6** |
 
 **Noise = 0.5** (all 10 episodes)
 
 | Method | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900 | 1000 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| observed | 14.9±1.4 | 20.4±0.7 | 23.1±0.1 | 25.6±0.5 | 26.4±0.6 | 27.3±1.0 | 28.1±0.6 | 29.3±0.1 | 29.6±0.3 | 29.5±0.4 |
+| probcover + 1nn | **19.9±1.4** | 21.4±1.2 | 22.5±1.6 | 23.6±1.3 | 23.7±1.2 | 24.0±1.3 | 23.7±1.1 | 23.8±1.1 | 23.9±1.2 | 23.8±1.3 |
 | map_posterior | 15.2±1.9 | 23.4±1.6 | 27.9±1.7 | 30.5±1.3 | 31.9±0.2 | 33.1±0.4 | 34.5±1.0 | 35.5±0.9 | 37.0±0.7 | 37.6±0.4 |
 | soft_posterior | 12.3±0.9 | 23.0±1.3 | 27.8±1.0 | 31.1±0.9 | 33.1±0.5 | 34.6±0.7 | 36.2±0.1 | 37.8±0.5 | 38.6±0.6 | 39.1±0.8 |
 | pseudo lin10 | 12.5±0.9 | 24.7±1.4 | 30.1±0.8 | 34.0±0.7 | 36.0±0.6 | 37.6±1.0 | 38.6±0.4 | 40.0±1.0 | 40.5±0.9 | 40.9±1.0 |
 | pseudo agg50 | 12.5±0.9 | 24.7±1.4 | 30.1±0.8 | **34.3±0.6** | **36.5±1.0** | **37.6±1.0** | 38.8±0.9 | 40.0±0.9 | 40.5±0.6 | 41.3±0.7 |
-| pseudo all | **18.0±2.9** | **25.0±1.2** | **31.1±1.1** | 33.9±1.0 | 36.1±0.5 | 37.5±0.8 | **39.1±0.6** | **40.5±0.7** | **41.2±0.6** | **41.8±0.7** |
+| pseudo all | 18.0±2.9 | **25.0±1.2** | **31.1±1.1** | 33.9±1.0 | 36.1±0.5 | 37.5±0.8 | **39.1±0.6** | **40.5±0.7** | **41.2±0.6** | **41.8±0.7** |
 
 **Noise = 0.8** (all 10 episodes)
 
 | Method | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900 | 1000 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| observed | 4.6±0.5 | 7.5±0.2 | 9.7±2.0 | 10.9±1.3 | 10.9±1.5 | 11.3±1.4 | 11.8±1.5 | 12.0±2.0 | 12.3±1.9 | 12.6±1.6 |
+| probcover + 1nn | **7.6±0.5** | 8.9±0.4 | 9.3±0.1 | 9.5±0.4 | 9.7±0.5 | 10.0±0.5 | 9.7±0.4 | 9.8±0.7 | 10.0±0.8 | 9.9±0.9 |
 | map_posterior | 5.8±0.2 | 10.1±1.9 | 14.2±2.9 | 17.4±1.3 | 19.4±2.1 | 21.9±2.2 | 22.9±2.2 | 25.1±2.2 | 24.7±2.4 | 26.2±1.3 |
 | soft_posterior | 5.3±0.5 | 9.5±1.2 | 13.4±2.0 | 16.6±1.3 | 18.9±2.4 | 21.3±2.1 | 23.4±2.5 | 25.4±2.4 | 25.7±2.7 | 27.5±1.9 |
 | pseudo lin10 | 5.2±0.6 | 10.1±1.1 | 14.3±2.5 | 17.8±1.3 | 20.0±2.1 | **22.2±2.0** | 24.4±2.7 | 26.0±2.7 | 26.1±2.8 | 28.0±2.6 |
 | pseudo agg50 | 5.2±0.6 | 10.1±1.1 | 14.3±2.5 | **17.9±1.2** | **20.1±1.9** | 22.1±2.2 | **24.6±2.9** | **26.3±2.9** | **27.0±2.8** | **29.0±2.7** |
-| pseudo all | **6.2±0.7** | **10.8±2.1** | **14.4±3.2** | 17.5±1.4 | 19.7±2.5 | 22.2±2.7 | 24.3±3.4 | 25.8±3.1 | 26.4±3.0 | 28.1±2.5 |
+| pseudo all | 6.2±0.7 | **10.8±2.1** | **14.4±3.2** | 17.5±1.4 | 19.7±2.5 | 22.2±2.7 | 24.3±3.4 | 25.8±3.1 | 26.4±3.0 | 28.1±2.5 |
 
-Reading: **pseudo wins at every noise level, including 0** — see takeaway 8.
-`lin10` ≡ `agg50` through 300 labels by construction (the schedules coincide at
-k = 1,2,3; identical numbers = the determinism trust-check again). The §4.5 B
-prediction (pseudo-labels cleaner than paid annotations wherever noise ≥ .2, worse
-when clean) is confirmed *directionally* by training, with one surprise: the arm
-helps on **clean** data too (47.8 vs observed 45.1 @1000; 37.6 vs 24.6 @100 for
+Reading: **by 1000 labels pseudo wins at every noise level, including 0** — see
+takeaway 8 (vs the trained-on-observed baseline: 47.8 vs 45.1 @1000 clean; vs
+probcover + 1nn: 47.8 vs 45.6). But against the **training-free 1-NN baseline the
+picture at low budget changes**: probcover + 1nn beats every pseudo arm at 100–400
+labels on clean data and at 100 labels at every noise level — if the budget stops at
+~300, skipping training entirely is the best known cell in these tables. `lin10` ≡
+`agg50` through 300 labels by construction (the schedules coincide at k = 1,2,3;
+identical numbers = the determinism trust-check again). The §4.5 B prediction
+(pseudo-labels cleaner than paid annotations wherever noise ≥ .2, worse when clean)
+is confirmed *directionally* by training, with one surprise: the arm helps on
+**clean** data too (47.8 vs 45.1 trained-on-observed @1000; 37.6 vs 24.6 @100 for
 `all`) — §4.5 B under-sold it because even 67.9%-clean extra targets are soft
 (the wrongness is spread over classes, not committed to a hard wrong label) and
 the sheer volume (~9–30k points) dominates the classifier's data diet at these
@@ -679,8 +712,8 @@ budgets.
 ## 5. Takeaways
 
 1. **Selection plane alone ≈ ProbCover.** `bayes_product` wins small at the very-low
-   end (1/class: 21.6 vs 19.7 @noise .2; 14.9 vs 13.1 @.5), converges or trails
-   slightly by 1000 labels. Annotator-accuracy weighting matters most when labels are
+   end vs probcover + training (1/class: 21.6 vs 19.7 @noise .2; 14.9 vs 13.1 @.5),
+   converges or trails slightly by 1000 labels. Annotator-accuracy weighting matters most when labels are
    scarcest, but selection alone is not the win.
 2. **The training plane is the win — and it beats Netta's AUM at noise ≥ 0.5.**
    Noise 0.8 @1000: `soft_posterior` **27.5** vs observed 12.6 ($2.2\times$) vs NPC+AUM
@@ -692,7 +725,7 @@ budgets.
    AUM is reliable, and hard-dropping a few bad points beats softening every label.
 4. **Product ≫ additive at every cell** — design-§3 gate passes decisively; additive
    collapses on CIFAR100 (26.9 vs 45.1 clean @1000). ⚠ Caveat: at noise 0 on CIFAR100
-   the additive arm also fails the "reproduces Itai ≈ probcover" sanity check
+   the additive arm also fails the "reproduces Itai ≈ probcover + training" sanity check
    (13.4 vs 23.6 @100; it *passed* on CIFAR10) — so on CIFAR100 our additive branch is
    not a faithful Itai control (likely the Dirichlet($\pi$) init vs. his scalar-$\alpha$; open item).
 5. **Clean-data sanity holds:** at noise 0, `observed` is best; every correction mode
@@ -822,8 +855,9 @@ remain the winners, this becomes documentation rather than code.
 
 ### 7.7 Additive-arm fidelity (Itai control)
 
-On CIFAR100 our additive branch scores 13.4 @100 clean vs probcover's 23.6 — it fails
-the "reproduces Itai ≈ probcover" sanity check that it *passed* on CIFAR10 (takeaway 4).
+On CIFAR100 our additive branch scores 13.4 @100 clean vs probcover + training's 23.6 —
+it fails the "reproduces Itai ≈ probcover + training" sanity check that it *passed* on
+CIFAR10 (takeaway 4).
 So the CIFAR100 "product ≫ additive" margin, while surely real in direction, is measured
 against a possibly-unfaithful Itai control. Suspected cause: our Dirichlet($\pi$)
 row-init vs his scalar-$\alpha$ pseudocount (different effective prior strength as
