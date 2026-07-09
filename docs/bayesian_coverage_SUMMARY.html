@@ -1964,24 +1964,38 @@ class, k = training round (1→10).</li>
 <p>Same regime and seeds {1,2,3} as the train-mode sweep, so rows are
 paired with the baselines (the <code>observed</code> rows below
 bit-match <code>bayes_product</code> in the §4 tables — deterministic
-pipeline). Figure + CSV: <code>results/bayes_pseudo/</code>.</p>
-<p><strong>Noise = 0.0</strong></p>
-<table style="width:100%;">
+pipeline). Unlike the §4 tables (5 canonical budgets), these show
+<strong>all 10 episodes</strong> (labeled size 100…1000, one column per
+episode); the baseline rows are re-aggregated at the same resolution.
+Figure + CSV (also all episodes):
+<code>results/bayes_pseudo/</code>.</p>
+<p><strong>Noise = 0.0</strong> (all 10 episodes)</p>
+<table>
 <colgroup>
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
 </colgroup>
 <thead>
 <tr class="header">
 <th>Method</th>
 <th>100</th>
+<th>200</th>
 <th>300</th>
+<th>400</th>
 <th>500</th>
+<th>600</th>
 <th>700</th>
+<th>800</th>
+<th>900</th>
 <th>1000</th>
 </tr>
 </thead>
@@ -1989,70 +2003,110 @@ pipeline). Figure + CSV: <code>results/bayes_pseudo/</code>.</p>
 <tr class="odd">
 <td>observed</td>
 <td>24.6±1.3</td>
+<td>33.7±0.1</td>
 <td>38.1±1.3</td>
+<td>40.2±0.6</td>
 <td>41.6±0.0</td>
+<td>42.7±0.4</td>
 <td>43.6±0.2</td>
+<td>44.4±0.3</td>
+<td>44.8±0.4</td>
 <td>45.1±0.1</td>
 </tr>
 <tr class="even">
 <td>map_posterior</td>
 <td>22.5±0.5</td>
+<td>31.5±0.4</td>
 <td>35.9±0.4</td>
+<td>37.9±0.3</td>
 <td>38.9±0.2</td>
+<td>40.4±0.3</td>
 <td>40.8±0.4</td>
+<td>41.3±0.5</td>
+<td>41.4±0.6</td>
 <td>41.8±0.5</td>
 </tr>
 <tr class="odd">
 <td>soft_posterior</td>
 <td>23.7±1.0</td>
+<td>32.0±0.8</td>
 <td>36.3±0.7</td>
+<td>38.0±0.2</td>
 <td>39.2±0.0</td>
+<td>40.9±0.3</td>
 <td>41.1±0.5</td>
+<td>41.8±0.6</td>
+<td>42.6±0.6</td>
 <td>42.5±0.1</td>
 </tr>
 <tr class="even">
 <td>pseudo lin10</td>
 <td>26.3±1.0</td>
+<td>37.2±0.4</td>
 <td>40.6±0.8</td>
+<td>42.2±0.5</td>
 <td>43.4±0.0</td>
+<td>44.6±0.5</td>
 <td>45.2±0.9</td>
+<td>45.8±0.7</td>
+<td>46.0±0.6</td>
 <td>46.3±0.5</td>
 </tr>
 <tr class="odd">
 <td>pseudo agg50</td>
 <td>26.3±1.0</td>
+<td>37.2±0.4</td>
 <td>40.6±0.8</td>
+<td>42.5±0.2</td>
 <td>43.9±0.2</td>
+<td>45.1±0.4</td>
 <td>45.8±0.5</td>
+<td>46.5±0.6</td>
+<td>47.2±0.4</td>
 <td><strong>47.8±0.4</strong></td>
 </tr>
 <tr class="even">
 <td>pseudo all</td>
 <td><strong>37.6±0.4</strong></td>
+<td><strong>40.5±0.4</strong></td>
 <td><strong>42.6±0.7</strong></td>
+<td><strong>44.0±0.5</strong></td>
 <td><strong>44.9±0.1</strong></td>
+<td><strong>45.8±0.1</strong></td>
 <td><strong>46.5±0.1</strong></td>
+<td><strong>46.8±0.2</strong></td>
+<td><strong>47.3±0.4</strong></td>
 <td>47.5±0.2</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Noise = 0.2</strong></p>
-<table style="width:100%;">
+<p><strong>Noise = 0.2</strong> (all 10 episodes)</p>
+<table>
 <colgroup>
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
 </colgroup>
 <thead>
 <tr class="header">
 <th>Method</th>
 <th>100</th>
+<th>200</th>
 <th>300</th>
+<th>400</th>
 <th>500</th>
+<th>600</th>
 <th>700</th>
+<th>800</th>
+<th>900</th>
 <th>1000</th>
 </tr>
 </thead>
@@ -2060,70 +2114,110 @@ pipeline). Figure + CSV: <code>results/bayes_pseudo/</code>.</p>
 <tr class="odd">
 <td>observed</td>
 <td>21.6±1.5</td>
+<td>30.1±1.7</td>
 <td>32.8±1.5</td>
+<td>35.1±1.0</td>
 <td>36.6±0.5</td>
+<td>37.6±1.0</td>
 <td>37.7±0.7</td>
+<td>38.2±0.4</td>
+<td>38.6±0.3</td>
 <td>39.2±0.3</td>
 </tr>
 <tr class="even">
 <td>map_posterior</td>
 <td>20.6±2.3</td>
+<td>29.6±0.5</td>
 <td>33.7±2.0</td>
+<td>35.3±1.5</td>
 <td>36.9±1.1</td>
+<td>38.2±0.5</td>
 <td>39.2±0.8</td>
+<td>39.8±0.1</td>
+<td>40.1±0.2</td>
 <td>40.6±0.6</td>
 </tr>
 <tr class="odd">
 <td>soft_posterior</td>
 <td>19.1±1.7</td>
+<td>29.5±0.9</td>
 <td>33.4±1.9</td>
+<td>35.6±2.1</td>
 <td>37.5±1.0</td>
+<td>39.3±0.4</td>
 <td>40.0±0.5</td>
+<td>40.7±0.4</td>
+<td>41.2±0.3</td>
 <td>41.5±0.4</td>
 </tr>
 <tr class="even">
 <td>pseudo lin10</td>
 <td>19.7±1.6</td>
+<td>33.2±1.1</td>
 <td>37.6±1.6</td>
+<td>39.7±1.2</td>
 <td>40.8±0.8</td>
+<td>41.5±0.3</td>
 <td>42.0±0.5</td>
+<td>42.7±0.8</td>
+<td>43.4±0.8</td>
 <td>43.8±1.2</td>
 </tr>
 <tr class="odd">
 <td>pseudo agg50</td>
 <td>19.7±1.6</td>
+<td>33.2±1.1</td>
 <td>37.6±1.6</td>
+<td><strong>40.1±1.0</strong></td>
 <td>40.8±0.8</td>
+<td>41.1±0.4</td>
 <td>41.4±0.8</td>
+<td>42.3±1.0</td>
+<td>43.5±0.9</td>
 <td>44.1±0.6</td>
 </tr>
 <tr class="even">
 <td>pseudo all</td>
 <td><strong>28.6±1.7</strong></td>
+<td><strong>35.0±2.0</strong></td>
 <td><strong>37.7±1.7</strong></td>
+<td>39.9±1.0</td>
 <td><strong>41.7±0.6</strong></td>
+<td><strong>43.0±0.4</strong></td>
 <td><strong>43.6±0.2</strong></td>
+<td><strong>44.5±0.1</strong></td>
+<td><strong>45.3±0.1</strong></td>
 <td><strong>45.8±0.6</strong></td>
 </tr>
 </tbody>
 </table>
-<p><strong>Noise = 0.5</strong></p>
-<table style="width:100%;">
+<p><strong>Noise = 0.5</strong> (all 10 episodes)</p>
+<table>
 <colgroup>
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
 </colgroup>
 <thead>
 <tr class="header">
 <th>Method</th>
 <th>100</th>
+<th>200</th>
 <th>300</th>
+<th>400</th>
 <th>500</th>
+<th>600</th>
 <th>700</th>
+<th>800</th>
+<th>900</th>
 <th>1000</th>
 </tr>
 </thead>
@@ -2131,70 +2225,110 @@ pipeline). Figure + CSV: <code>results/bayes_pseudo/</code>.</p>
 <tr class="odd">
 <td>observed</td>
 <td>14.9±1.4</td>
+<td>20.4±0.7</td>
 <td>23.1±0.1</td>
+<td>25.6±0.5</td>
 <td>26.4±0.6</td>
+<td>27.3±1.0</td>
 <td>28.1±0.6</td>
+<td>29.3±0.1</td>
+<td>29.6±0.3</td>
 <td>29.5±0.4</td>
 </tr>
 <tr class="even">
 <td>map_posterior</td>
 <td>15.2±1.9</td>
+<td>23.4±1.6</td>
 <td>27.9±1.7</td>
+<td>30.5±1.3</td>
 <td>31.9±0.2</td>
+<td>33.1±0.4</td>
 <td>34.5±1.0</td>
+<td>35.5±0.9</td>
+<td>37.0±0.7</td>
 <td>37.6±0.4</td>
 </tr>
 <tr class="odd">
 <td>soft_posterior</td>
 <td>12.3±0.9</td>
+<td>23.0±1.3</td>
 <td>27.8±1.0</td>
+<td>31.1±0.9</td>
 <td>33.1±0.5</td>
+<td>34.6±0.7</td>
 <td>36.2±0.1</td>
+<td>37.8±0.5</td>
+<td>38.6±0.6</td>
 <td>39.1±0.8</td>
 </tr>
 <tr class="even">
 <td>pseudo lin10</td>
 <td>12.5±0.9</td>
+<td>24.7±1.4</td>
 <td>30.1±0.8</td>
+<td>34.0±0.7</td>
 <td>36.0±0.6</td>
+<td>37.6±1.0</td>
 <td>38.6±0.4</td>
+<td>40.0±1.0</td>
+<td>40.5±0.9</td>
 <td>40.9±1.0</td>
 </tr>
 <tr class="odd">
 <td>pseudo agg50</td>
 <td>12.5±0.9</td>
+<td>24.7±1.4</td>
 <td>30.1±0.8</td>
+<td><strong>34.3±0.6</strong></td>
 <td><strong>36.5±1.0</strong></td>
+<td><strong>37.6±1.0</strong></td>
 <td>38.8±0.9</td>
+<td>40.0±0.9</td>
+<td>40.5±0.6</td>
 <td>41.3±0.7</td>
 </tr>
 <tr class="even">
 <td>pseudo all</td>
 <td><strong>18.0±2.9</strong></td>
+<td><strong>25.0±1.2</strong></td>
 <td><strong>31.1±1.1</strong></td>
+<td>33.9±1.0</td>
 <td>36.1±0.5</td>
+<td>37.5±0.8</td>
 <td><strong>39.1±0.6</strong></td>
+<td><strong>40.5±0.7</strong></td>
+<td><strong>41.2±0.6</strong></td>
 <td><strong>41.8±0.7</strong></td>
 </tr>
 </tbody>
 </table>
-<p><strong>Noise = 0.8</strong></p>
-<table style="width:100%;">
+<p><strong>Noise = 0.8</strong> (all 10 episodes)</p>
+<table>
 <colgroup>
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
 </colgroup>
 <thead>
 <tr class="header">
 <th>Method</th>
 <th>100</th>
+<th>200</th>
 <th>300</th>
+<th>400</th>
 <th>500</th>
+<th>600</th>
 <th>700</th>
+<th>800</th>
+<th>900</th>
 <th>1000</th>
 </tr>
 </thead>
@@ -2202,49 +2336,79 @@ pipeline). Figure + CSV: <code>results/bayes_pseudo/</code>.</p>
 <tr class="odd">
 <td>observed</td>
 <td>4.6±0.5</td>
+<td>7.5±0.2</td>
 <td>9.7±2.0</td>
+<td>10.9±1.3</td>
 <td>10.9±1.5</td>
+<td>11.3±1.4</td>
 <td>11.8±1.5</td>
+<td>12.0±2.0</td>
+<td>12.3±1.9</td>
 <td>12.6±1.6</td>
 </tr>
 <tr class="even">
 <td>map_posterior</td>
 <td>5.8±0.2</td>
+<td>10.1±1.9</td>
 <td>14.2±2.9</td>
+<td>17.4±1.3</td>
 <td>19.4±2.1</td>
+<td>21.9±2.2</td>
 <td>22.9±2.2</td>
+<td>25.1±2.2</td>
+<td>24.7±2.4</td>
 <td>26.2±1.3</td>
 </tr>
 <tr class="odd">
 <td>soft_posterior</td>
 <td>5.3±0.5</td>
+<td>9.5±1.2</td>
 <td>13.4±2.0</td>
+<td>16.6±1.3</td>
 <td>18.9±2.4</td>
+<td>21.3±2.1</td>
 <td>23.4±2.5</td>
+<td>25.4±2.4</td>
+<td>25.7±2.7</td>
 <td>27.5±1.9</td>
 </tr>
 <tr class="even">
 <td>pseudo lin10</td>
 <td>5.2±0.6</td>
+<td>10.1±1.1</td>
 <td>14.3±2.5</td>
+<td>17.8±1.3</td>
 <td>20.0±2.1</td>
+<td><strong>22.2±2.0</strong></td>
 <td>24.4±2.7</td>
+<td>26.0±2.7</td>
+<td>26.1±2.8</td>
 <td>28.0±2.6</td>
 </tr>
 <tr class="odd">
 <td>pseudo agg50</td>
 <td>5.2±0.6</td>
+<td>10.1±1.1</td>
 <td>14.3±2.5</td>
+<td><strong>17.9±1.2</strong></td>
 <td><strong>20.1±1.9</strong></td>
+<td>22.1±2.2</td>
 <td><strong>24.6±2.9</strong></td>
+<td><strong>26.3±2.9</strong></td>
+<td><strong>27.0±2.8</strong></td>
 <td><strong>29.0±2.7</strong></td>
 </tr>
 <tr class="even">
 <td>pseudo all</td>
 <td><strong>6.2±0.7</strong></td>
+<td><strong>10.8±2.1</strong></td>
 <td><strong>14.4±3.2</strong></td>
+<td>17.5±1.4</td>
 <td>19.7±2.5</td>
+<td>22.2±2.7</td>
 <td>24.3±3.4</td>
+<td>25.8±3.1</td>
+<td>26.4±3.0</td>
 <td>28.1±2.5</td>
 </tr>
 </tbody>
