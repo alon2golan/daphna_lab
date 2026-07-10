@@ -297,6 +297,14 @@ _C.BAYES_COVERAGE.OUT_OF_BALL = 'none'
 # 3.0 is the replay-validated default (= 1-NN on clean, beats it at noise .2/.5).
 _C.BAYES_COVERAGE.NW_M = 7
 _C.BAYES_COVERAGE.NW_KAPPA = 3.0
+# Loss weight for OUT-OF-BALL pseudo points relative to covered ones. The NW
+# targets are ~10-26% accurate vs ~60-72% for in-ball posteriors, and there are
+# ~3x more of them at low budget — unweighted they can drown the near signal.
+# Implemented by scaling the soft-target row (soft-CE applies the row sum as an
+# exact per-sample loss weight — same mechanism as TRAIN_LABEL_MODE=reweighted);
+# for a linear head this is gradient-equivalent in expectation to sampling
+# out-of-ball points OOB_WEIGHT times as often. 1.0 = no down-weighting.
+_C.BAYES_COVERAGE.OOB_WEIGHT = 1.0
 
 # ---------------------------------------------------------------------------- #
 # Common train/test data loader options

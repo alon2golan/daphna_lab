@@ -119,6 +119,9 @@ class ResultWriter:
             _oob = getattr(_bc, "OUT_OF_BALL", "none")
             if _oob and _oob != "none":
                 params["out_of_ball"] = _oob
+                _oobw = float(getattr(_bc, "OOB_WEIGHT", 1.0))
+                if _oobw != 1.0:
+                    params["oob_weight"] = _oobw
         # Classifier-input L2 normalization — recorded ONLY when on, for the same
         # config_key-stability reason as the pseudo knobs above. Must be a param
         # (not just a tag) so normalized reruns get distinct config_keys from the

@@ -72,6 +72,7 @@ class BayesianCoverage(CoverageMatrixMethod):
         self.out_of_ball = _get('OUT_OF_BALL', 'none')       # none | nw (§7.9)
         self.nw_m = int(_get('NW_M', 7))                     # gap-scale m-th neighbor
         self.nw_kappa = float(_get('NW_KAPPA', 3.0))         # sharpness (1=soft, large=1-NN)
+        self.oob_weight = float(_get('OOB_WEIGHT', 1.0))     # loss weight of far targets
 
         if self.use_sparse:
             raise NotImplementedError(
@@ -378,6 +379,10 @@ class BayesianCoverage(CoverageMatrixMethod):
             gap = (d2_sorted[:, m] - d2_sorted[:, 0]).clamp_min(1e-6)    # [n]
             w = torch.softmax(-self.nw_kappa * (d2 - d2_sorted[:, :1]) / gap.unsqueeze(1), dim=1)
             P = w @ B                                                    # [n, C]
+            # OOB_WEIGHT scales the soft-target row; soft-CE applies the row sum
+            # as an exact per-sample loss weight (train_al soft branch), so far
+            # targets contribute OOB_WEIGHT x the gradient of a covered target.
+            P = P * self.oob_weight
             for i, g in enumerate(chunk):
                 out[g] = P[i].detach().cpu().numpy()
         return out

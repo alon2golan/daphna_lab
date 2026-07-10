@@ -396,6 +396,7 @@ class TestNWOutOfBall(unittest.TestCase):
         bc.out_of_ball = 'nw'
         bc.nw_m = 7
         bc.nw_kappa = 3.0
+        bc.oob_weight = 1.0
         # 1-D feature line: anchors at 0.0 (label 0), 10.0 (label 1),
         # 30.0 (label 2); uncovered points at 2.0 (near anchor A), 100.0
         # (far from EVERYTHING, relatively nearest to anchor C), and 5.0
@@ -438,6 +439,17 @@ class TestNWOutOfBall(unittest.TestCase):
         bc = self._bc(acc=0.6)
         P = bc._nw_targets([3])[3]
         self.assertLessEqual(float(P.max()), 0.6 + 1e-9)
+
+    def test_oob_weight_scales_row_sum(self):
+        # OOB_WEIGHT scales the soft-target row: soft-CE applies the row sum as
+        # the per-sample loss weight, so far targets get 0.25x the gradient.
+        bc = self._bc()
+        bc.oob_weight = 0.25
+        out = bc._nw_targets([3, 4])
+        for P in out.values():
+            self.assertAlmostEqual(float(P.sum()), 0.25, places=6)
+        # relative class distribution (argmax) unchanged by the scaling
+        self.assertEqual(int(out[3].argmax()), 0)
 
     def test_topk_scope_raises(self):
         bc = self._bc()

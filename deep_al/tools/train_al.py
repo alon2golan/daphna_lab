@@ -129,6 +129,11 @@ def argparser():
                              "(a), default); nw=noise-aware soft-kNN — Nadaraya-Watson mixture over "
                              "the annotated points' beliefs with self-tuning local temperature. "
                              "Sets cfg.BAYES_COVERAGE.OUT_OF_BALL.")
+    parser.add_argument('--oob_weight', default=None, type=float,
+                        help="OUT_OF_BALL=nw only: loss weight of out-of-ball pseudo targets "
+                             "relative to covered ones (scales the soft-target row; soft-CE "
+                             "applies the row sum as the per-sample weight). Default 1.0. "
+                             "Sets cfg.BAYES_COVERAGE.OOB_WEIGHT.")
     parser.add_argument('--external_noisy_labels', default=None, type=str,
                         help="DIAGNOSTIC: path to a .npy array of shape (n_train,) of precomputed noisy "
                              "labels. When set, overrides the single noisy annotator's generated "
@@ -1182,5 +1187,7 @@ if __name__ == "__main__":
     # §7.9 out-of-ball propagation (only read when mode='pseudo' + scope='all').
     if getattr(args, 'out_of_ball', None):
         cfg_instance.BAYES_COVERAGE.OUT_OF_BALL = args.out_of_ball
+    if getattr(args, 'oob_weight', None) is not None:
+        cfg_instance.BAYES_COVERAGE.OOB_WEIGHT = args.oob_weight
     # Run main with the initialized config
     main(cfg_instance, args)

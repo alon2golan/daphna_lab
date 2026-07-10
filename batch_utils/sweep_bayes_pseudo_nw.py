@@ -63,21 +63,32 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--smoke", action="store_true",
                     help="1-job smoke: noise 0.5, seed 1, 1 episode, no --track_progress.")
+    ap.add_argument("--oob_weights", default=None,
+                    help="Comma-separated OOB_WEIGHT arms (e.g. '0.3,0.1'): loss weight of "
+                         "out-of-ball pseudo targets relative to covered ones. Each weight "
+                         "becomes a grid arm (--oob_weight w + tag oob_w=w). Unset = the "
+                         "unweighted (1.0) sweep.")
     ap.add_argument("--submit", action="store_true")
     args = ap.parse_args()
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    cfgs = al_configs(smoke=args.smoke)
+    if args.oob_weights:
+        weights = [w.strip() for w in args.oob_weights.split(",") if w.strip()]
+        cfgs = [f"{c} --oob_weight {w} --tag oob_w={w}" for c in cfgs for w in weights]
+        name_tok = "nw_oobw"
+    else:
+        name_tok = "nw"
     if args.smoke:
         grid = dict(al=["bayes_product"], seed=[1])
         fixed = FIXED_ARGS.replace("--max_iter 9", "--max_iter 1") \
                           .replace("--track_progress ", "")
-        sweep_name = f"BAYESCOV_nw_pseudo_smoke__{ts}"
+        sweep_name = f"BAYESCOV_{name_tok}_pseudo_smoke__{ts}"
     else:
         grid = dict(al=["bayes_product"], seed=[1, 2, 3])
         fixed = FIXED_ARGS
-        sweep_name = f"BAYESCOV_nw_pseudo_cifar100_n0_20_50_80__{ts}"
-    jobs = build_jobs_from(al_configs(smoke=args.smoke), grid, fixed,
-                           sweep_name=sweep_name)
+        sweep_name = f"BAYESCOV_{name_tok}_pseudo_cifar100_n0_20_50_80__{ts}"
+    jobs = build_jobs_from(cfgs, grid, fixed, sweep_name=sweep_name)
     script = build_script(jobs, ARRAY_THROTTLE)
 
     print(f"Sweep name : {sweep_name}")
