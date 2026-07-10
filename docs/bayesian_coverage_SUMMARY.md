@@ -936,10 +936,21 @@ $$w_\ell(u) = \frac{\exp(-d^2(u,\ell)/T_u)}{\sum_{\ell'} \exp(-d^2(u,\ell')/T_u)
   generator that still respects annotator accuracy under noise. Mixture, not product:
   a product of near-prior experts collapses to the prior — exactly the failure being
   fixed; the mixture reads "u carries the label of one of these anchors w.p. $w_\ell$".
-- **Temperature $T_u$: self-tuning local scale** (Zelnik-Manor–Perona style), e.g.
-  $T_u = d_1(u)\cdot d_m(u)$ with $d_j$ = distance to the $j$-th nearest labeled point —
-  guarantees the nearest anchor gets $O(1)$ weight at *any* absolute distance and
-  smoothly interpolates hard 1-NN ($T\to 0$) $\leftrightarrow$ soft-kNN averaging.
+- **Temperature: GAP-scaled, replay-validated (2026-07-10 — IMPLEMENTED).** The
+  first idea — Zelnik-Manor–Perona local scaling $T_u = d_1 d_m$ — is **wrong in
+  512-D SimCLR space**: distances concentrate ($d_1 \approx d_{50}$), the softmax
+  smears over dozens of mixed-class anchors and the mixture collapses toward the
+  global mean (measured: 4.6% vs 26% uncovered-acc @100 clean). The fix is
+  dimensionless *gap* competition, exponent $-\kappa\,(d^2-d_1^2)/(d_m^2-d_1^2)$:
+  nearest anchor weight 1, $m$-th nearest $e^{-\kappa}$, concentration-immune.
+  $\kappa$ interpolates soft-kNN aggregation ($1$) $\to$ hard 1-NN (large);
+  **$\kappa=3$, $m=7$ is the sweep default** (`NW_KAPPA`/`NW_M`). Offline replay
+  (`eval_posterior_variants.py`, mean over seeds, uncovered / all-pool argmax acc):
+  $\kappa=3$ $\approx$ hard 1-NN on clean (25.7 / 37.4 @100), *beats* it at noise
+  .2/.5 (all-pool @1000: 42.3 vs 39.2 at .2; 29.7 vs 25.6 at .5); only fully-soft
+  $\kappa=1$ wins at noise .8 (18.7 vs 12.4 @1000 — the aggregation regime;
+  follow-up knob). The all-pool target acc @100 clean, 37.4%, $\approx$ the
+  probcover+1nn evaluator's 38.1% — the replay reproduces the known 1-NN signal.
 - **Confidence for topk/curriculum arms:** absolute $\max_k P$ is meaningless in the
   far regime; use the competition margin $w_1/w_2$ (Lowe-ratio style) or the entropy
   of $w$. `all` needs nothing.
@@ -955,6 +966,18 @@ still $\to$ prior far away (fails the requirement; keep only as an ablation);
 (iii) *graph diffusion / label spreading* (Zhou et al.) — propagates along the manifold
 through chains of unlabeled points, strictly more expressive, but changes the covered
 regime too; documented follow-up if NW plateaus.
+
+**"Would NW also be better INSIDE the balls?" — answered offline (replay, 2026-07-10):**
+mostly no, but one ingredient wins. Pure NW *mixture* over in-ball anchors ≈ product on
+accuracy (it loses the count-aggregation that powers the noise-.8 denoising) and only
+improves calibration at low noise (ECE 13–22 vs 22–28). But **RBF-distance-weighted
+exponents inside the product** fix the §4.5 impurity outvoting essentially for free:
+labeled-plane denoising 87.0 $\to$ **96.7** @100 clean, 75.7 $\to$ 87.7 @300,
+68.4 $\to$ 81.5 @1000, +7–8 pts at noise .2, ~flat at .8 — with no measurable
+unlabeled-plane cost. That is a strong candidate default for the *in-ball* posterior
+(config: `KERNEL_TYPE` stays tophat for support; the change is distance-decayed
+$w_\ell$ in `_neighbor_loglik`) — worth a paired 12-run confirmation sweep for the
+`map/soft_posterior` arms, where labeled-plane denoising is the mechanism.
 
 ---
 
