@@ -32,6 +32,11 @@ arm at every noise level *including clean*** (e.g. 47.8 vs 45.1 observed at nois
 @1000; 45.8 vs NPC+AUM's 43.3 at noise 0.2) — closing the one regime where Netta's
 stack had led.
 
+**Robustness (2026-07-10):** all classifier-trained numbers were re-run with L2-normalized
+classifier inputs (`docs/bayesian_coverage_NORMALIZATION.md`, takeaway 9) — the qualitative
+conclusions survive; normalization is a small consistent extra win for `pseudo all`
+(+~1 pt at every budget/noise) and is convergence-gated for everything else.
+
 ---
 
 ## 1. The probabilistic model (selection plane)
@@ -750,6 +755,25 @@ budgets.
    `all` amplifies noisy balls hardest exactly where labels are least reliable.
    Takeaway 5's clean-data penalty does *not* apply: pseudo helps clean data too,
    so `pseudo` needs no noise gate (only the scope choice might be gated).
+9. **Classifier-input normalization is convergence-gated — it helps only once
+   training has enough points to converge; before that it harms** (full paired
+   tables: `bayesian_coverage_NORMALIZATION.md`, sweep 31048960, 144 runs paired
+   per-seed against the §4 originals; the posterior/selection plane always used
+   normalized features, so only the classifier input changed). At ≤300 labels the
+   labeled-only arms lose 2–15 pts (an optimization artifact at the fixed
+   BASE_LR/200 epochs: train acc 50% vs 95% @100 — *not* evidence that
+   normalization is bad there); the crossover is ~350–400; by 600–1000 every arm
+   gains (+2..+8, e.g. probcover+training +8.1 @600 noise .2). Two consequences:
+   (a) **`pseudo all` — which trains on ~10k points every round and therefore
+   always converges — gains ~+1 pt at *every* budget and noise** (per-seed
+   consistent); since it is the headline arm, normalized inputs are now its
+   recommended configuration. (b) `observed` gains the most at ≥400, so the
+   soft/map-vs-observed noise margin at mid budgets shrinks under normalization
+   (noise .5 @1000: +10 → +4.3) — part of what posterior-training fixes on raw
+   features is *feature-norm pathology*, not label noise; quote mid-budget
+   noise-robustness margins from the normalized runs. ⚠ Plain unit-L2 *collapses*
+   low-budget training entirely (13.3 → 3.3 @100); the scheme here is
+   scale-preserving: $x \to x/\lVert x\rVert \cdot \overline{\lVert x_{train}\rVert}$.
 
 ## 6. Reproducing the tables
 
@@ -878,6 +902,59 @@ In rough order of interest:
   matters off CIFAR's balanced classes.
 - **Sparse-K**: memory scaling for bigger pools — pure engineering; blocks
   ImageNet-scale runs, nothing else.
+
+### 7.9 Out-of-ball posterior propagation (noise-aware soft-kNN) — NEXT UP (2026-07-10)
+
+**Problem (agreed conclusion):** the $\delta$-ball kernel's influence reaches only a
+small fraction of the pool at low budget — @100 labels the in-ball evidence touches
+~9k of the ~45k pool points (~20%; the `pseudo all` training-set size), and §4.6 shows
+`all`'s low-budget dominance comes precisely from training-set *volume*. The other ~80%
+sit at posterior = prior and are excluded by guard (a). The delta ball works well
+*inside* the balls (purity-calibrated, product fusion); what's missing is that influence
+**vanishes outside** — a point far from every labeled point should still be influenced by
+its *relatively* nearest labeled evidence.
+
+**Key design insight: the vanishing is caused by the absolute-evidence semantics, not
+the kernel shape.** Swapping tophat for RBF only moves the cliff: any decaying kernel
+under unnormalized evidence gives far points $\to$ prior (and the sparse-K build truncates
+RBF at $\delta$ anyway, `coverage_matrix_methods.py:60`). What makes soft-kNN never vanish
+is **competition** — weights normalized *over the labeled set*, so only relative
+distances matter:
+
+$$w_\ell(u) = \frac{\exp(-d^2(u,\ell)/T_u)}{\sum_{\ell'} \exp(-d^2(u,\ell')/T_u)},
+\qquad P(y_u{=}k) = \sum_\ell w_\ell(u)\, b_\ell(k).$$
+
+**Proposed two-regime posterior** (config `BAYES_COVERAGE.OUT_OF_BALL ∈ {none, nw}`):
+
+- **Covered points (some neighbor within $\delta$): UNCHANGED** — tophat + product of
+  experts, so every existing result stands and the comparison to sweep 31047129 is
+  per-seed paired (only guard-(a)-excluded rows in `pseudo_label_targets` gain targets).
+- **Uncovered points: Nadaraya–Watson mixture over the annotators' beliefs** $b_\ell$
+  (the confusion-matrix-corrected per-class beliefs, *not* raw labels) — i.e.
+  **noise-aware soft-kNN**: it strictly generalizes the `probcover + 1nn` evaluator
+  (38.1 @100 clean — we *know* this signal is strong) into a training-target
+  generator that still respects annotator accuracy under noise. Mixture, not product:
+  a product of near-prior experts collapses to the prior — exactly the failure being
+  fixed; the mixture reads "u carries the label of one of these anchors w.p. $w_\ell$".
+- **Temperature $T_u$: self-tuning local scale** (Zelnik-Manor–Perona style), e.g.
+  $T_u = d_1(u)\cdot d_m(u)$ with $d_j$ = distance to the $j$-th nearest labeled point —
+  guarantees the nearest anchor gets $O(1)$ weight at *any* absolute distance and
+  smoothly interpolates hard 1-NN ($T\to 0$) $\leftrightarrow$ soft-kNN averaging.
+- **Confidence for topk/curriculum arms:** absolute $\max_k P$ is meaningless in the
+  far regime; use the competition margin $w_1/w_2$ (Lowe-ratio style) or the entropy
+  of $w$. `all` needs nothing.
+
+**Expected effect:** `pseudo all`'s training set @100 grows ~9k $\to$ full pool (~45k),
+with the far 80% receiving noise-aware-1-NN-quality targets. Combine with normalized
+classifier inputs (takeaway 9) — `pseudo all` is the one arm that converges on them.
+
+**Alternatives considered and rejected:** (i) *enlarge $\delta$* — full-weight impure
+votes degrade exactly the calibrated in-ball behavior that works, and couple labeling
+to selection; (ii) *tophat + absolute RBF tail* — helps a shell around the ball but
+still $\to$ prior far away (fails the requirement; keep only as an ablation);
+(iii) *graph diffusion / label spreading* (Zhou et al.) — propagates along the manifold
+through chains of unlabeled points, strictly more expressive, but changes the covered
+regime too; documented follow-up if NW plateaus.
 
 ---
 

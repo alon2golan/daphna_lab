@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="dcterms.date" content="2026-07-08" />
-  <title>Bayesian Coverage — How It Works + Results vs. Netta's NPC/AUM</title>
+  <title>Bayesian Coverage — Summary</title>
   <style>
     html {
       line-height: 1.5;
@@ -175,8 +175,7 @@
 </head>
 <body>
 <header id="title-block-header">
-<h1 class="title">Bayesian Coverage — How It Works + Results vs. Netta's
-NPC/AUM</h1>
+<h1 class="title">Bayesian Coverage — Summary</h1>
 <p class="date">2026-07-08</p>
 </header>
 <p><strong>Branch:</strong> <code>bayesian_coverage</code> (HEAD
@@ -217,6 +216,12 @@ every other arm at every noise level <em>including clean</em></strong>
 (e.g. 47.8 vs 45.1 observed at noise 0 <span class="citation"
 data-cites="1000">@1000</span>; 45.8 vs NPC+AUM’s 43.3 at noise 0.2) —
 closing the one regime where Netta’s stack had led.</p>
+<p><strong>Robustness (2026-07-10):</strong> all classifier-trained
+numbers were re-run with L2-normalized classifier inputs
+(<code>docs/bayesian_coverage_NORMALIZATION.md</code>, takeaway 9) — the
+qualitative conclusions survive; normalization is a small consistent
+extra win for <code>pseudo all</code> (+~1 pt at every budget/noise) and
+is convergence-gated for everything else.</p>
 <hr />
 <h2 id="the-probabilistic-model-selection-plane">1. The probabilistic
 model (selection plane)</h2>
@@ -867,6 +872,13 @@ seeds</td>
 × 3 seeds</td>
 <td>36/36 ✔</td>
 </tr>
+<tr class="even">
+<td>ProbCover + 1-NN eval</td>
+<td>31048649</td>
+<td>probcover × <code>--eval_model_type NN1</code> × noise {0, .2, .5,
+.8} × 3 seeds</td>
+<td>12/12 ✔</td>
+</tr>
 </tbody>
 </table>
 <p>All <code>bayes_*</code> selection rows train on <strong>raw observed
@@ -877,15 +889,15 @@ Regenerate these tables with the script noted in §6.</p>
 30863746):</strong> the two <code>npc</code> rows separate her two
 mechanisms. <em>npc, no clean-train</em> = NPC <strong>selection
 only</strong>, trained on all (noisy) labels — it is <span
-class="math inline">\approx</span> probcover everywhere (identical at
-100 by construction: the AUM filter only kicks in after the first
-training round). <em>npc + AUM clean-train</em> = the full Netta stack.
-So on her side too, <strong>nearly all the gain over ProbCover comes
-from the training plane</strong> (clean-train), not from selection —
-mirroring our own selection-vs-training split (§5.1–2). Note clean-train
-<em>hurts</em> at small budgets under low noise (0.2: 32.0 vs 33.9 at
-300 — dropping data you can’t spare) and only pays from ~700 labels
-on.</p>
+class="math inline">\approx</span> probcover + training everywhere
+(identical at 100 by construction: the AUM filter only kicks in after
+the first training round). <em>npc + AUM clean-train</em> = the full
+Netta stack. So on her side too, <strong>nearly all the gain over
+probcover + training comes from the training plane</strong>
+(clean-train), not from selection — mirroring our own
+selection-vs-training split (§5.1–2). Note clean-train <em>hurts</em> at
+small budgets under low noise (0.2: 32.0 vs 33.9 at 300 — dropping data
+you can’t spare) and only pays from ~700 labels on.</p>
 <p><strong>“graph posterior alone” row:</strong> the posterior used as a
 classifier directly on the test set, with <strong>no trained
 network</strong> — each test point is classified by the argmax of its
@@ -898,6 +910,32 @@ data-cites="1000">@1000</span> — under heavy noise that beats every
 trained classifier in the table. Computed by
 <code>batch_utils/test_posterior_acc.py</code>; the full
 posterior-quality analysis is §4.5.</p>
+<p><strong>“probcover + 1nn” row:</strong> ProbCover’s paper evaluation
+framework (ii) — no trained network at all; a
+<code>KNeighborsClassifier(n_neighbors=1)</code> is fitted each episode
+on the labeled set’s <strong>L2-normalized</strong> SimCLR features and
+evaluated on the test set (<code>--eval_model_type NN1</code>,
+<code>MODEL.USE_1NN</code>; launcher
+<code>batch_utils/sweep_probcover_1nn.py</code>, sweep 31048649).
+Selection is identical to <code>probcover + training</code> — only the
+evaluator differs. <strong>Normalization is load-bearing</strong>: the
+features datasets serve raw (<code>normalized=False</code>) SimCLR
+features, and Euclidean 1-NN on raw features loses ~18 pts <span
+class="citation" data-cites="100">@100</span> (19.9 vs 38.1; buggy first
+sweep 31048609, fixed in <code>train_al.py</code>’s USE_1NN branch —
+verified by offline replay on the identical lSets). With the paper
+convention, 1-NN <strong>beats training a linear head at every clean
+budget except 1000</strong> — reproducing the paper’s low-budget claim
+(~35% <span class="citation" data-cites="100">@100</span> on CIFAR100).
+Seeds still matter without training: the seed shifts the train/val split
+(hence ProbCover’s candidate pool) and, under noise, the noise
+realization the 1-NN fits on. The arm exists at all noise levels
+(0.2/0.5/0.8 <span class="citation" data-cites="100">@100</span>: 30.9 /
+19.9 / 7.6, <span class="citation" data-cites="1000">@1000</span>: 36.9
+/ 23.8 / 9.9): even fitted on noisy labels, 1-NN beats the trained head
+at 100–300 labels at <em>every</em> noise level and loses only from
+~500–700 on. The <code>probcover + 1nn</code> row appears in all four
+noise tables below.</p>
 <h3 id="noise-0.0-clean-sanity">Noise = 0.0 (clean sanity)</h3>
 <table style="width:100%;">
 <colgroup>
@@ -928,14 +966,22 @@ posterior-quality analysis is §4.5.</p>
 <td>42.6±1.0</td>
 </tr>
 <tr class="even">
-<td>probcover</td>
+<td>probcover + training</td>
 <td>23.6±1.8</td>
-<td><strong>39.9±0.4</strong></td>
-<td><strong>43.3±0.3</strong></td>
-<td><strong>44.6±0.2</strong></td>
-<td><strong>46.5±0.6</strong></td>
+<td>39.9±0.4</td>
+<td>43.3±0.3</td>
+<td>44.6±0.2</td>
+<td>46.5±0.6</td>
 </tr>
 <tr class="odd">
+<td>probcover + 1nn</td>
+<td><strong>38.1±0.4</strong></td>
+<td><strong>42.9±0.2</strong></td>
+<td>44.5±0.2</td>
+<td>44.9±0.3</td>
+<td>45.6±0.6</td>
+</tr>
+<tr class="even">
 <td>bayes_additive (Itai)</td>
 <td>13.4±0.7</td>
 <td>18.2±1.1</td>
@@ -943,15 +989,15 @@ posterior-quality analysis is §4.5.</p>
 <td>23.2±0.9</td>
 <td>26.9±0.0</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product</td>
-<td><strong>24.6±1.3</strong></td>
+<td>24.6±1.3</td>
 <td>38.1±1.3</td>
 <td>41.6±0.0</td>
 <td>43.6±0.2</td>
 <td>45.1±0.1</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>bayes_product + map_posterior</td>
 <td>22.5±0.5</td>
 <td>35.9±0.4</td>
@@ -959,7 +1005,7 @@ posterior-quality analysis is §4.5.</p>
 <td>40.8±0.4</td>
 <td>41.8±0.5</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product + soft_posterior</td>
 <td>23.7±1.0</td>
 <td>36.3±0.7</td>
@@ -967,7 +1013,7 @@ posterior-quality analysis is §4.5.</p>
 <td>41.1±0.5</td>
 <td>42.5±0.1</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>bayes_product + filtered</td>
 <td>5.6±1.4</td>
 <td>24.2±0.4</td>
@@ -975,13 +1021,21 @@ posterior-quality analysis is §4.5.</p>
 <td>36.1±1.0</td>
 <td>38.6±0.6</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product + reweighted</td>
 <td>5.8±1.0</td>
 <td>25.1±1.1</td>
 <td>32.9±1.0</td>
 <td>36.9±0.7</td>
 <td>39.6±0.5</td>
+</tr>
+<tr class="even">
+<td>bayes_product + pseudo all (§4.6)</td>
+<td>37.6±0.4</td>
+<td>42.6±0.7</td>
+<td><strong>44.9±0.1</strong></td>
+<td><strong>46.5±0.1</strong></td>
+<td><strong>47.5±0.2</strong></td>
 </tr>
 <tr class="odd">
 <td>graph posterior alone (no training)</td>
@@ -1039,7 +1093,7 @@ posterior-quality analysis is §4.5.</p>
 <td>37.7±1.6</td>
 </tr>
 <tr class="even">
-<td>probcover</td>
+<td>probcover + training</td>
 <td>19.7±0.7</td>
 <td>33.4±1.3</td>
 <td>37.4±0.4</td>
@@ -1047,6 +1101,14 @@ posterior-quality analysis is §4.5.</p>
 <td>41.2±0.8</td>
 </tr>
 <tr class="odd">
+<td>probcover + 1nn</td>
+<td><strong>30.9±1.1</strong></td>
+<td>34.6±0.3</td>
+<td>36.2±0.6</td>
+<td>36.7±0.3</td>
+<td>36.9±0.5</td>
+</tr>
+<tr class="even">
 <td>bayes_additive (Itai)</td>
 <td>7.7±1.6</td>
 <td>12.7±0.8</td>
@@ -1054,7 +1116,7 @@ posterior-quality analysis is §4.5.</p>
 <td>16.9±1.0</td>
 <td>19.5±0.9</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product</td>
 <td>21.6±1.5</td>
 <td>32.8±1.5</td>
@@ -1062,7 +1124,7 @@ posterior-quality analysis is §4.5.</p>
 <td>37.7±0.7</td>
 <td>39.2±0.3</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>bayes_product + map_posterior</td>
 <td>20.6±2.3</td>
 <td>33.7±2.0</td>
@@ -1070,29 +1132,37 @@ posterior-quality analysis is §4.5.</p>
 <td>39.2±0.8</td>
 <td>40.6±0.6</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product + soft_posterior</td>
 <td>19.1±1.7</td>
 <td>33.4±1.9</td>
-<td><strong>37.5±1.0</strong></td>
+<td>37.5±1.0</td>
 <td>40.0±0.5</td>
 <td>41.5±0.4</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>bayes_product + filtered</td>
-<td><strong>22.4±2.4</strong></td>
+<td>22.4±2.4</td>
 <td>28.9±1.5</td>
 <td>35.8±1.0</td>
 <td>38.7±1.6</td>
 <td>40.8±0.7</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product + reweighted</td>
 <td>8.6±1.5</td>
 <td>26.3±2.6</td>
 <td>33.5±1.5</td>
 <td>37.1±0.8</td>
 <td>40.2±0.5</td>
+</tr>
+<tr class="even">
+<td>bayes_product + pseudo all (§4.6)</td>
+<td>28.6±1.7</td>
+<td><strong>37.7±1.7</strong></td>
+<td><strong>41.7±0.6</strong></td>
+<td><strong>43.6±0.2</strong></td>
+<td><strong>45.8±0.6</strong></td>
 </tr>
 <tr class="odd">
 <td>graph posterior alone (no training)</td>
@@ -1113,7 +1183,7 @@ posterior-quality analysis is §4.5.</p>
 <tr class="odd">
 <td>npc, no clean-train (selection only)</td>
 <td>19.7±0.7</td>
-<td><strong>33.9±1.0</strong></td>
+<td>33.9±1.0</td>
 <td>37.4±1.7</td>
 <td>39.8±1.1</td>
 <td>42.0±0.7</td>
@@ -1123,8 +1193,8 @@ posterior-quality analysis is §4.5.</p>
 <td>20.2±0.7</td>
 <td>32.0±0.6</td>
 <td>36.5±0.6</td>
-<td><strong>40.4±0.8</strong></td>
-<td><strong>43.3±0.6</strong></td>
+<td>40.4±0.8</td>
+<td>43.3±0.6</td>
 </tr>
 </tbody>
 </table>
@@ -1158,7 +1228,7 @@ posterior-quality analysis is §4.5.</p>
 <td>27.1±1.0</td>
 </tr>
 <tr class="even">
-<td>probcover</td>
+<td>probcover + training</td>
 <td>13.1±1.3</td>
 <td>21.5±1.8</td>
 <td>26.0±1.3</td>
@@ -1166,6 +1236,14 @@ posterior-quality analysis is §4.5.</p>
 <td>30.3±1.2</td>
 </tr>
 <tr class="odd">
+<td>probcover + 1nn</td>
+<td><strong>19.9±1.4</strong></td>
+<td>22.5±1.6</td>
+<td>23.7±1.2</td>
+<td>23.7±1.1</td>
+<td>23.8±1.3</td>
+</tr>
+<tr class="even">
 <td>bayes_additive (Itai)</td>
 <td>5.6±1.1</td>
 <td>6.0±0.8</td>
@@ -1173,7 +1251,7 @@ posterior-quality analysis is §4.5.</p>
 <td>9.9±1.5</td>
 <td>12.4±1.1</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product</td>
 <td>14.9±1.4</td>
 <td>23.1±0.1</td>
@@ -1181,23 +1259,23 @@ posterior-quality analysis is §4.5.</p>
 <td>28.1±0.6</td>
 <td>29.5±0.4</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>bayes_product + map_posterior</td>
-<td><strong>15.2±1.9</strong></td>
-<td><strong>27.9±1.7</strong></td>
+<td>15.2±1.9</td>
+<td>27.9±1.7</td>
 <td>31.9±0.2</td>
 <td>34.5±1.0</td>
 <td>37.6±0.4</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product + soft_posterior</td>
 <td>12.3±0.9</td>
 <td>27.8±1.0</td>
-<td><strong>33.1±0.5</strong></td>
-<td><strong>36.2±0.1</strong></td>
-<td><strong>39.1±0.8</strong></td>
+<td>33.1±0.5</td>
+<td>36.2±0.1</td>
+<td>39.1±0.8</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>bayes_product + filtered</td>
 <td>4.3±1.0</td>
 <td>16.5±2.3</td>
@@ -1205,13 +1283,21 @@ posterior-quality analysis is §4.5.</p>
 <td>29.5±1.3</td>
 <td>34.3±0.5</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product + reweighted</td>
 <td>5.0±2.6</td>
 <td>17.6±2.4</td>
 <td>26.3±1.4</td>
 <td>32.1±0.6</td>
 <td>36.5±0.8</td>
+</tr>
+<tr class="even">
+<td>bayes_product + pseudo all (§4.6)</td>
+<td>18.0±2.9</td>
+<td><strong>31.1±1.1</strong></td>
+<td><strong>36.1±0.5</strong></td>
+<td><strong>39.1±0.6</strong></td>
+<td><strong>41.8±0.7</strong></td>
 </tr>
 <tr class="odd">
 <td>graph posterior alone (no training)</td>
@@ -1277,14 +1363,22 @@ posterior-quality analysis is §4.5.</p>
 <td>10.3±1.5</td>
 </tr>
 <tr class="even">
-<td>probcover</td>
-<td><strong>5.9±0.9</strong></td>
+<td>probcover + training</td>
+<td>5.9±0.9</td>
 <td>8.2±1.1</td>
 <td>10.4±0.4</td>
 <td>11.6±0.3</td>
 <td>12.7±0.1</td>
 </tr>
 <tr class="odd">
+<td>probcover + 1nn</td>
+<td><strong>7.6±0.5</strong></td>
+<td>9.3±0.1</td>
+<td>9.7±0.5</td>
+<td>9.7±0.4</td>
+<td>9.9±0.9</td>
+</tr>
+<tr class="even">
 <td>bayes_additive (Itai)</td>
 <td>2.0±0.0</td>
 <td>3.3±0.4</td>
@@ -1292,7 +1386,7 @@ posterior-quality analysis is §4.5.</p>
 <td>4.8±0.1</td>
 <td>5.4±0.4</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product</td>
 <td>4.6±0.5</td>
 <td>9.7±2.0</td>
@@ -1300,23 +1394,23 @@ posterior-quality analysis is §4.5.</p>
 <td>11.8±1.5</td>
 <td>12.6±1.6</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>bayes_product + map_posterior</td>
 <td>5.8±0.2</td>
-<td><strong>14.2±2.9</strong></td>
-<td><strong>19.4±2.1</strong></td>
+<td>14.2±2.9</td>
+<td>19.4±2.1</td>
 <td>22.9±2.2</td>
 <td>26.2±1.3</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product + soft_posterior</td>
 <td>5.3±0.5</td>
 <td>13.3±2.0</td>
 <td>18.9±2.4</td>
-<td><strong>23.4±2.5</strong></td>
-<td><strong>27.5±1.9</strong></td>
+<td>23.4±2.5</td>
+<td>27.5±1.9</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>bayes_product + filtered</td>
 <td>1.3±0.6</td>
 <td>6.5±0.9</td>
@@ -1324,13 +1418,21 @@ posterior-quality analysis is §4.5.</p>
 <td>15.7±1.3</td>
 <td>20.6±2.5</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>bayes_product + reweighted</td>
 <td>1.3±0.6</td>
 <td>5.2±0.6</td>
 <td>11.1±1.1</td>
 <td>17.0±1.3</td>
 <td>23.4±1.6</td>
+</tr>
+<tr class="even">
+<td>bayes_product + pseudo all (§4.6)</td>
+<td>6.2±0.7</td>
+<td><strong>14.4±3.2</strong></td>
+<td><strong>19.7±2.5</strong></td>
+<td><strong>24.3±3.4</strong></td>
+<td><strong>28.1±2.5</strong></td>
 </tr>
 <tr class="odd">
 <td>graph posterior alone (no training)</td>
@@ -1350,7 +1452,7 @@ posterior-quality analysis is §4.5.</p>
 </tr>
 <tr class="odd">
 <td>npc, no clean-train (selection only)</td>
-<td><strong>5.9±0.9</strong></td>
+<td>5.9±0.9</td>
 <td>8.1±0.9</td>
 <td>9.8±1.2</td>
 <td>10.8±0.4</td>
@@ -1961,14 +2063,16 @@ class, k = training round (1→10).</li>
 <li><strong>agg50</strong> — same, k grows
 1,2,3,5,8,13,20,30,40,50.</li>
 </ul>
-<p>Same regime and seeds {1,2,3} as the train-mode sweep, so rows are
-paired with the baselines (the <code>observed</code> rows below
-bit-match <code>bayes_product</code> in the §4 tables — deterministic
-pipeline). Unlike the §4 tables (5 canonical budgets), these show
-<strong>all 10 episodes</strong> (labeled size 100…1000, one column per
-episode); the baseline rows are re-aggregated at the same resolution.
-Figure + CSV (also all episodes):
-<code>results/bayes_pseudo/</code>.</p>
+<p>Same regime and seeds {1,2,3} as the train-mode sweep, so the
+posterior-mode rows are paired with each other. The baseline row is
+<strong>probcover + 1nn</strong> (sweep 31048649, no trained network —
+see the §4 note); it replaced the former <code>observed</code> row
+(bayes_product selection trained on raw observed labels), whose numbers
+remain as the <code>bayes_product</code> rows of the §4 tables. Unlike
+the §4 tables (5 canonical budgets), these show <strong>all 10
+episodes</strong> (labeled size 100…1000, one column per episode); the
+baseline rows are re-aggregated at the same resolution. Figure + CSV
+(also all episodes): <code>results/bayes_pseudo/</code>.</p>
 <p><strong>Noise = 0.0</strong> (all 10 episodes)</p>
 <table>
 <colgroup>
@@ -2001,17 +2105,17 @@ Figure + CSV (also all episodes):
 </thead>
 <tbody>
 <tr class="odd">
-<td>observed</td>
-<td>24.6±1.3</td>
-<td>33.7±0.1</td>
-<td>38.1±1.3</td>
-<td>40.2±0.6</td>
-<td>41.6±0.0</td>
-<td>42.7±0.4</td>
-<td>43.6±0.2</td>
-<td>44.4±0.3</td>
-<td>44.8±0.4</td>
-<td>45.1±0.1</td>
+<td>probcover + 1nn</td>
+<td><strong>38.1±0.4</strong></td>
+<td><strong>41.1±0.1</strong></td>
+<td><strong>42.9±0.2</strong></td>
+<td><strong>44.3±0.1</strong></td>
+<td>44.5±0.2</td>
+<td>44.8±0.2</td>
+<td>44.9±0.3</td>
+<td>45.2±0.3</td>
+<td>45.4±0.4</td>
+<td>45.6±0.6</td>
 </tr>
 <tr class="even">
 <td>map_posterior</td>
@@ -2067,10 +2171,10 @@ Figure + CSV (also all episodes):
 </tr>
 <tr class="even">
 <td>pseudo all</td>
-<td><strong>37.6±0.4</strong></td>
-<td><strong>40.5±0.4</strong></td>
-<td><strong>42.6±0.7</strong></td>
-<td><strong>44.0±0.5</strong></td>
+<td>37.6±0.4</td>
+<td>40.5±0.4</td>
+<td>42.6±0.7</td>
+<td>44.0±0.5</td>
 <td><strong>44.9±0.1</strong></td>
 <td><strong>45.8±0.1</strong></td>
 <td><strong>46.5±0.1</strong></td>
@@ -2112,17 +2216,17 @@ Figure + CSV (also all episodes):
 </thead>
 <tbody>
 <tr class="odd">
-<td>observed</td>
-<td>21.6±1.5</td>
-<td>30.1±1.7</td>
-<td>32.8±1.5</td>
-<td>35.1±1.0</td>
-<td>36.6±0.5</td>
-<td>37.6±1.0</td>
-<td>37.7±0.7</td>
-<td>38.2±0.4</td>
-<td>38.6±0.3</td>
-<td>39.2±0.3</td>
+<td>probcover + 1nn</td>
+<td><strong>30.9±1.1</strong></td>
+<td>33.4±1.2</td>
+<td>34.6±0.3</td>
+<td>35.9±0.2</td>
+<td>36.2±0.6</td>
+<td>36.6±0.4</td>
+<td>36.7±0.3</td>
+<td>36.9±0.5</td>
+<td>37.0±0.3</td>
+<td>36.9±0.5</td>
 </tr>
 <tr class="even">
 <td>map_posterior</td>
@@ -2178,7 +2282,7 @@ Figure + CSV (also all episodes):
 </tr>
 <tr class="even">
 <td>pseudo all</td>
-<td><strong>28.6±1.7</strong></td>
+<td>28.6±1.7</td>
 <td><strong>35.0±2.0</strong></td>
 <td><strong>37.7±1.7</strong></td>
 <td>39.9±1.0</td>
@@ -2223,17 +2327,17 @@ Figure + CSV (also all episodes):
 </thead>
 <tbody>
 <tr class="odd">
-<td>observed</td>
-<td>14.9±1.4</td>
-<td>20.4±0.7</td>
-<td>23.1±0.1</td>
-<td>25.6±0.5</td>
-<td>26.4±0.6</td>
-<td>27.3±1.0</td>
-<td>28.1±0.6</td>
-<td>29.3±0.1</td>
-<td>29.6±0.3</td>
-<td>29.5±0.4</td>
+<td>probcover + 1nn</td>
+<td><strong>19.9±1.4</strong></td>
+<td>21.4±1.2</td>
+<td>22.5±1.6</td>
+<td>23.6±1.3</td>
+<td>23.7±1.2</td>
+<td>24.0±1.3</td>
+<td>23.7±1.1</td>
+<td>23.8±1.1</td>
+<td>23.9±1.2</td>
+<td>23.8±1.3</td>
 </tr>
 <tr class="even">
 <td>map_posterior</td>
@@ -2289,7 +2393,7 @@ Figure + CSV (also all episodes):
 </tr>
 <tr class="even">
 <td>pseudo all</td>
-<td><strong>18.0±2.9</strong></td>
+<td>18.0±2.9</td>
 <td><strong>25.0±1.2</strong></td>
 <td><strong>31.1±1.1</strong></td>
 <td>33.9±1.0</td>
@@ -2334,17 +2438,17 @@ Figure + CSV (also all episodes):
 </thead>
 <tbody>
 <tr class="odd">
-<td>observed</td>
-<td>4.6±0.5</td>
-<td>7.5±0.2</td>
-<td>9.7±2.0</td>
-<td>10.9±1.3</td>
-<td>10.9±1.5</td>
-<td>11.3±1.4</td>
-<td>11.8±1.5</td>
-<td>12.0±2.0</td>
-<td>12.3±1.9</td>
-<td>12.6±1.6</td>
+<td>probcover + 1nn</td>
+<td><strong>7.6±0.5</strong></td>
+<td>8.9±0.4</td>
+<td>9.3±0.1</td>
+<td>9.5±0.4</td>
+<td>9.7±0.5</td>
+<td>10.0±0.5</td>
+<td>9.7±0.4</td>
+<td>9.8±0.7</td>
+<td>10.0±0.8</td>
+<td>9.9±0.9</td>
 </tr>
 <tr class="even">
 <td>map_posterior</td>
@@ -2400,7 +2504,7 @@ Figure + CSV (also all episodes):
 </tr>
 <tr class="even">
 <td>pseudo all</td>
-<td><strong>6.2±0.7</strong></td>
+<td>6.2±0.7</td>
 <td><strong>10.8±2.1</strong></td>
 <td><strong>14.4±3.2</strong></td>
 <td>17.5±1.4</td>
@@ -2413,14 +2517,21 @@ Figure + CSV (also all episodes):
 </tr>
 </tbody>
 </table>
-<p>Reading: <strong>pseudo wins at every noise level, including
-0</strong> — see takeaway 8. <code>lin10</code> ≡ <code>agg50</code>
-through 300 labels by construction (the schedules coincide at k = 1,2,3;
+<p>Reading: <strong>by 1000 labels pseudo wins at every noise level,
+including 0</strong> — see takeaway 8 (vs the trained-on-observed
+baseline: 47.8 vs 45.1 <span class="citation"
+data-cites="1000">@1000</span> clean; vs probcover + 1nn: 47.8 vs 45.6).
+But against the <strong>training-free 1-NN baseline the picture at low
+budget changes</strong>: probcover + 1nn beats every pseudo arm at
+100–400 labels on clean data and at 100 labels at every noise level — if
+the budget stops at ~300, skipping training entirely is the best known
+cell in these tables. <code>lin10</code> ≡ <code>agg50</code> through
+300 labels by construction (the schedules coincide at k = 1,2,3;
 identical numbers = the determinism trust-check again). The §4.5 B
 prediction (pseudo-labels cleaner than paid annotations wherever noise ≥
 .2, worse when clean) is confirmed <em>directionally</em> by training,
 with one surprise: the arm helps on <strong>clean</strong> data too
-(47.8 vs observed 45.1 <span class="citation"
+(47.8 vs 45.1 trained-on-observed <span class="citation"
 data-cites="1000">@1000</span>; 37.6 vs 24.6 <span class="citation"
 data-cites="100">@100</span> for <code>all</code>) — §4.5 B under-sold
 it because even 67.9%-clean extra targets are soft (the wrongness is
@@ -2430,11 +2541,11 @@ budgets.</p>
 <h2 id="takeaways">5. Takeaways</h2>
 <ol type="1">
 <li><strong>Selection plane alone ≈ ProbCover.</strong>
-<code>bayes_product</code> wins small at the very-low end (1/class: 21.6
-vs 19.7 <span class="citation" data-cites="noise">@noise</span> .2; 14.9
-vs 13.1 @.5), converges or trails slightly by 1000 labels.
-Annotator-accuracy weighting matters most when labels are scarcest, but
-selection alone is not the win.</li>
+<code>bayes_product</code> wins small at the very-low end vs probcover +
+training (1/class: 21.6 vs 19.7 <span class="citation"
+data-cites="noise">@noise</span> .2; 14.9 vs 13.1 @.5), converges or
+trails slightly by 1000 labels. Annotator-accuracy weighting matters
+most when labels are scarcest, but selection alone is not the win.</li>
 <li><strong>The training plane is the win — and it beats Netta’s AUM at
 noise ≥ 0.5.</strong> Noise 0.8 <span class="citation"
 data-cites="1000">@1000</span>: <code>soft_posterior</code>
@@ -2453,7 +2564,7 @@ every label.</li>
 passes decisively; additive collapses on CIFAR100 (26.9 vs 45.1 clean
 <span class="citation" data-cites="1000">@1000</span>). ⚠ Caveat: at
 noise 0 on CIFAR100 the additive arm also fails the “reproduces Itai ≈
-probcover” sanity check (13.4 vs 23.6 <span class="citation"
+probcover + training” sanity check (13.4 vs 23.6 <span class="citation"
 data-cites="100">@100</span>; it <em>passed</em> on CIFAR10) — so on
 CIFAR100 our additive branch is not a faithful Itai control (likely the
 Dirichlet(<span class="math inline">\pi</span>) init vs. his
@@ -2488,6 +2599,36 @@ amplifies noisy balls hardest exactly where labels are least reliable.
 Takeaway 5’s clean-data penalty does <em>not</em> apply: pseudo helps
 clean data too, so <code>pseudo</code> needs no noise gate (only the
 scope choice might be gated).</li>
+<li><strong>Classifier-input normalization is convergence-gated — it
+helps only once training has enough points to converge; before that it
+harms</strong> (full paired tables:
+<code>bayesian_coverage_NORMALIZATION.md</code>, sweep 31048960, 144
+runs paired per-seed against the §4 originals; the posterior/selection
+plane always used normalized features, so only the classifier input
+changed). At ≤300 labels the labeled-only arms lose 2–15 pts (an
+optimization artifact at the fixed BASE_LR/200 epochs: train acc 50% vs
+95% <span class="citation" data-cites="100">@100</span> — <em>not</em>
+evidence that normalization is bad there); the crossover is ~350–400; by
+600–1000 every arm gains (+2..+8, e.g. probcover+training +8.1 <span
+class="citation" data-cites="600">@600</span> noise .2). Two
+consequences:
+<ol type="a">
+<li><strong><code>pseudo all</code> — which trains on ~10k points every
+round and therefore always converges — gains ~+1 pt at <em>every</em>
+budget and noise</strong> (per-seed consistent); since it is the
+headline arm, normalized inputs are now its recommended configuration.
+(b) <code>observed</code> gains the most at ≥400, so the
+soft/map-vs-observed noise margin at mid budgets shrinks under
+normalization (noise .5 <span class="citation"
+data-cites="1000">@1000</span>: +10 → +4.3) — part of what
+posterior-training fixes on raw features is <em>feature-norm
+pathology</em>, not label noise; quote mid-budget noise-robustness
+margins from the normalized runs. ⚠ Plain unit-L2 <em>collapses</em>
+low-budget training entirely (13.3 → 3.3 <span class="citation"
+data-cites="100">@100</span>); the scheme here is scale-preserving:
+<span class="math inline">x \to x/\lVert x\rVert \cdot \overline{\lVert
+x_{train}\rVert}</span>.</li>
+</ol></li>
 </ol>
 <h2 id="reproducing-the-tables">6. Reproducing the tables</h2>
 <p>Per-run data: <code>episodes[].test_acc</code> keyed by
@@ -2613,11 +2754,11 @@ rather than code.</p>
 <h3 id="additive-arm-fidelity-itai-control">7.7 Additive-arm fidelity
 (Itai control)</h3>
 <p>On CIFAR100 our additive branch scores 13.4 <span class="citation"
-data-cites="100">@100</span> clean vs probcover’s 23.6 — it fails the
-“reproduces Itai ≈ probcover” sanity check that it <em>passed</em> on
-CIFAR10 (takeaway 4). So the CIFAR100 “product ≫ additive” margin, while
-surely real in direction, is measured against a possibly-unfaithful Itai
-control. Suspected cause: our Dirichlet(<span
+data-cites="100">@100</span> clean vs probcover + training’s 23.6 — it
+fails the “reproduces Itai ≈ probcover + training” sanity check that it
+<em>passed</em> on CIFAR10 (takeaway 4). So the CIFAR100 “product ≫
+additive” margin, while surely real in direction, is measured against a
+possibly-unfaithful Itai control. Suspected cause: our Dirichlet(<span
 class="math inline">\pi</span>) row-init vs his scalar-<span
 class="math inline">\alpha</span> pseudocount (different effective prior
 strength as counts accumulate). Fix: expose <span
@@ -2643,6 +2784,85 @@ of uniform — only matters off CIFAR’s balanced classes.</li>
 <li><strong>Sparse-K</strong>: memory scaling for bigger pools — pure
 engineering; blocks ImageNet-scale runs, nothing else.</li>
 </ul>
+<h3
+id="out-of-ball-posterior-propagation-noise-aware-soft-knn-next-up-2026-07-10">7.9
+Out-of-ball posterior propagation (noise-aware soft-kNN) — NEXT UP
+(2026-07-10)</h3>
+<p><strong>Problem (agreed conclusion):</strong> the <span
+class="math inline">\delta</span>-ball kernel’s influence reaches only a
+small fraction of the pool at low budget — <span class="citation"
+data-cites="100">@100</span> labels the in-ball evidence touches ~9k of
+the ~45k pool points (~20%; the <code>pseudo all</code> training-set
+size), and §4.6 shows <code>all</code>’s low-budget dominance comes
+precisely from training-set <em>volume</em>. The other ~80% sit at
+posterior = prior and are excluded by guard (a). The delta ball works
+well <em>inside</em> the balls (purity-calibrated, product fusion);
+what’s missing is that influence <strong>vanishes outside</strong> — a
+point far from every labeled point should still be influenced by its
+<em>relatively</em> nearest labeled evidence.</p>
+<p><strong>Key design insight: the vanishing is caused by the
+absolute-evidence semantics, not the kernel shape.</strong> Swapping
+tophat for RBF only moves the cliff: any decaying kernel under
+unnormalized evidence gives far points <span
+class="math inline">\to</span> prior (and the sparse-K build truncates
+RBF at <span class="math inline">\delta</span> anyway,
+<code>coverage_matrix_methods.py:60</code>). What makes soft-kNN never
+vanish is <strong>competition</strong> — weights normalized <em>over the
+labeled set</em>, so only relative distances matter:</p>
+<p><span class="math display">w_\ell(u) =
+\frac{\exp(-d^2(u,\ell)/T_u)}{\sum_{\ell&#39;}
+\exp(-d^2(u,\ell&#39;)/T_u)},
+\qquad P(y_u{=}k) = \sum_\ell w_\ell(u)\, b_\ell(k).</span></p>
+<p><strong>Proposed two-regime posterior</strong> (config
+<code>BAYES_COVERAGE.OUT_OF_BALL ∈ {none, nw}</code>):</p>
+<ul>
+<li><strong>Covered points (some neighbor within <span
+class="math inline">\delta</span>): UNCHANGED</strong> — tophat +
+product of experts, so every existing result stands and the comparison
+to sweep 31047129 is per-seed paired (only guard-(a)-excluded rows in
+<code>pseudo_label_targets</code> gain targets).</li>
+<li><strong>Uncovered points: Nadaraya–Watson mixture over the
+annotators’ beliefs</strong> <span class="math inline">b_\ell</span>
+(the confusion-matrix-corrected per-class beliefs, <em>not</em> raw
+labels) — i.e. <strong>noise-aware soft-kNN</strong>: it strictly
+generalizes the <code>probcover + 1nn</code> evaluator (38.1 <span
+class="citation" data-cites="100">@100</span> clean — we <em>know</em>
+this signal is strong) into a training-target generator that still
+respects annotator accuracy under noise. Mixture, not product: a product
+of near-prior experts collapses to the prior — exactly the failure being
+fixed; the mixture reads “u carries the label of one of these anchors
+w.p. <span class="math inline">w_\ell</span>”.</li>
+<li><strong>Temperature <span class="math inline">T_u</span>:
+self-tuning local scale</strong> (Zelnik-Manor–Perona style), e.g. <span
+class="math inline">T_u = d_1(u)\cdot d_m(u)</span> with <span
+class="math inline">d_j</span> = distance to the <span
+class="math inline">j</span>-th nearest labeled point — guarantees the
+nearest anchor gets <span class="math inline">O(1)</span> weight at
+<em>any</em> absolute distance and smoothly interpolates hard 1-NN
+(<span class="math inline">T\to 0</span>) <span
+class="math inline">\leftrightarrow</span> soft-kNN averaging.</li>
+<li><strong>Confidence for topk/curriculum arms:</strong> absolute <span
+class="math inline">\max_k P</span> is meaningless in the far regime;
+use the competition margin <span class="math inline">w_1/w_2</span>
+(Lowe-ratio style) or the entropy of <span class="math inline">w</span>.
+<code>all</code> needs nothing.</li>
+</ul>
+<p><strong>Expected effect:</strong> <code>pseudo all</code>’s training
+set <span class="citation" data-cites="100">@100</span> grows ~9k <span
+class="math inline">\to</span> full pool (~45k), with the far 80%
+receiving noise-aware-1-NN-quality targets. Combine with normalized
+classifier inputs (takeaway 9) — <code>pseudo all</code> is the one arm
+that converges on them.</p>
+<p><strong>Alternatives considered and rejected:</strong> (i)
+<em>enlarge <span class="math inline">\delta</span></em> — full-weight
+impure votes degrade exactly the calibrated in-ball behavior that works,
+and couple labeling to selection; (ii) <em>tophat + absolute RBF
+tail</em> — helps a shell around the ball but still <span
+class="math inline">\to</span> prior far away (fails the requirement;
+keep only as an ablation); (iii) <em>graph diffusion / label
+spreading</em> (Zhou et al.) — propagates along the manifold through
+chains of unlabeled points, strictly more expressive, but changes the
+covered regime too; documented follow-up if NW plateaus.</p>
 <hr />
 <p><em>Rendered versions: <code>bayesian_coverage_SUMMARY.html</code>
 (browser, KaTeX/MathML) and <code>bayesian_coverage_SUMMARY.pdf</code> —
