@@ -123,6 +123,12 @@ def argparser():
                              "per-round k schedule, e.g. '1,2,3,4,5,6,7,8,9,10' (round i of "
                              "training uses the i-th entry; last entry repeats). Unset = k equals "
                              "the round index. Sets cfg.BAYES_COVERAGE.PSEUDO_K_SCHEDULE.")
+    parser.add_argument('--out_of_ball', default=None, choices=['none', 'nw'],
+                        help="TRAIN_LABEL_MODE=pseudo + --pseudo_scope all only (§7.9): pseudo-label "
+                             "targets for UNCOVERED (prior-only) pool points. none=drop them (guard "
+                             "(a), default); nw=noise-aware soft-kNN — Nadaraya-Watson mixture over "
+                             "the annotated points' beliefs with self-tuning local temperature. "
+                             "Sets cfg.BAYES_COVERAGE.OUT_OF_BALL.")
     parser.add_argument('--external_noisy_labels', default=None, type=str,
                         help="DIAGNOSTIC: path to a .npy array of shape (n_train,) of precomputed noisy "
                              "labels. When set, overrides the single noisy annotator's generated "
@@ -1173,5 +1179,8 @@ if __name__ == "__main__":
     if getattr(args, 'pseudo_k', None):
         cfg_instance.BAYES_COVERAGE.PSEUDO_K_SCHEDULE = \
             [int(k) for k in args.pseudo_k.split(',') if k.strip()]
+    # §7.9 out-of-ball propagation (only read when mode='pseudo' + scope='all').
+    if getattr(args, 'out_of_ball', None):
+        cfg_instance.BAYES_COVERAGE.OUT_OF_BALL = args.out_of_ball
     # Run main with the initialized config
     main(cfg_instance, args)

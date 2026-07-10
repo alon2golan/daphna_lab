@@ -114,6 +114,11 @@ class ResultWriter:
             params["pseudo_scope"] = getattr(_bc, "PSEUDO_SCOPE", None)
             _sched = getattr(_bc, "PSEUDO_K_SCHEDULE", None) or []
             params["pseudo_k"] = ",".join(str(k) for k in _sched) or None
+            # §7.9 out-of-ball propagation — recorded ONLY when on (same
+            # config_key-stability rule as the other conditional params).
+            _oob = getattr(_bc, "OUT_OF_BALL", "none")
+            if _oob and _oob != "none":
+                params["out_of_ball"] = _oob
         # Classifier-input L2 normalization — recorded ONLY when on, for the same
         # config_key-stability reason as the pseudo knobs above. Must be a param
         # (not just a tag) so normalized reruns get distinct config_keys from the

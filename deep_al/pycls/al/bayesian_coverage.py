@@ -69,6 +69,9 @@ class BayesianCoverage(CoverageMatrixMethod):
         self.train_label_mode = _get('TRAIN_LABEL_MODE', 'observed')
         self.pseudo_scope = _get('PSEUDO_SCOPE', 'topk')     # all | topk (§7.5)
         self.pseudo_k_schedule = list(_get('PSEUDO_K_SCHEDULE', []) or [])
+        self.out_of_ball = _get('OUT_OF_BALL', 'none')       # none | nw (§7.9)
+        self.nw_m = int(_get('NW_M', 7))                     # gap-scale m-th neighbor
+        self.nw_kappa = float(_get('NW_KAPPA', 3.0))         # sharpness (1=soft, large=1-NN)
 
         if self.use_sparse:
             raise NotImplementedError(
@@ -322,6 +325,64 @@ class BayesianCoverage(CoverageMatrixMethod):
         return rows / rows.sum(dim=1, keepdim=True).clamp_min(self.log_eps)
 
     # ------------------------------------------------------------------ #
+    # out-of-ball propagation (§7.9) — noise-aware soft-kNN
+    # ------------------------------------------------------------------ #
+    def _nw_targets(self, uncovered_gidxs):
+        """
+        Nadaraya-Watson pseudo-targets for UNCOVERED pool points (§7.9).
+        The delta-ball's absolute evidence vanishes outside the ball; what makes
+        soft-kNN never vanish is COMPETITION — weights normalized over the
+        annotated set, so only relative distances matter:
+
+            w_l(u) = softmax_l( -d^2(u,l) / T_u ),   P(y_u=k) = sum_l w_l(u) b_l(k)
+
+        with b_l the confusion-matrix-corrected belief of annotated point l
+        (noise-aware: mixture over BELIEFS, not raw labels — generalizes the
+        probcover+1nn evaluator into a training-target generator that still
+        respects annotator accuracy). Mixture, NOT product: a product of
+        near-prior experts collapses to the prior — the exact failure §7.9
+        fixes.
+
+        Temperature: GAP-scaled, exponent = -kappa*(d^2-d_1^2)/(d_m^2-d_1^2).
+        A raw d^2/T softmax (e.g. T = d_1*d_m local scaling) is far too FLAT in
+        512-D SimCLR space — distances concentrate (d_1 ~ d_50), weight smears
+        over dozens of mixed-class anchors and the mixture degrades to mush
+        (measured: 4.6% vs 26% uncovered-acc @100 clean, eval_posterior_variants).
+        Subtracting d_1^2 and scaling by the local gap makes the rule
+        dimensionless and concentration-immune: nearest anchor weight 1, the
+        m-th nearest e^-kappa. kappa=3 replay-validated: matches hard 1-NN on
+        clean, beats it at noise .2/.5; only fully-soft kappa=1 wins at .8
+        (aggregation regime — follow-up). Returns {gidx: posterior np[C]}.
+        """
+        am = self.annotator_manager
+        anchors = sorted(int(g) for g in am.annotated_labels)
+        if not anchors or len(uncovered_gidxs) == 0:
+            return {}
+        # Beliefs matrix B [L, C] — one Step-A belief per annotated point.
+        B = torch.stack([
+            self._belief(int(am.annotated_labels[g]),
+                         self._confusion_matrix(am.get_annotator_for_sample(g)))
+            for g in anchors
+        ])                                                              # [L, C]
+        feats = torch.as_tensor(self.all_features, device=self.device,
+                                dtype=self.matrices_type)
+        a_feats = feats[torch.as_tensor(anchors, device=self.device)]   # [L, D]
+        out = {}
+        gidxs = [int(g) for g in uncovered_gidxs]
+        m = min(self.nw_m, len(anchors)) - 1                            # 0-based
+        for start in range(0, len(gidxs), 4096):
+            chunk = gidxs[start:start + 4096]
+            u_feats = feats[torch.as_tensor(chunk, device=self.device)]  # [n, D]
+            d2 = torch.cdist(u_feats, a_feats) ** 2                      # [n, L]
+            d2_sorted = d2.sort(dim=1).values
+            gap = (d2_sorted[:, m] - d2_sorted[:, 0]).clamp_min(1e-6)    # [n]
+            w = torch.softmax(-self.nw_kappa * (d2 - d2_sorted[:, :1]) / gap.unsqueeze(1), dim=1)
+            P = w @ B                                                    # [n, C]
+            for i, g in enumerate(chunk):
+                out[g] = P[i].detach().cpu().numpy()
+        return out
+
+    # ------------------------------------------------------------------ #
     # curriculum pseudo-labeling (§7.5) — confident UNLABELED points
     # ------------------------------------------------------------------ #
     def pseudo_label_targets(self, exclude_gidxs, k_per_class=None):
@@ -347,9 +408,22 @@ class BayesianCoverage(CoverageMatrixMethod):
             return {}
         rows = self._accum_rows(pool)
         covered = ((rows.max(dim=1).values - rows.min(dim=1).values) > 1e-9).cpu().numpy()
+        # §7.9: out-of-ball propagation — uncovered points get noise-aware
+        # soft-kNN targets instead of being dropped by guard (a). Covered
+        # points' targets are UNCHANGED, so 'nw' runs pair per-seed with 'none'.
+        nw_targets = {}
+        if self.out_of_ball == 'nw':
+            if self.pseudo_scope != 'all':
+                raise NotImplementedError(
+                    "OUT_OF_BALL='nw' is only defined for PSEUDO_SCOPE='all' — "
+                    "topk's max-posterior confidence is meaningless in the far "
+                    "regime (use a w1/w2 competition margin there; §7.9).")
+            nw_targets = self._nw_targets(pool[~covered])
+        elif self.out_of_ball != 'none':
+            raise ValueError(f"Unknown OUT_OF_BALL={self.out_of_ball!r}")
         pool = pool[covered]
         if pool.size == 0:
-            return {}
+            return nw_targets
         P = self.posterior_for(pool)                                   # [n, C]
         conf, pred = P.max(dim=1)
         if self.pseudo_scope == 'all':
@@ -363,7 +437,9 @@ class BayesianCoverage(CoverageMatrixMethod):
             ])
         else:
             raise ValueError(f"Unknown PSEUDO_SCOPE={self.pseudo_scope!r}")
-        return {int(pool[i]): P[i].detach().cpu().numpy() for i in chosen}
+        targets = {int(pool[i]): P[i].detach().cpu().numpy() for i in chosen}
+        targets.update(nw_targets)
+        return targets
 
     # ------------------------------------------------------------------ #
     # training-target policy (design §5) -- CONFIGURABLE, to be compared

@@ -281,6 +281,22 @@ _C.BAYES_COVERAGE.PSEUDO_SCOPE = 'topk'
 # (round = labeled_size/budget, 1-based); the last entry repeats for later
 # rounds. Empty list = k equals the round index (1, 2, 3, ...).
 _C.BAYES_COVERAGE.PSEUDO_K_SCHEDULE = []
+# §7.9 out-of-ball posterior propagation for PSEUDO_SCOPE='all':
+# 'none' = uncovered (prior-only) pool points get NO pseudo-label (guard (a));
+# 'nw'   = uncovered points get a Nadaraya-Watson mixture over the annotated
+#          points' confusion-matrix-corrected beliefs (noise-aware soft-kNN) —
+#          weights are normalized over the labeled set, so influence never
+#          vanishes with distance. Covered points are untouched (tophat +
+#          product of experts), so runs pair per-seed with OUT_OF_BALL='none'.
+_C.BAYES_COVERAGE.OUT_OF_BALL = 'none'
+# Gap-scaled NW temperature: exponent = -NW_KAPPA*(d^2-d_1^2)/(d_m^2-d_1^2),
+# d_j = distance to u's j-th nearest annotated point. Dimensionless and immune
+# to high-D distance concentration (raw d^2/T softmax smears over dozens of
+# mixed-class anchors — measured in eval_posterior_variants). NW_KAPPA
+# interpolates soft-kNN aggregation (1) -> hard 1-NN commitment (large);
+# 3.0 is the replay-validated default (= 1-NN on clean, beats it at noise .2/.5).
+_C.BAYES_COVERAGE.NW_M = 7
+_C.BAYES_COVERAGE.NW_KAPPA = 3.0
 
 # ---------------------------------------------------------------------------- #
 # Common train/test data loader options

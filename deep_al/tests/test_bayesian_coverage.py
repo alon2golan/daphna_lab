@@ -377,5 +377,87 @@ class TestTrainingTargets(unittest.TestCase):
         self.assertTrue(0.0 <= w1 <= w0 <= 1.0)
 
 
+class _FakeAM:
+    """Minimal annotator-manager stub: symmetric accuracy via the fallback path."""
+    def __init__(self, annotated_labels, acc=0.9):
+        self.annotated_labels = annotated_labels
+        self.annotators = {0: object()}          # no .confusion_matrix -> fallback
+        self.annotator_accuracies = {0: acc}
+
+    def get_annotator_for_sample(self, g):
+        return 0
+
+
+class TestNWOutOfBall(unittest.TestCase):
+    """§7.9 out-of-ball propagation (noise-aware soft-kNN)."""
+
+    def _bc(self, acc=0.9):
+        bc = make_bc(num_classes=3)
+        bc.out_of_ball = 'nw'
+        bc.nw_m = 7
+        bc.nw_kappa = 3.0
+        # 1-D feature line: anchors at 0.0 (label 0), 10.0 (label 1),
+        # 30.0 (label 2); uncovered points at 2.0 (near anchor A), 100.0
+        # (far from EVERYTHING, relatively nearest to anchor C), and 5.0
+        # (exactly equidistant between anchors A and B).
+        bc.all_features = np.array(
+            [[0.0], [10.0], [30.0], [2.0], [100.0], [5.0]], dtype=np.float64)
+        bc.annotator_manager = _FakeAM({0: 0, 1: 1, 2: 2}, acc=acc)
+        return bc
+
+    def test_valid_distributions_and_commitment(self):
+        bc = self._bc()
+        out = bc._nw_targets([3, 4, 5])
+        self.assertEqual(set(out), {3, 4, 5})
+        for P in out.values():
+            self.assertAlmostEqual(float(P.sum()), 1.0, places=6)
+            self.assertTrue((P >= 0).all())
+        # near point follows anchor A's belief (class 0)
+        self.assertEqual(int(out[3].argmax()), 0)
+
+    def test_influence_never_vanishes(self):
+        # the point at 100.0 is far outside ANY plausible delta of its nearest
+        # anchor (30.0), yet still commits to it — gap-scaled competition
+        # means only RELATIVE distances matter (70 vs 90 vs 100).
+        bc = self._bc()
+        P_far = bc._nw_targets([4])[4]
+        self.assertEqual(int(P_far.argmax()), 2)
+        self.assertGreater(float(P_far[2]), 0.5)
+
+    def test_equidistant_anchors_share_weight(self):
+        # the point at 5.0 sits exactly between anchors A (label 0) and B
+        # (label 1): the two nearest weights tie, so neither class can carry
+        # more than ~half the belief mass.
+        bc = self._bc()
+        P = bc._nw_targets([5])[5]
+        self.assertAlmostEqual(float(P[0]), float(P[1]), places=6)
+        self.assertLess(float(P.max()), 0.55)
+
+    def test_mixture_bounded_by_belief_sharpness(self):
+        # NW is a mixture: it can never be sharper than the sharpest belief.
+        bc = self._bc(acc=0.6)
+        P = bc._nw_targets([3])[3]
+        self.assertLessEqual(float(P.max()), 0.6 + 1e-9)
+
+    def test_topk_scope_raises(self):
+        bc = self._bc()
+        bc.pseudo_scope = 'topk'
+        bc.relevant_indices = np.arange(6)
+        bc.C_general = torch.zeros(6, 3, dtype=torch.float64)  # all prior-only
+        with self.assertRaises(NotImplementedError):
+            bc.pseudo_label_targets([])
+
+    def test_all_scope_all_uncovered_returns_nw(self):
+        bc = self._bc()
+        bc.pseudo_scope = 'all'
+        bc.relevant_indices = np.arange(6)
+        bc.C_general = torch.zeros(6, 3, dtype=torch.float64)  # all prior-only
+        out = bc.pseudo_label_targets([])
+        # anchors (annotated 0,1,2) excluded; uncovered 3,4,5 get NW targets
+        self.assertEqual(set(out), {3, 4, 5})
+        self.assertEqual(int(out[3].argmax()), 0)
+        self.assertEqual(int(out[4].argmax()), 2)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
