@@ -774,6 +774,15 @@ budgets.
    noise-robustness margins from the normalized runs. ⚠ Plain unit-L2 *collapses*
    low-budget training entirely (13.3 → 3.3 @100); the scheme here is
    scale-preserving: $x \to x/\lVert x\rVert \cdot \overline{\lVert x_{train}\rVert}$.
+10. **Out-of-ball NW pseudo-targets don't pay, at any loss weight (§7.9).** Extending
+    `pseudo_all` to the ~80% uncovered pool with gap-scaled noise-aware soft-kNN
+    targets costs −1..−2 pts at noise ≤ .2 and gains only +0.5..+0.9 at .8; the
+    OOB_WEIGHT dose-response {1.0, 0.3, 0.1} is monotonic but ~5× too weak to
+    rescue clean — the far targets are *confidently wrong* (26% acc), not merely
+    over-weighted, so covered-only training remains the recommended configuration.
+    The high-noise gain behaves like label smoothing (weight-insensitive). The
+    live follow-up from the same replay is in-ball rbf-weighted product exponents
+    (labeled-plane denoising 87→96.7 @100 clean), not more out-of-ball machinery.
 
 ## 6. Reproducing the tables
 
@@ -903,7 +912,7 @@ In rough order of interest:
 - **Sparse-K**: memory scaling for bigger pools — pure engineering; blocks
   ImageNet-scale runs, nothing else.
 
-### 7.9 Out-of-ball posterior propagation (noise-aware soft-kNN) — NEXT UP (2026-07-10)
+### 7.9 Out-of-ball posterior propagation (noise-aware soft-kNN) — ❌ ANSWERED, NOT ADOPTED (sweeps 31050702 + 31050847, 2026-07-11)
 
 **Problem (agreed conclusion):** the $\delta$-ball kernel's influence reaches only a
 small fraction of the pool at low budget — @100 labels the in-ball evidence touches
@@ -978,6 +987,45 @@ unlabeled-plane cost. That is a strong candidate default for the *in-ball* poste
 (config: `KERNEL_TYPE` stays tophat for support; the change is distance-decayed
 $w_\ell$ in `_neighbor_loglik`) — worth a paired 12-run confirmation sweep for the
 `map/soft_posterior` arms, where labeled-plane denoising is the mechanism.
+
+**RESULTS (sweeps 31050702 w=1.0 12/12 + 31050847 w∈{0.3,0.1} 24/24; per-seed paired
+against the pseudo_all rows of the normalized rerun, job 31048960; collected
+2026-07-11, `results/bayes_pseudo/nw_oobw_{episodes,deltas}.csv`):**
+
+Paired $\Delta$ = NW arm − baseline, mean over seeds {1,2,3} (std across seeds ≤ 0.3
+at clean/.2, ≤ 0.65 at .8 — per-seed signs fully consistent):
+
+| noise | @100 w=1.0 / 0.3 / 0.1 | @300 | @1000 |
+|---|---|---|---|
+| 0.0 | −2.1 / −2.0 / **−1.6** | −2.0 / −1.8 / −1.4 | −1.4 / −1.3 / −1.1 |
+| 0.2 | −1.0 / −1.0 / −0.8 | −1.1 / −0.9 / −0.5 | −0.9 / −1.0 / −0.9 |
+| 0.5 | +0.0 / +0.3 / +0.4 | −0.4 / +0.2 / +0.4 | −0.6 / −0.4 / −0.4 |
+| 0.8 | +0.8 / +0.9 / +0.5 | +0.3 / +0.4 / +0.5 | **+0.7 / +0.8 / +0.6** |
+
+**Verdict: the down-weighting hypothesis fails — no OOB_WEIGHT setting recovers the
+clean/low-noise loss.** The dose-response is monotonic in the right direction but far
+too weak: going from full weight to $w=0.1$ (a 10× reduction in the far targets'
+loss contribution) claws back only ~0.5 of the −2.1 clean drag @100, and essentially
+nothing at noise .2 @1000 (−0.9 at *every* $w$). Extrapolating the trend, the weight
+that eliminates the drag is ~0 — i.e. the mechanism is not "far targets are useful
+but over-weighted", it is **"far targets are confidently wrong"** (26% uncovered-acc
+targets vs the 71%-acc covered signal; the sharp gap-scaled mixture makes them
+*look* like clean labels to the CE loss at any row scale). Meanwhile the noise-.8
+gain (+0.5..+0.9 everywhere) also barely responds to $w$ — consistent with the
+label-smoothing reading (near-uniform NW rows at flat beliefs), which survives
+scaling because smoothing is shape-, not magnitude-driven.
+
+**Disposition:** `OUT_OF_BALL=nw` stays in the code as an ablation but is **not**
+part of the recommended configuration; the §4.6/takeaway-9 recommendation
+(normalized `pseudo_all`, covered-only) stands. If out-of-ball propagation is
+revisited, the replay says where the room is: (a) a **confidence floor on the NW
+row** (keep only far targets whose top-1 mixture weight clears a margin — the 26%
+mean hides a usable high-confidence subset), (b) $\kappa$ **noise-gating** ($\kappa=1$
+at .8 was the replay winner — the observed .8 gain is real and might grow), or
+(c) skip NW for training targets and harvest the *other* replay finding instead —
+**rbf-weighted product exponents inside the balls** (87→96.7 labeled-plane denoising
+@100 clean), which is still unimplemented in live code and is the higher-value
+follow-up.
 
 ---
 
