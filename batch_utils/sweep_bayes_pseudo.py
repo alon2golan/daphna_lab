@@ -1,6 +1,6 @@
 """
 Launch the Bayesian-coverage §7.5 curriculum pseudo-labeling sweep
-(docs/bayesian_coverage_SUMMARY.md §7.5).
+(docs/bayesian_coverage_NEXT_STEPS.md §7.5 + RESULTS §4.6).
 
 All arms: al=bayes_product + TRAIN_LABEL_MODE=pseudo (labeled points train on
 their soft posterior, exactly like soft_posterior; the arm adds soft-posterior

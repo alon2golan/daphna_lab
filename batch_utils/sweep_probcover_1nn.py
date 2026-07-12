@@ -1,6 +1,6 @@
 """
 Launch the ProbCover + 1-NN evaluation arm for the §4 tables in
-docs/bayesian_coverage_SUMMARY.md.
+docs/bayesian_coverage_RESULTS.md.
 
 Motivation: the ProbCover paper's framework (ii) evaluates AL selection with a
 1-NN classifier over the self-supervised (SimCLR) embedding instead of training

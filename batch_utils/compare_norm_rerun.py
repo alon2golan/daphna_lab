@@ -1,7 +1,7 @@
 """
 Before/after comparison for the normalized-features rerun
 (batch_utils/sweep_bayes_norm_rerun.py) vs the historical unnormalized sweeps
-behind docs/bayesian_coverage_SUMMARY.md §4:
+behind docs/bayesian_coverage_RESULTS.md §4:
 
   compare   : BAYESCOV_compare_cifar100_*    (job 30978366)  vs BAYESCOV_norm_compare_cifar100_*
   trainmode : BAYESCOV_trainmode_cifar100_*  (job 30980646)  vs BAYESCOV_norm_trainmode_cifar100_*

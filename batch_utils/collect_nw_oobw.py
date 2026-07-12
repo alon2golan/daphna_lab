@@ -9,7 +9,7 @@ pseudo_all baseline (per-seed, per-episode):
   - baseline      pseudo_all rows of job 31048960 (normalized rerun)
 
 Writes results/bayes_pseudo/nw_oobw_{episodes,deltas}.csv and
-fig_nw_oobw_delta.png. See bayesian_coverage_SUMMARY.md §7.9 for the verdict.
+fig_nw_oobw_delta.png. See bayesian_coverage_NEXT_STEPS.md §7.9 for the verdict.
 
 Usage:
     python batch_utils/collect_nw_oobw.py

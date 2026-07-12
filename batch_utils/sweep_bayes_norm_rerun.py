@@ -1,6 +1,6 @@
 """
 Normalized-features rerun of the three sweeps behind the bayesian-coverage doc
-(docs/bayesian_coverage_SUMMARY.md §4 tables) — validates every classifier-trained
+(docs/bayesian_coverage_RESULTS.md §4 tables) — validates every classifier-trained
 number with L2-normalized inputs (--normalize_features).
 
 WHY: the from_features classifier historically trained on RAW SimCLR features
