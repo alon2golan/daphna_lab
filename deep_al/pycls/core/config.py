@@ -305,6 +305,21 @@ _C.BAYES_COVERAGE.NW_KAPPA = 3.0
 # for a linear head this is gradient-equivalent in expectation to sampling
 # out-of-ball points OOB_WEIGHT times as often. 1.0 = no down-weighting.
 _C.BAYES_COVERAGE.OOB_WEIGHT = 1.0
+# §9.1 w(d): HOW the out-of-ball loss weight is set.
+# 'const' = every far target gets OOB_WEIGHT (the §7.9 arms — rejected: constant
+#           weights can't separate the usable near shell from the far field).
+# 'ramp'  = per-point distance-decayed weight
+#               w(d) = OOB_W0 * clip((OOB_DMAX - d) / (OOB_DMAX - delta), 0, 1),
+#           d = distance to the nearest annotated point (unit-norm features);
+#           targets with w(d) == 0 (d >= OOB_DMAX) are dropped entirely.
+#           Grounded in the measured NW-target reliability-vs-distance bins
+#           (results/cifar100/eval_nw_distance_bins/, 2026-07-12): accuracy
+#           decays smoothly 55.5% -> 29.8% over d in (0.75, 0.95] (clean @100)
+#           and crosses the uncovered mean at d ~ 0.92, while the NW row's own
+#           confidence is FLAT in d — so the gate must be d itself.
+_C.BAYES_COVERAGE.OOB_WEIGHT_MODE = 'const'
+_C.BAYES_COVERAGE.OOB_W0 = 0.8
+_C.BAYES_COVERAGE.OOB_DMAX = 0.95
 
 # ---------------------------------------------------------------------------- #
 # Common train/test data loader options

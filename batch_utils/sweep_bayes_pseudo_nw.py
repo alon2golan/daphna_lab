@@ -68,12 +68,22 @@ def main():
                          "out-of-ball pseudo targets relative to covered ones. Each weight "
                          "becomes a grid arm (--oob_weight w + tag oob_w=w). Unset = the "
                          "unweighted (1.0) sweep.")
+    ap.add_argument("--ramp", action="store_true",
+                    help="§9.1 w(d) arm: --oob_weight_mode ramp — per-point loss weight "
+                         "decaying linearly from OOB_W0 (0.8) at the ball edge to 0 at "
+                         "OOB_DMAX (0.95); targets past dmax are dropped. Grounded in "
+                         "results/cifar100/eval_nw_distance_bins/. Tag oob_w=ramp.")
     ap.add_argument("--submit", action="store_true")
     args = ap.parse_args()
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     cfgs = al_configs(smoke=args.smoke)
-    if args.oob_weights:
+    if args.ramp and args.oob_weights:
+        raise SystemExit("--ramp and --oob_weights are separate arms; pick one.")
+    if args.ramp:
+        cfgs = [f"{c} --oob_weight_mode ramp --tag oob_w=ramp" for c in cfgs]
+        name_tok = "nw_wdist"
+    elif args.oob_weights:
         weights = [w.strip() for w in args.oob_weights.split(",") if w.strip()]
         cfgs = [f"{c} --oob_weight {w} --tag oob_w={w}" for c in cfgs for w in weights]
         name_tok = "nw_oobw"

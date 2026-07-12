@@ -73,6 +73,11 @@ class BayesianCoverage(CoverageMatrixMethod):
         self.nw_m = int(_get('NW_M', 7))                     # gap-scale m-th neighbor
         self.nw_kappa = float(_get('NW_KAPPA', 3.0))         # sharpness (1=soft, large=1-NN)
         self.oob_weight = float(_get('OOB_WEIGHT', 1.0))     # loss weight of far targets
+        self.oob_weight_mode = _get('OOB_WEIGHT_MODE', 'const')  # const | ramp (§9.1 w(d))
+        self.oob_w0 = float(_get('OOB_W0', 0.8))             # ramp: weight at the ball edge
+        self.oob_dmax = float(_get('OOB_DMAX', 0.95))        # ramp: w(d)=0 from here on
+        if self.oob_weight_mode not in ('const', 'ramp'):
+            raise ValueError(f"Unknown OOB_WEIGHT_MODE={self.oob_weight_mode!r}")
 
         if self.use_sparse:
             raise NotImplementedError(
@@ -379,12 +384,28 @@ class BayesianCoverage(CoverageMatrixMethod):
             gap = (d2_sorted[:, m] - d2_sorted[:, 0]).clamp_min(1e-6)    # [n]
             w = torch.softmax(-self.nw_kappa * (d2 - d2_sorted[:, :1]) / gap.unsqueeze(1), dim=1)
             P = w @ B                                                    # [n, C]
-            # OOB_WEIGHT scales the soft-target row; soft-CE applies the row sum
-            # as an exact per-sample loss weight (train_al soft branch), so far
-            # targets contribute OOB_WEIGHT x the gradient of a covered target.
-            P = P * self.oob_weight
+            # The row scale is the per-sample loss weight: soft-CE applies the
+            # row sum as an exact weight (train_al soft branch), so a far target
+            # contributes (row scale) x the gradient of a covered target.
+            if self.oob_weight_mode == 'ramp':
+                # §9.1 w(d): distance-decayed per-point weight. The gate must be
+                # d itself — the NW row's own confidence is flat in d while its
+                # accuracy falls 55.5% -> 6.8% (eval_nw_distance_bins) — so
+                # weight = w0 at the ball edge, linearly to 0 at dmax; points
+                # past dmax are dropped (the §7.9-measured "confidently wrong"
+                # far field).
+                d1 = d2_sorted[:, 0].clamp_min(0).sqrt()                 # [n]
+                w_pt = self.oob_w0 * ((self.oob_dmax - d1)
+                                      / max(self.oob_dmax - self.delta, 1e-6)
+                                      ).clamp(0.0, 1.0)
+                P = P * w_pt.unsqueeze(1)
+                keep = (w_pt > 0).cpu()
+            else:
+                P = P * self.oob_weight
+                keep = torch.ones(len(chunk), dtype=torch.bool)
             for i, g in enumerate(chunk):
-                out[g] = P[i].detach().cpu().numpy()
+                if keep[i]:
+                    out[g] = P[i].detach().cpu().numpy()
         return out
 
     # ------------------------------------------------------------------ #

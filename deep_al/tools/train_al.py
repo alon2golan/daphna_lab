@@ -134,6 +134,18 @@ def argparser():
                              "relative to covered ones (scales the soft-target row; soft-CE "
                              "applies the row sum as the per-sample weight). Default 1.0. "
                              "Sets cfg.BAYES_COVERAGE.OOB_WEIGHT.")
+    parser.add_argument('--oob_weight_mode', default=None, choices=['const', 'ramp'],
+                        help="OUT_OF_BALL=nw only (§9.1 w(d)): 'const' = every far target gets "
+                             "--oob_weight; 'ramp' = per-point distance-decayed weight "
+                             "w(d) = w0*clip((dmax-d)/(dmax-delta), 0, 1) with d the distance to "
+                             "the nearest annotated point (targets past dmax are dropped). "
+                             "Sets cfg.BAYES_COVERAGE.OOB_WEIGHT_MODE.")
+    parser.add_argument('--oob_w0', default=None, type=float,
+                        help="--oob_weight_mode ramp only: weight at the ball edge (default 0.8). "
+                             "Sets cfg.BAYES_COVERAGE.OOB_W0.")
+    parser.add_argument('--oob_dmax', default=None, type=float,
+                        help="--oob_weight_mode ramp only: distance at which w(d) reaches 0 "
+                             "(default 0.95). Sets cfg.BAYES_COVERAGE.OOB_DMAX.")
     parser.add_argument('--external_noisy_labels', default=None, type=str,
                         help="DIAGNOSTIC: path to a .npy array of shape (n_train,) of precomputed noisy "
                              "labels. When set, overrides the single noisy annotator's generated "
@@ -1189,5 +1201,12 @@ if __name__ == "__main__":
         cfg_instance.BAYES_COVERAGE.OUT_OF_BALL = args.out_of_ball
     if getattr(args, 'oob_weight', None) is not None:
         cfg_instance.BAYES_COVERAGE.OOB_WEIGHT = args.oob_weight
+    # §9.1 w(d) distance-decayed out-of-ball weight (only read when OUT_OF_BALL='nw').
+    if getattr(args, 'oob_weight_mode', None):
+        cfg_instance.BAYES_COVERAGE.OOB_WEIGHT_MODE = args.oob_weight_mode
+    if getattr(args, 'oob_w0', None) is not None:
+        cfg_instance.BAYES_COVERAGE.OOB_W0 = args.oob_w0
+    if getattr(args, 'oob_dmax', None) is not None:
+        cfg_instance.BAYES_COVERAGE.OOB_DMAX = args.oob_dmax
     # Run main with the initialized config
     main(cfg_instance, args)
