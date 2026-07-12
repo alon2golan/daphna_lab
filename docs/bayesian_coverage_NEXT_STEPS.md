@@ -11,26 +11,28 @@ Section numbering is preserved from the original file — §7 lives here, §1–
 
 ## Status board (updated 2026-07-12, end of day)
 
-**RUNNING on SLURM: job 31058388** — the §9.1 w(d) sweep, 12 runs
-(`BAYESCOV_nw_wdist…`, bayes_product + pseudo all + `--normalize_features` +
-`OUT_OF_BALL=nw` + `OOB_WEIGHT_MODE=ramp`, noise {0,.2,.5,.8} × seeds {1,2,3}, `%6`
-throttle, tag `oob_w=ramp`). Submitted 2026-07-12 ~22:45; ~40–60 min/run in two `%6`
-waves. Smoke job 31058375 COMPLETED and verified (ramp in config; episode-0 train time
-ratio 0.43 vs full-NW ≈ the predicted 20.3k/45k target count — far-field drop confirmed).
+**Nothing currently running on SLURM for this project.** The §9.1 w(d) sweep
+(job 31058388, 12 runs) COMPLETED overnight 2026-07-13 and was collected the same
+night — **verdict ❌ NOT ADOPTED, see §9.1**: clean/.2 negative again (−1.35/−0.43 @100),
+so the out-of-ball direction is closed for good; recommended config unchanged.
 
 ### ▶ RESUME HERE (Tuesday 2026-07-14)
 
-1. **Verify sweep 31058388**: 12/12 `COMPLETED` (`sacct -j 31058388`), each run dir under
-   `output/CIFAR100/resnet18/2026_7_12/…oob_w=ramp…` has a 10-episode `result.json`.
-2. **Collect paired deltas** vs the `pseudo all, norm` baseline (job 31048960, same
-   configs/seeds): adapt `batch_utils/collect_nw_oobw.py` to the wdist sweep (select on
-   tag `oob_w=ramp`) → deltas table + fig in `results/bayes_pseudo/`. Decision rule:
-   the replay predicts a small *gain* at clean/.2 (the 49–56%-accurate shell) and ~0 at
-   .8 — if clean/.2 come back *negative* like §7.9's constant weights, the whole
-   out-of-ball direction closes for good; if positive, w(d) enters the recommended
-   config and a W0/DMAX mini-grid is the follow-up.
-3. Update RESULTS (new row) + this file (§9.1 verdict, takeaway if adopted) + memory.
-4. Then continue the §9 execution order: 9.4 noise-rate bake-off (offline) is next.
+The w(d) question is fully resolved (sweep verified 12/12, collected, verdict written
+into §9.1, takeaway 10 extended in RESULTS, everything committed). Next up per the §9
+execution order:
+
+1. **9.4 noise-rate estimator bake-off** (offline, no GPU): impurity-corrected LOO
+   disagreement vs Dawid–Skene EM vs Netta's q̂ (parse the 27 NPC-repro logs), scored
+   against realized noise on the §4.5 replay. Unblocks the §7.1 gate and removes the
+   known-annotator-accuracy assumption.
+2. **9.2 δ replay sweep** (offline): grid {0.5, 0.6, 0.75, 0.9, 1.1} through the §4.5
+   replay metrics; the §8.2 Q3 distance data says ±0.15 in δ moves coverage 8%↔49%.
+3. **In-ball RBF-weighted product exponents** (the §7.9 replay's 87→96.7 denoising win)
+   — the one remaining *training* change with a measured large effect; 12-run paired
+   sweep once implemented.
+4. 9.3 classifier-as-tempered-expert (replay first) and the 9.5 posterior-gain
+   annotator-selection design doc.
 
 | Item | Status |
 |---|---|
@@ -40,8 +42,8 @@ ratio 0.43 vs full-NW ≈ the predicted 20.3k/45k target count — far-field dro
 | §7.9 out-of-ball NW pseudo-targets, **constant** weight | ❌ ANSWERED, NOT ADOPTED (takeaway 10) — covered-only stands |
 | §8 weekend open questions (thesis / code / distance distro) | ✅ ANSWERED 2026-07-12 (§8; distance data `results/cifar100/nearest_labeled_distance.*`) |
 | §8.3 Q2 + 9.1 offline 1-NN/NW evaluator study | ✅ DONE 2026-07-12 — denoise-then-1NN ≈ best trained arm @ noise .8 with zero training (§8.3 Q2) |
-| §9.1 w(d) distance-decayed OOB weight | ⏳ IMPLEMENTED (`OOB_WEIGHT_MODE=ramp`, commit `6e1dfba`) — **sweep 31058388 RUNNING**, collect on return |
-| **Recommended config** | normalized `pseudo all`, covered-only (see RESULTS §0) — pending the w(d) verdict |
+| §9.1 w(d) distance-decayed OOB weight | ❌ ANSWERED 2026-07-13, NOT ADOPTED (sweep 31058388): clean −1.1..−1.35 at every budget — even the good shell dilutes; out-of-ball closed for good |
+| **Recommended config** | normalized `pseudo all`, covered-only (see RESULTS §0) — CONFIRMED against w(d) too |
 | Best unimplemented spin-off | **in-ball RBF-weighted product exponents** (§7.9 replay: labeled-plane denoising 87→96.7 @100 clean) |
 | Open engineering guards | guard (b) per-ball caps (§7.5); `filtered`/`reweighted` threshold fix (§7.6) |
 
@@ -484,7 +486,32 @@ there. Implementation sketch: per-point loss weight w(d) = per-bin measured targ
 reliability (or a fitted smooth decay dying by d≈0.95), κ=3 targets, product posterior
 untouched in-ball; then a paired 12-run confirmation sweep vs `pseudo all, norm`.
 Data: `results/cifar100/eval_nw_distance_bins/{bins.csv,tables.md}`
-(`batch_utils/eval_nw_distance_bins.py`). Also note the *in-ball* RBF-weighted **product
+(`batch_utils/eval_nw_distance_bins.py`).
+
+**❌ SWEEP VERDICT (2026-07-13, job 31058388, 12/12 COMPLETED — NOT ADOPTED; the
+out-of-ball direction is now closed for good.** Implemented as `OOB_WEIGHT_MODE=ramp`
+(W0=0.8, DMAX=0.95, far field dropped; commit `6e1dfba`), per-seed paired vs the
+normalized `pseudo all` baseline (job 31048960). Paired Δ (mean over seeds, std ≤ 0.2):
+
+| noise | @100 | @300 | @1000 |
+|---|---|---|---|
+| 0.0 | **−1.35** | −1.21 | −1.11 |
+| 0.2 | −0.43 | −0.34 | −0.72 |
+| 0.5 | +0.15 | +0.19 | −0.17 |
+| 0.8 | +0.16 | +0.29 | **+0.65** |
+
+The decision rule (above) fires on the close branch: clean/.2 are negative *again*,
+recovering only ~0.25 of §7.9's −1.6 clean drag despite keeping only the 49–56%-accurate
+shell at ≤0.8 weight and zeroing the confidently-wrong far field. **Mechanism, refined:**
+the failure was never only far-field garbage — even the *good* shell dilutes on clean,
+because the bar for extra targets is not "better than chance" but "comparable to the
+71.7%-accurate covered targets the classifier already trains on"; ~11k targets at 30–55%
+accuracy are net-negative next to ~9k at 72%. The noise-.8 gain (+0.65 @1000) matches
+the §7.9 label-smoothing reading and is not worth a config fork. **Recommended
+configuration unchanged: normalized `pseudo all`, covered-only.** If high-noise cells
+ever matter for the writeup, the .8-only smoothing gain is the one thing to revisit.
+Collector: `batch_utils/collect_nw_wdist.py` →
+`results/bayes_pseudo/nw_wdist_{episodes,deltas}.csv`, `fig_nw_wdist_delta.png`. Also note the *in-ball* RBF-weighted **product
 exponents** (§7.9 replay, 87→96.7 denoising @100 clean) remain the highest-value related
 follow-up on the *training* side.
 

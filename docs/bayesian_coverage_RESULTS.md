@@ -524,6 +524,11 @@ budgets.
     The high-noise gain behaves like label smoothing (weight-insensitive). The
     live follow-up from the same replay is in-ball rbf-weighted product exponents
     (labeled-plane denoising 87→96.7 @100 clean), not more out-of-ball machinery.
+    **2026-07-13 addendum — the distance-decayed weight also fails** (NEXT_STEPS §9.1,
+    sweep 31058388): keeping only the measured 49–56%-accurate shell just outside δ at
+    ramped weight w(d)≤0.8 (far field dropped) still costs −1.1..−1.35 clean at every
+    budget. Even good-shell targets (30–55% acc) dilute the ~72%-accurate covered diet,
+    so the out-of-ball direction is closed at *any* weighting; covered-only stands.
 
 ## 6. Reproducing the tables
 
