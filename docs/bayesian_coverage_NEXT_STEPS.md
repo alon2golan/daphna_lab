@@ -9,19 +9,45 @@ results: `bayesian_coverage_RESULTS.md` · **status & next steps (this file)**.
 Section numbering is preserved from the original file — §7 lives here, §1–§3 in THEORY,
 §4–§6 in RESULTS; "§4.5", "takeaway 8" etc. refer to RESULTS.
 
-## Status board (2026-07-12)
+## Status board (updated 2026-07-12, end of day)
 
-**Nothing currently running on SLURM for this project.**
+**RUNNING on SLURM: job 31058388** — the §9.1 w(d) sweep, 12 runs
+(`BAYESCOV_nw_wdist…`, bayes_product + pseudo all + `--normalize_features` +
+`OUT_OF_BALL=nw` + `OOB_WEIGHT_MODE=ramp`, noise {0,.2,.5,.8} × seeds {1,2,3}, `%6`
+throttle, tag `oob_w=ramp`). Submitted 2026-07-12 ~22:45; ~40–60 min/run in two `%6`
+waves. Smoke job 31058375 COMPLETED and verified (ramp in config; episode-0 train time
+ratio 0.43 vs full-NW ≈ the predicted 20.3k/45k target count — far-field drop confirmed).
+
+### ▶ RESUME HERE (Tuesday 2026-07-14)
+
+1. **Verify sweep 31058388**: 12/12 `COMPLETED` (`sacct -j 31058388`), each run dir under
+   `output/CIFAR100/resnet18/2026_7_12/…oob_w=ramp…` has a 10-episode `result.json`.
+2. **Collect paired deltas** vs the `pseudo all, norm` baseline (job 31048960, same
+   configs/seeds): adapt `batch_utils/collect_nw_oobw.py` to the wdist sweep (select on
+   tag `oob_w=ramp`) → deltas table + fig in `results/bayes_pseudo/`. Decision rule:
+   the replay predicts a small *gain* at clean/.2 (the 49–56%-accurate shell) and ~0 at
+   .8 — if clean/.2 come back *negative* like §7.9's constant weights, the whole
+   out-of-ball direction closes for good; if positive, w(d) enters the recommended
+   config and a W0/DMAX mini-grid is the follow-up.
+3. Update RESULTS (new row) + this file (§9.1 verdict, takeaway if adopted) + memory.
+4. Then continue the §9 execution order: 9.4 noise-rate bake-off (offline) is next.
 
 | Item | Status |
 |---|---|
 | Core method (selection + 5 train modes) + comparison sweeps | ✅ DONE (§4, takeaways 1–7) |
 | §7.5 pseudo-labeling arm | ✅ DONE — best arm at every noise incl. clean (takeaway 8) |
 | Classifier-input normalization rerun | ✅ DONE — convergence-gated; +~1pt for `pseudo all` (takeaway 9, `bayesian_coverage_NORMALIZATION.md`) |
-| §7.9 out-of-ball NW pseudo-targets | ❌ ANSWERED, NOT ADOPTED (takeaway 10) — covered-only stands |
-| **Recommended config** | normalized `pseudo all`, covered-only (see RESULTS §0) |
+| §7.9 out-of-ball NW pseudo-targets, **constant** weight | ❌ ANSWERED, NOT ADOPTED (takeaway 10) — covered-only stands |
+| §8 weekend open questions (thesis / code / distance distro) | ✅ ANSWERED 2026-07-12 (§8; distance data `results/cifar100/nearest_labeled_distance.*`) |
+| §8.3 Q2 + 9.1 offline 1-NN/NW evaluator study | ✅ DONE 2026-07-12 — denoise-then-1NN ≈ best trained arm @ noise .8 with zero training (§8.3 Q2) |
+| §9.1 w(d) distance-decayed OOB weight | ⏳ IMPLEMENTED (`OOB_WEIGHT_MODE=ramp`, commit `6e1dfba`) — **sweep 31058388 RUNNING**, collect on return |
+| **Recommended config** | normalized `pseudo all`, covered-only (see RESULTS §0) — pending the w(d) verdict |
 | Best unimplemented spin-off | **in-ball RBF-weighted product exponents** (§7.9 replay: labeled-plane denoising 87→96.7 @100 clean) |
 | Open engineering guards | guard (b) per-ball caps (§7.5); `filtered`/`reweighted` threshold fix (§7.6) |
+
+Everything through 2026-07-12 is committed on `bayesian_coverage`: `4a70f92` (docs split
++ §8/§9), `e4249fd` (offline eval scripts), `6e1dfba` (w(d) ramp + launcher `--ramp`).
+Note `results/` is gitignored — the eval outputs live on disk only.
 
 ---
 ## 7. Next steps
