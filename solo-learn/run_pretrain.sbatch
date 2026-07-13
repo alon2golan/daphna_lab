@@ -81,6 +81,7 @@ python -u main_pretrain.py \
   ++checkpoint.frequency="${FREQ}" \
   ++checkpoint.keep_prev=True \
   ++knn_eval.enabled=True \
+  ++enable_progress_bar=False \
   max_epochs="${MAX_EPOCHS}" \
   wandb.enabled=True \
   ++wandb.offline="${WANDB_OFFLINE_FLAG}"

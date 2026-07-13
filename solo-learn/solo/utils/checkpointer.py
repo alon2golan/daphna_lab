@@ -184,6 +184,17 @@ class Checkpointer(Callback):
         """
 
         epoch = trainer.current_epoch  # type: ignore
+
+        # One concise progress line per epoch, so the log still tells you where the
+        # run is even with the per-batch tqdm bar disabled (enable_progress_bar=False).
+        if trainer.is_global_zero:
+            metrics = trainer.callback_metrics
+            parts = [f"[epoch {epoch + 1}/{trainer.max_epochs}]"]
+            for key in ("val_acc1", "val_knn_acc1", "train_loss"):
+                if key in metrics:
+                    parts.append(f"{key}={float(metrics[key]):.3f}")
+            print(" ".join(parts), flush=True)
+
         # save the initial epoch (unless disabled), then after every `frequency`
         # completed epochs; epochs are 0-indexed, so frequency=100 saves at
         # 0, 99, 199, ... 999 (the start plus the 100th, 200th ... epoch). Also
