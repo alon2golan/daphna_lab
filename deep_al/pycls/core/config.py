@@ -481,6 +481,34 @@ def build_args_dict(args):
     if hasattr(args, 'class_weighting_method') and args.class_weighting_method is not None:
         args_dict['CLASS_WEIGHTING_METHOD'] = args.class_weighting_method
 
+    # Distillation / propagation overrides (see pycls.al.distillation / pycls.al.propagation).
+    if hasattr(args, 'distillation_training'):
+        args_dict['DISTILLATION_TRAINING'] = args.distillation_training
+    if hasattr(args, 'distillation_threshold') and args.distillation_threshold is not None:
+        args_dict['DISTILLATION_THRESHOLD'] = args.distillation_threshold
+    if hasattr(args, 'distillation_temperature') and args.distillation_temperature is not None:
+        args_dict['DISTILLATION_TEMPERATURE'] = args.distillation_temperature
+    if hasattr(args, 'distill_factor') and args.distill_factor is not None:
+        args_dict['DISTILL_FACTOR'] = args.distill_factor
+    if hasattr(args, 'ck_c_normalization') and args.ck_c_normalization is not None:
+        args_dict['CK_C_NORMALIZATION'] = args.ck_c_normalization
+    if hasattr(args, 'propagate_c_labels'):
+        args_dict['PROPAGATE_C_LABELS'] = args.propagate_c_labels
+    if hasattr(args, 'propagation_iterations') and args.propagation_iterations is not None:
+        args_dict['PROPAGATION_ITERATIONS'] = args.propagation_iterations
+    if hasattr(args, 'propagation_sender_mode') and args.propagation_sender_mode is not None:
+        args_dict['PROPAGATION_SENDER_MODE'] = args.propagation_sender_mode
+    if hasattr(args, 'propagation_sender_threshold') and args.propagation_sender_threshold is not None:
+        args_dict['PROPAGATION_SENDER_THRESHOLD'] = args.propagation_sender_threshold
+    if hasattr(args, 'propagation_sender_budget') and args.propagation_sender_budget is not None:
+        args_dict['PROPAGATION_SENDER_BUDGET'] = args.propagation_sender_budget
+    if hasattr(args, 'propagation_receiver_mode') and args.propagation_receiver_mode is not None:
+        args_dict['PROPAGATION_RECEIVER_MODE'] = args.propagation_receiver_mode
+    if hasattr(args, 'propagation_receiver_threshold') and args.propagation_receiver_threshold is not None:
+        args_dict['PROPAGATION_RECEIVER_THRESHOLD'] = args.propagation_receiver_threshold
+    if hasattr(args, 'propagation_receiver_budget') and args.propagation_receiver_budget is not None:
+        args_dict['PROPAGATION_RECEIVER_BUDGET'] = args.propagation_receiver_budget
+
     if args.max_epoch is not None:
         args_dict['OPTIM.MAX_EPOCH'] = args.max_epoch
     if hasattr(args, 'base_lr') and args.base_lr is not None:
