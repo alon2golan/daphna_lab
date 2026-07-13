@@ -25,6 +25,8 @@ import json
 import os
 from pathlib import Path
 
+print("loading dependencies (torch + solo-learn), this takes ~15-30s ...", flush=True)
+
 import numpy as np
 import torch
 from omegaconf import OmegaConf
