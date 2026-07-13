@@ -23,6 +23,7 @@ Produces, under --output_dir:
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 
 print("loading dependencies (torch + solo-learn), this takes ~15-30s ...", flush=True)
@@ -65,7 +66,15 @@ def main():
     args = p.parse_args()
 
     ckpt_dir = Path(args.checkpoint_dir)
-    ckpt_path = next(f for f in ckpt_dir.iterdir() if f.suffix == ".ckpt")
+    ckpts = [f for f in ckpt_dir.iterdir() if f.suffix == ".ckpt"]
+    if not ckpts:
+        raise FileNotFoundError(f"no .ckpt found in {ckpt_dir}")
+    # When keep_prev saved several checkpoints (e.g. every 100 epochs), pick the
+    # latest epoch. Filenames end with '-ep=<N>.ckpt'; fall back to name sort.
+    def _epoch(p):
+        m = re.search(r"ep=(\d+)", p.name)
+        return int(m.group(1)) if m else -1
+    ckpt_path = max(ckpts, key=_epoch)
     with open(ckpt_dir / "args.json") as f:
         cfg = OmegaConf.create(json.load(f))
     print(f"Loading {cfg.method} backbone from {ckpt_path}")

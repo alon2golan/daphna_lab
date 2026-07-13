@@ -74,6 +74,13 @@ class Checkpointer(Callback):
         cfg.checkpoint.dir = omegaconf_select(cfg, "checkpoint.dir", default="trained_models")
         cfg.checkpoint.frequency = omegaconf_select(cfg, "checkpoint.frequency", default=1)
         cfg.checkpoint.keep_prev = omegaconf_select(cfg, "checkpoint.keep_prev", default=False)
+        # optional explicit run folder name (e.g. "cifar100_1000ep"). When set it
+        # replaces the random "offline-xxxx" / wandb-id version, giving a
+        # deterministic, self-documenting checkpoint directory.
+        cfg.checkpoint.run_name = omegaconf_select(cfg, "checkpoint.run_name", default=None)
+        # whether to also snapshot the initial (epoch 0) weights. On by default;
+        # set checkpoint.save_initial=False to skip it.
+        cfg.checkpoint.save_initial = omegaconf_select(cfg, "checkpoint.save_initial", default=True)
 
         return cfg
 
@@ -93,24 +100,30 @@ class Checkpointer(Callback):
             trainer (pl.Trainer): pytorch lightning trainer object.
         """
 
-        if trainer.logger is None:
-            if self.logdir.exists():
-                existing_versions = set(os.listdir(self.logdir))
-            else:
-                existing_versions = []
-            version = "offline-" + self.random_string()
-            while version in existing_versions:
-                version = "offline-" + self.random_string()
-        else:
-            version = str(trainer.logger.version)
-            self.wandb_run_id = version
+        # always remember the wandb run id (if any) so the run can be resumed
+        self.wandb_run_id = str(trainer.logger.version) if trainer.logger is not None else None
 
-        if version is not None:
+        run_name = omegaconf_select(self.cfg, "checkpoint.run_name", None)
+        if run_name:
+            # explicit, deterministic folder (e.g. "cifar100_1000ep"); the ckpt
+            # filename carries the full descriptive cfg.name, so don't duplicate
+            # the folder name inside it.
+            version = run_name
+            self.path = self.logdir / version
+            self.ckpt_placeholder = f"{self.cfg.name}" + "-ep={}.ckpt"
+        else:
+            if trainer.logger is None:
+                if self.logdir.exists():
+                    existing_versions = set(os.listdir(self.logdir))
+                else:
+                    existing_versions = []
+                version = "offline-" + self.random_string()
+                while version in existing_versions:
+                    version = "offline-" + self.random_string()
+            else:
+                version = str(trainer.logger.version)
             self.path = self.logdir / version
             self.ckpt_placeholder = f"{self.cfg.name}-{version}" + "-ep={}.ckpt"
-        else:
-            self.path = self.logdir
-            self.ckpt_placeholder = f"{self.cfg.name}" + "-ep={}.ckpt"
         self.last_ckpt: Optional[str] = None
 
         # create logging dirs
@@ -171,5 +184,12 @@ class Checkpointer(Callback):
         """
 
         epoch = trainer.current_epoch  # type: ignore
-        if epoch % self.frequency == 0:
+        # save the initial epoch (unless disabled), then after every `frequency`
+        # completed epochs; epochs are 0-indexed, so frequency=100 saves at
+        # 0, 99, 199, ... 999 (the start plus the 100th, 200th ... epoch). Also
+        # always save the true final epoch so the fully-trained model is kept even
+        # when the last epoch is not a multiple of `frequency`.
+        save_initial = omegaconf_select(self.cfg, "checkpoint.save_initial", True)
+        is_last = (epoch + 1) >= trainer.max_epochs
+        if (save_initial and epoch == 0) or (epoch + 1) % self.frequency == 0 or is_last:
             self.save(trainer)

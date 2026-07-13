@@ -35,3 +35,10 @@ data/
 results/
 /datasets/
 /scan/datasets/wandb/
+
+# Training artifacts (kept on the lab disk, not in git): weights, extracted
+# features, wandb runs and slurm logs are large/derived and reproducible.
+wandb/
+slurm_logs/
+solo-learn/trained_models/
+solo-learn/embeddings/
