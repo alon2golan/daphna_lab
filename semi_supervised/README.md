@@ -1,22 +1,38 @@
 # Semi- and Self-Supervised
 
-Workspace for semi-supervised and self-supervised learning ideas.
+Workspace for semi-supervised learning ideas built on top of self-supervised
+encoders. The base encoders and their training (SimCLR, SupCon, BYOL, ...) come
+from the vendored [solo-learn](https://github.com/vturrisi/solo-learn) repo at
+`../solo-learn`; this package holds the research methods built on top of them.
 
-The layout separates two concerns:
+## Layout
 
-- models/      base representation-learning encoders (SupCon, SimCLR, BYOL, ...).
-               These are the backbones adapted from their upstream repos.
-- algorithms/  methods built on top of those encoders. New research ideas go here.
+- `backends/`   adapters to external training frameworks. `solo_learn.py` is the
+                only module that imports solo-learn: it runs a training phase,
+                warm-starts a backbone across phases, feeds a supervised method a
+                labeled subset, and extracts embeddings. Everything else goes
+                through it, so the backend can be swapped in one place.
+- `algorithms/` research methods. `simclr_supcon.py` iterates between
+                unsupervised SimCLR (full pool) and supervised SupCon (labeled
+                subset) on a shared backbone.
+- `labeling.py` strategies for choosing which pool samples to label. `RandomSelector`
+                picks a random subset now; an active-learning selector (e.g.
+                backed by `deep_al/`) can implement the same interface later.
 
-## Status
+## Running the SimCLR<->SupCon iteration
 
-Early scaffold. Base models will be ported in from their original GitHub
-repositories one at a time; algorithms are implemented on top of them.
+One process, one job (uses the CIFAR copies under `../data`):
 
-## Relation to the rest of the repo
+```
+python -m semi_supervised.algorithms.simclr_supcon \
+    --dataset cifar100 --n_labeled 1000 \
+    --num_iterations 3 --simclr_epochs 200 --supcon_epochs 100 \
+    --output_dir runs/simclr_supcon_cifar100_l1000
+```
 
-This folder is intended to stand on its own for now, but be import-friendly so
-it can later interoperate with the active-learning code under deep_al/ and the
-self-supervised code under scan/ (e.g. sharing features, datasets, or encoders).
-The directory uses an underscore (semi_supervised) rather than a hyphen so it is
-a valid Python package.
+Outputs, under `--output_dir`: `labeled_indices.npy`, a `backbone_iter*.pt` per
+iteration, `backbone_final.pt`, and `train_/val_features.npy` (+ labels) from the
+final backbone.
+
+Requires the solo-learn dependencies in the project venv (lightning, hydra,
+timm, ...) and a GPU for real runs.
