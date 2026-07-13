@@ -67,6 +67,22 @@ def argparser():
                         help='Use MLP head instead of linear probe for from_features evaluation')
     parser.add_argument('--mlp_hidden', default=None, type=int, help='MLP hidden layer size (default 256)')
     parser.add_argument('--mlp_dropout', default=None, type=float, help='MLP dropout rate')
+    parser.add_argument('--calc_method', default='max', type=str,
+                        help='BAYES_MISP scoring rule: max, entropy, margin, or margin_not_normalized')
+    parser.add_argument('--distribution_cont_weight_method', default='weighted', type=str,
+                        choices=['weighted', 'equal'], help='BAYES_MISP per-point weighting for the contribution sum')
+    parser.add_argument('--c_normalization', default='sum', type=str, choices=['sum', 'softmax'],
+                        help='BAYES_MISP normalization applied to the C matrix before weighting')
+    parser.add_argument('--k_sparsity_threshold', default=0.0, type=float,
+                        help='BAYES_MISP minimum kernel value kept when SPARSE_K is set')
+    parser.add_argument('--local_alpha', action='store_true',
+                        help='BAYES_MISP: init C from per-point priors instead of a constant alpha')
+    parser.add_argument('--local_alpha_oracle_method', default='entropy', type=str, choices=['entropy', 'max'])
+    parser.add_argument('--alpha_lower_bound', default=0.01, type=float)
+    parser.add_argument('--alpha_upper_bound', default=1.0, type=float)
+    parser.add_argument('--kernel_build_batch_size', default=1024, type=int)
+    parser.add_argument('--class_weighting_method', default='none', type=str,
+                        choices=['none', 'linear', 'square', 'exp'])
     return parser
 
 

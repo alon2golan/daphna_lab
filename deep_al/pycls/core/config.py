@@ -458,6 +458,29 @@ def build_args_dict(args):
         'DATASET.FEATURES_TAG': args.features_tag,
     }
 
+    # BAYES_MISP-specific overrides (only applied when the flags exist, so
+    # scripts using an older/customized argparser aren't affected).
+    if hasattr(args, 'calc_method') and args.calc_method is not None:
+        args_dict['CALC_METHOD'] = args.calc_method
+    if hasattr(args, 'distribution_cont_weight_method') and args.distribution_cont_weight_method is not None:
+        args_dict['DISTRIBUTION_CONT_WEIGHT_METHOD'] = args.distribution_cont_weight_method
+    if hasattr(args, 'c_normalization') and args.c_normalization is not None:
+        args_dict['C_NORMALIZATION'] = args.c_normalization
+    if hasattr(args, 'k_sparsity_threshold') and args.k_sparsity_threshold is not None:
+        args_dict['K_SPARSITY_THRESHOLD'] = args.k_sparsity_threshold
+    if hasattr(args, 'local_alpha'):
+        args_dict['LOCAL_ALPHA'] = args.local_alpha
+    if hasattr(args, 'local_alpha_oracle_method') and args.local_alpha_oracle_method is not None:
+        args_dict['LOCAL_ALPHA_ORACLE_METHOD'] = args.local_alpha_oracle_method
+    if hasattr(args, 'alpha_lower_bound') and args.alpha_lower_bound is not None:
+        args_dict['ALPHA_LOWER_BOUND'] = args.alpha_lower_bound
+    if hasattr(args, 'alpha_upper_bound') and args.alpha_upper_bound is not None:
+        args_dict['ALPHA_UPPER_BOUND'] = args.alpha_upper_bound
+    if hasattr(args, 'kernel_build_batch_size') and args.kernel_build_batch_size is not None:
+        args_dict['KERNEL_BUILD_BATCH_SIZE'] = args.kernel_build_batch_size
+    if hasattr(args, 'class_weighting_method') and args.class_weighting_method is not None:
+        args_dict['CLASS_WEIGHTING_METHOD'] = args.class_weighting_method
+
     if args.max_epoch is not None:
         args_dict['OPTIM.MAX_EPOCH'] = args.max_epoch
     if hasattr(args, 'base_lr') and args.base_lr is not None:
