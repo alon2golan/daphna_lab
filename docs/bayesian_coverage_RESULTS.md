@@ -74,6 +74,7 @@ Like-for-like regime: CIFAR100 SimCLR features, budget 100/episode, tophat $\del
 | Sweep | SLURM job | Grid | Status |
 |---|---|---|---|
 | Bayes comparison | 30978366 | {random, probcover, bayes_additive, bayes_product} × noise {0, .2, .5, .8} × 3 seeds | 48/48 ✔ |
+| Bayes additive re-run | 31066809 | bayes_additive (fixed acquisition) × noise {0, .2, .5, .8} × 3 seeds | 12/12 ✔ |
 | Bayes train-mode | 30980646 | bayes_product × 5 modes × noise {0, .2, .5, .8} × 3 seeds | 60/60 ✔ |
 | Netta NPC repro | 30811243 | {npc, probcover, random} + AUM/clean-train × noise {.2, .5, .8} × 3 seeds | 27/27 ✔ |
 | AUM clean ablation | 30863746 | {npc, probcover, random} × clean {on, off} × noise {.2, .5, .8} × 3 seeds | 54/54 ✔ |
@@ -138,6 +139,22 @@ NEXT_STEPS §8.3 Q2). Standouts: 1-NN on posterior-**argmax** labels reaches 28.
 noise .8 — within ~1 pt of the best *trained* arm, with no training at all — and the NW
 κ=3 evaluator is the best training-free clean high-budget cell (46.4 @1000).
 
+**`bayes_additive` acquisition fix (2026-07-14):** the `bayes_additive` rows below were
+**re-run** (sweep 31066809, 12 runs, non-norm) after fixing a selection bug. The original
+numbers collapsed at low budget on CIFAR100 (13.4 @100 clean, far below probcover's 23.6)
+because the shared `coverage_gain` acquisition used the *product's* uncertainty
+`1 - max_k P` on the *additive* posterior `C/ΣC`. That posterior only reaches
+$n/(n+1)$ confidence after $n$ in-ball labels, so one clean label left `max_k P ≈ 0.5`
+(never ~0), covered points never retired, and — since the score sums neighbor
+uncertainties — dense balls kept out-scoring sparse/uncovered ones, so the greedy clumped
+and starved sparse classes. The fix (`bayesian_coverage.py` `_acquisition_scores`) gives
+the additive branch Itai David's saturating ceiling
+$f_1 = (\max_k \pi + 1)/(\sum_k \pi + 1)$ — the dominant-class mass after exactly one
+tophat in-ball label — and scores `max(f1 - max_k P, 0)`. For tophat $K\in\{0,1\}$ this is
+BAYES\_MISP's `diff_method='max'` score *exactly*, so one clean label now retires a point
+and clean/low-budget additive lands on ProbCover (24.8 vs 23.6 @100). The row is now a
+faithful Itai control.
+
 ### Noise = 0.0 (clean sanity)
 
 | Method | 100 | 300 | 500 | 700 | 1000 |
@@ -145,7 +162,7 @@ noise .8 — within ~1 pt of the best *trained* arm, with no training at all —
 | random | 8.5±2.6 | 25.1±0.7 | 33.8±0.2 | 38.4±1.4 | 42.6±1.0 |
 | probcover + training | 23.6±1.8 | 39.9±0.4 | 43.3±0.3 | 44.6±0.2 | 46.5±0.6 |
 | probcover + 1nn | 38.1±0.4 | 42.9±0.2 | 44.5±0.2 | 44.9±0.3 | 45.6±0.6 |
-| bayes_additive (Itai) | 13.4±0.7 | 18.2±1.1 | 20.9±0.5 | 23.2±0.9 | 26.9±0.0 |
+| bayes_additive (Itai) | 24.8±0.5 | 30.5±0.6 | 33.1±0.1 | 35.9±0.3 | 39.2±0.3 |
 | bayes_product | 24.6±1.3 | 38.1±1.3 | 41.6±0.0 | 43.6±0.2 | 45.1±0.1 |
 | bayes_product + map_posterior | 22.5±0.5 | 35.9±0.4 | 38.9±0.2 | 40.8±0.4 | 41.8±0.5 |
 | bayes_product + soft_posterior | 23.7±1.0 | 36.3±0.7 | 39.2±0.0 | 41.1±0.5 | 42.5±0.1 |
@@ -164,7 +181,7 @@ noise .8 — within ~1 pt of the best *trained* arm, with no training at all —
 | random | 5.8±2.3 | 19.9±1.6 | 28.2±0.9 | 33.3±1.8 | 37.7±1.6 |
 | probcover + training | 19.7±0.7 | 33.4±1.3 | 37.4±0.4 | 39.5±0.3 | 41.2±0.8 |
 | probcover + 1nn | **30.9±1.1** | 34.6±0.3 | 36.2±0.6 | 36.7±0.3 | 36.9±0.5 |
-| bayes_additive (Itai) | 7.7±1.6 | 12.7±0.8 | 14.3±0.8 | 16.9±1.0 | 19.5±0.9 |
+| bayes_additive (Itai) | 20.7±0.8 | 24.8±1.6 | 22.9±0.5 | 23.7±0.4 | 27.3±0.9 |
 | bayes_product | 21.6±1.5 | 32.8±1.5 | 36.6±0.5 | 37.7±0.7 | 39.2±0.3 |
 | bayes_product + map_posterior | 20.6±2.3 | 33.7±2.0 | 36.9±1.1 | 39.2±0.8 | 40.6±0.6 |
 | bayes_product + soft_posterior | 19.1±1.7 | 33.4±1.9 | 37.5±1.0 | 40.0±0.5 | 41.5±0.4 |
@@ -184,7 +201,7 @@ noise .8 — within ~1 pt of the best *trained* arm, with no training at all —
 | random | 4.6±1.6 | 12.7±2.2 | 18.4±1.4 | 23.5±1.0 | 27.1±1.0 |
 | probcover + training | 13.1±1.3 | 21.5±1.8 | 26.0±1.3 | 28.1±0.7 | 30.3±1.2 |
 | probcover + 1nn | **19.9±1.4** | 22.5±1.6 | 23.7±1.2 | 23.7±1.1 | 23.8±1.3 |
-| bayes_additive (Itai) | 5.6±1.1 | 6.0±0.8 | 8.3±1.1 | 9.9±1.5 | 12.4±1.1 |
+| bayes_additive (Itai) | 13.5±1.0 | 14.8±2.8 | 14.6±2.3 | 14.8±2.0 | 15.1±1.9 |
 | bayes_product | 14.9±1.4 | 23.1±0.1 | 26.4±0.6 | 28.1±0.6 | 29.5±0.4 |
 | bayes_product + map_posterior | 15.2±1.9 | 27.9±1.7 | 31.9±0.2 | 34.5±1.0 | 37.6±0.4 |
 | bayes_product + soft_posterior | 12.3±0.9 | 27.8±1.0 | 33.1±0.5 | 36.2±0.1 | 39.1±0.8 |
@@ -204,7 +221,7 @@ noise .8 — within ~1 pt of the best *trained* arm, with no training at all —
 | random | 2.6±0.6 | 4.9±2.2 | 7.2±1.7 | 9.4±1.1 | 10.3±1.5 |
 | probcover + training | 5.9±0.9 | 8.2±1.1 | 10.4±0.4 | 11.6±0.3 | 12.7±0.1 |
 | probcover + 1nn | **7.6±0.5** | 9.3±0.1 | 9.7±0.5 | 9.7±0.4 | 9.9±0.9 |
-| bayes_additive (Itai) | 2.0±0.0 | 3.3±0.4 | 3.5±0.4 | 4.8±0.1 | 5.4±0.4 |
+| bayes_additive (Itai) | 5.5±1.6 | 6.0±1.9 | 5.7±1.7 | 5.3±1.1 | 5.4±0.8 |
 | bayes_product | 4.6±0.5 | 9.7±2.0 | 10.9±1.5 | 11.8±1.5 | 12.6±1.6 |
 | bayes_product + map_posterior | 5.8±0.2 | 14.2±2.9 | 19.4±2.1 | 22.9±2.2 | 26.2±1.3 |
 | bayes_product + soft_posterior | 5.3±0.5 | 13.3±2.0 | 18.9±2.4 | 23.4±2.5 | 27.5±1.9 |
@@ -469,11 +486,15 @@ budgets.
    while the graph posterior needs no trained model.
 3. **At noise 0.2, NPC+AUM still slightly ahead** (43.3 vs 41.5 @1000). Few flips ⇒
    AUM is reliable, and hard-dropping a few bad points beats softening every label.
-4. **Product ≫ additive at every cell** — design-§3 gate passes decisively; additive
-   collapses on CIFAR100 (26.9 vs 45.1 clean @1000). ⚠ Caveat: at noise 0 on CIFAR100
-   the additive arm also fails the "reproduces Itai ≈ probcover + training" sanity check
-   (13.4 vs 23.6 @100; it *passed* on CIFAR10) — so on CIFAR100 our additive branch is
-   not a faithful Itai control (likely the Dirichlet($\pi$) init vs. his scalar-$\alpha$; open item).
+4. **Product pulls ahead of additive as budget grows; the low-budget sanity now passes**
+   (numbers re-run 2026-07-14 with the fixed additive acquisition — see the note above §4).
+   At the lowest budget the two arms tie (24.8 additive vs 24.6 product @100 clean; both
+   ≈ probcover's 23.6) — so the "reproduces Itai ≈ probcover + training" sanity check now
+   **passes** on CIFAR100, as it always did on CIFAR10. Product then pulls decisively ahead
+   at higher budgets and higher noise (45.1 vs 39.2 clean @1000; 29.5 vs 15.1 @1000 noise
+   0.5), so the design-§3 product-over-additive gate still passes. The earlier "additive
+   collapses (26.9 @1000, 13.4 @100)" reading was an acquisition bug, not a property of the
+   additive rule.
 5. **Clean-data sanity holds:** at noise 0, `observed` is best; every correction mode
    costs a little (soft 42.5 vs 45.1). Correcting labels that aren't wrong removes
    signal ⇒ the mode should be **noise-gated**: observed when clean, soft/map when noisy.

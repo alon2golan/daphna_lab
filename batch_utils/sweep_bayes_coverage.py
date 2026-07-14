@@ -120,6 +120,10 @@ def main():
                          "When set, the sweep FIXES al=bayes_product and varies the "
                          "training-label policy instead of the AL method. Recorded in "
                          "result.json params.train_label_mode (dashboard facet).")
+    ap.add_argument("--al", default=None,
+                    help="Comma-separated subset of AL arms to run (default: all "
+                         "four: random,probcover,bayes_additive,bayes_product). Use "
+                         "for a targeted re-run, e.g. --al bayes_additive.")
     ap.add_argument("--submit", action="store_true",
                     help="Write the .sh and sbatch it via the SLURM login node.")
     args = ap.parse_args()
@@ -131,7 +135,9 @@ def main():
         grid = dict(al=["bayes_product"], train_label_mode=modes, seed=[1, 2, 3])
         sweep_name = f"BAYESCOV_trainmode_{args.dataset}_n0_20_50_80__{ts}"
     else:
-        grid = GRID
+        grid = dict(GRID)
+        if args.al:
+            grid["al"] = [a.strip() for a in args.al.split(",") if a.strip()]
         sweep_name = f"BAYESCOV_compare_{args.dataset}_n0_20_50_80__{ts}"
     jobs = build_jobs_from(al_configs, grid, FIXED_ARGS, sweep_name=sweep_name)
     script = build_script(jobs, ARRAY_THROTTLE)

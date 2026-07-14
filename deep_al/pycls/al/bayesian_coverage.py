@@ -221,14 +221,37 @@ class BayesianCoverage(CoverageMatrixMethod):
     # ------------------------------------------------------------------ #
     def _acquisition_scores(self):
         """
-        coverage_gain: prioritize candidates that sit near still-uncertain mass,
-            score[v] = sum_u K[v,u] * uncertainty(u),  uncertainty = 1 - max_k P.
+        coverage_gain: prioritize candidates that sit near still-under-covered
+            mass, score[v] = sum_u K[v,u] * deficit(u). The per-point `deficit`
+            is a "how far below covered is this point" signal, but its ceiling
+            differs by COMBINE so that ONE clean in-ball label retires a point
+            in both modes (recovering ProbCover when clean):
+
+            * product:  deficit(u) = 1 - max_k P(u). The softmax posterior
+              saturates to ~1 after a single clean in-ball label, so 1 - max_k P
+              already drops covered points to ~0.
+            * additive: deficit(u) = max(f1 - max_k P(u), 0), where f1 is the
+              dominant-class mass a point reaches after exactly one unit-weight
+              (tophat) in-ball label folded into a prior row that sums to 1,
+              f1 = (max_k pi + 1) / (pi.sum() + 1). The additive posterior
+              C/sum(C) only reaches n/(n+1) confidence after n in-ball labels,
+              so the product ceiling of 1 would NEVER retire a covered point and
+              the greedy clumps into dense regions (dense balls keep out-scoring
+              sparse/uncovered ones); the f1 ceiling is exactly Itai David's
+              BAYES_MISP diff_method='max' rule, under which one clean label
+              saturates a point to 0. For tophat K in {0,1},
+              K @ deficit == sum_{u in ball} max(f1 - max_k P(u), 0), i.e.
+              BAYES_MISP's score exactly.
         Returns a [M] tensor of scores (higher = better).
         """
         if self.selection == 'coverage_gain':
-            P = self.posterior()
-            uncertainty = 1.0 - P.max(dim=1).values                    # [M]
-            return self.K @ uncertainty                                # [M]
+            m = self.posterior().max(dim=1).values                     # [M]
+            if self.combine == 'product':
+                deficit = 1.0 - m                                      # [M]
+            else:  # additive -- Itai's saturating ceiling (one label -> deficit 0)
+                f1 = (self.pi.max() + 1.0) / (self.pi.sum() + 1.0)
+                deficit = (f1 - m).clamp_min(0.0)                      # [M]
+            return self.K @ deficit                                    # [M]
         if self.selection == 'entropy':
             raise NotImplementedError(
                 "SELECTION='entropy' (expected uncertainty reduction) is a "
