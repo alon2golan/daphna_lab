@@ -16,16 +16,25 @@ Section numbering is preserved from the original file — §7 lives here, §1–
 night — **verdict ❌ NOT ADOPTED, see §9.1**: clean/.2 negative again (−1.35/−0.43 @100),
 so the out-of-ball direction is closed for good; recommended config unchanged.
 
-### ▶ RESUME HERE (Tuesday 2026-07-14)
+### ▶ RESUME HERE (updated 2026-07-14)
 
-The w(d) question is fully resolved (sweep verified 12/12, collected, verdict written
-into §9.1, takeaway 10 extended in RESULTS, everything committed). Next up per the §9
-execution order:
+**9.4 noise-rate bake-off is DONE (measurement only — see §9.4 "Bake-off DONE" block).**
+Headline: impurity-corrected LOO most accurate (but needs a clean anchor); Dawid–Skene EM
+best assumption-free (separates clean-vs-.2 at every budget, +~0.25 low-noise bias); raw-LOO
+saturates; Netta's q̂ under-estimates at low budget. **Nothing wired into production and no
+estimator adopted yet — Alon deferred the "which one / how to estimate correctly" decision
+to a future session.** Next up per the §9 execution order:
 
-1. **9.4 noise-rate estimator bake-off** (offline, no GPU): impurity-corrected LOO
-   disagreement vs Dawid–Skene EM vs Netta's q̂ (parse the 27 NPC-repro logs), scored
-   against realized noise on the §4.5 replay. Unblocks the §7.1 gate and removes the
-   known-annotator-accuracy assumption.
+1. **9.2 δ replay sweep** (offline): grid {0.5, 0.6, 0.75, 0.9, 1.1} through the §4.5
+   replay metrics. Also directly relevant to 9.4's open question (ball impurity is what caps
+   every disagreement-based noise estimator; smaller δ → less impurity).
+2. **In-ball RBF-weighted product exponents** (the §7.9 replay's 87→96.7 denoising win)
+   — the one remaining *training* change with a measured large effect; 12-run paired sweep.
+3. 9.3 classifier-as-tempered-expert (replay first) and the 9.5 posterior-gain
+   annotator-selection design doc.
+
+*(superseded plan, kept for context)* the original order had 9.4 first, then 9.2:
+1. ~~**9.4 noise-rate estimator bake-off**~~ ✅ DONE 2026-07-14.
 2. **9.2 δ replay sweep** (offline): grid {0.5, 0.6, 0.75, 0.9, 1.1} through the §4.5
    replay metrics; the §8.2 Q3 distance data says ±0.15 in δ moves coverage 8%↔49%.
 3. **In-ball RBF-weighted product exponents** (the §7.9 replay's 87→96.7 denoising win)
@@ -43,6 +52,7 @@ execution order:
 | §8 weekend open questions (thesis / code / distance distro) | ✅ ANSWERED 2026-07-12 (§8; distance data `results/cifar100/nearest_labeled_distance.*`) |
 | §8.3 Q2 + 9.1 offline 1-NN/NW evaluator study | ✅ DONE 2026-07-12 — denoise-then-1NN ≈ best trained arm @ noise .8 with zero training (§8.3 Q2) |
 | §9.1 w(d) distance-decayed OOB weight | ❌ ANSWERED 2026-07-13, NOT ADOPTED (sweep 31058388): clean −1.1..−1.35 at every budget — even the good shell dilutes; out-of-ball closed for good |
+| §9.4 noise-rate estimator bake-off | ✅ MEASURED 2026-07-14 (offline, nothing adopted): DS-EM best assumption-free (separates clean-vs-.2 every budget), impurity-corr LOO most accurate (needs clean anchor), raw-LOO saturates, Netta q̂ under-estimates low-budget — see §9.4 block; **which estimator to adopt deferred** |
 | **Recommended config** | normalized `pseudo all`, covered-only (see RESULTS §0) — CONFIRMED against w(d) too |
 | Best unimplemented spin-off | **in-ball RBF-weighted product exponents** (§7.9 replay: labeled-plane denoising 87→96.7 @100 clean) |
 | Open engineering guards | guard (b) per-ball caps (§7.5); `filtered`/`reweighted` threshold fix (§7.6) |
@@ -556,6 +566,46 @@ natural Bayesian answer, and it estimates the full matrix (asymmetric noise for 
 (c) Netta's q̂ parsed from the 27 NPC-repro logs. Winner gets wired as the §7.1
 `TRAIN_LABEL_MODE=auto` gate *and* replaces the oracle confusion matrix in Step A.
 
+#### ✅ Bake-off DONE 2026-07-14 — MEASUREMENT ONLY (production code untouched, nothing wired)
+
+> **Plain-language summary (read this first if you're revisiting cold).** The pipeline is
+> currently *told* the annotator's noise rate. This experiment asks: **if we weren't told,
+> how well could we guess it?** We took the 12 already-finished `observed` runs
+> (noise 0/.2/.5/.8 × 3 seeds), and for each labeled point looked at what its neighbours'
+> labels imply, then estimated an overall noise rate four ways. We compared each estimate
+> to the *true* fraction of wrong labels in that run. **No training was run and no method
+> was plugged into the pipeline — this only measures which estimator is accurate.** Decision
+> on which one (if any) to actually adopt is deferred to a future session.
+
+Script `batch_utils/eval_noise_rate_estimators.py` (standalone, replays the same
+trajectories as `eval_posterior_quality.py`; sanity: labels regenerate exactly on all 12
+cells, realized noise ≈ nominal). Outputs (in gitignored `results/`, on disk only):
+`results/cifar100/noise_rate_estimators/{noise_rate_estimators.json,.csv,fig_noise_rate_estimators.png}`.
+
+What the four estimators are, and how each did (mean over seeds; "MAE" = mean absolute
+error vs the realized noise rate, over all 4 noise levels × 3 seeds):
+
+| estimator | what it does | result | MAE @B1000 |
+|---|---|---|---|
+| **raw LOO** | fraction of labeled points whose in-ball neighbour *majority* label ≠ their own label (leave-one-out) | ❌ **saturates** — reads 0.47–0.59 even at true noise 0 (the ball-impurity floor of §4.5 D); can't be used as an absolute rate | ~0.30 |
+| **impurity-corrected LOO** | same, then subtract the clean-data floor `f0` and rescale: `q̂=clip((d−f0)/(1−f0))` | ✅ **most accurate** — @B1000 reads 0.01 / 0.19 / 0.49 / 0.81 vs true 0 / 0.19 / 0.50 / 0.79. **Caveat:** `f0` is the impurity floor, which needs a *clean reference set* to calibrate — so this is **not** assumption-free | **0.016** |
+| **Dawid–Skene EM** | self-consistent symmetric-noise EM: alternate (posterior over true labels from neighbours) ↔ (re-estimate the noise rate); no clean data used | ✅ **best without any clean anchor** — monotone and cleanly **separates every level including 0-vs-0.2 at every budget** (+0.09–0.10), but carries a roughly constant low-noise over-estimate (~+0.25–0.35: reads ~0.35 at true 0) because impurity leaks in | ~0.19 |
+| **soft LOO (true M)** ✱ | reference only — uses the *true* confusion matrix (i.e. is told the rate) | reads 0.53–0.83 at true noise 0 — proves the disagreement family's impurity ceiling persists **even when the rate is known**, so impurity, not ignorance of the rate, is the bottleneck | ~0.33 |
+| **Netta's q̂** | `1 − kept/total` from the AUM train-on-clean filter, parsed from the 27 NPC-repro logs (job 30811243) | ❌ **severe low-budget under-estimate** — reads 0.08–0.14 at budget 100 regardless of true noise (AUM needs data); only usable at high budget + mid noise (0.49 vs 0.51 @noise .5, B1000), still low at .8 (0.59 vs 0.79) | n/a (diff. runs) |
+
+**Provisional takeaway (to revisit before adopting anything):**
+- For the **§7.1 `auto` gate** (only needs to *tell clean from noisy*, not a precise number):
+  **Dawid–Skene EM** is the candidate — self-contained, separates clean from 0.2 at every budget.
+- For **replacing the oracle confusion matrix in Step A** (needs an accurate number):
+  **impurity-corrected LOO** at higher budgets, *provided* a clean anchor exists to set `f0`;
+  otherwise DS-EM with a low-noise bias correction.
+- **raw LOO** and **Netta's q̂** are both rejected as absolute estimators (saturation / low-budget
+  under-estimate).
+- Deeper open question surfaced by the soft-LOO reference: ball **impurity** (~32–53% at δ=0.75),
+  not lack of knowledge of the rate, is what caps every neighbour-disagreement estimator — so a
+  future attempt should either shrink δ (couples to 9.2) or down-weight far neighbours in the
+  disagreement count. **No estimator adopted yet; decision deferred.**
+
 ### 9.5 (Idea) Annotator choice by expected posterior gain — unifying NoAA with Bayesian coverage
 
 **Agree — this is a natural and possibly paper-grade unification.** Tomer's NoAA picks the
@@ -578,7 +628,8 @@ annotator quality — the full "who to ask" problem.
    row. **✅ DONE 2026-07-12** — see §8.3 Q2 headlines; denoise-then-1NN ≈ best trained
    arm at noise .8 with zero training.
 2. **9.4** — noise-rate estimator bake-off on the replay (+ parse Netta's q̂ from logs);
-   unblocks §7.1 and the honest "unknown noise" story.
+   unblocks §7.1 and the honest "unknown noise" story. **✅ DONE 2026-07-14 (measurement
+   only, nothing adopted) — see the §9.4 "Bake-off DONE" block.**
 3. **9.2 stage 1** — δ replay sweep (offline).
 4. **In-ball RBF product exponents** (from §7.9 replay) — 12-run paired training sweep;
    the one *training* change with a measured large win (87→96.7 denoising).
