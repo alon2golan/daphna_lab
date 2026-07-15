@@ -20,7 +20,7 @@ logger = lu.get_logger(__name__)
 class ActiveLearning:
     """
     Active Learning orchestrator that delegates to concrete AL strategies.
-    
+
     Uses a factory pattern to instantiate the appropriate algorithm based on config,
     then delegates sampling to that algorithm's sample_from_uSet() method.
     Initializes algorithm-specific state (e.g., DCoM delta tracking) automatically.
@@ -32,10 +32,10 @@ class ActiveLearning:
         self.al_algorithm = self._create_algorithm(train_labels, lset, dataObj, plotting_manager)
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None):
+                         checkpoint_file=None):
         """
         Sample from uSet using the configured algorithm.
-        
+
         Delegates to algorithm instance which has access to data_obj and plotting_manager
         stored in its constructor.
 
@@ -54,21 +54,20 @@ class ActiveLearning:
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
             f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
-        
+
         logger.info(f"Using {self.cfg.ACTIVE_LEARNING.SAMPLING_FN} sampling function for active learning.")
-        
+
         # Delegate to the algorithm instance
         # Algorithms have data_obj and plotting_manager stored in constructor
         activeSet, new_uSet = self.al_algorithm.sample_from_uSet(
             clf_model, lSet, uSet, trainDataset, supportingModels=supportingModels,
             checkpoint_file=checkpoint_file
         )
-        
+
         # Calculate remaining unlabeled set
         new_uSet = np.array(sorted(list(set(uSet) - set(activeSet))))
-        
+
         return activeSet, new_uSet
-        
 
     def _create_algorithm(self, train_labels=None, lset=None, dataObj=None, plotting_manager=None):
         """
@@ -76,33 +75,42 @@ class ActiveLearning:
         Passes data_obj and plotting_manager to each algorithm.
         """
         sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
-        
+
         if sampling_fn in ["prob_cover_orig", "probcover_orig"]:
             return ProbCover(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                            delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
-        
-        elif sampling_fn in ["prob_cover", "probcover"]:
-            if getattr(self.cfg, 'KERNEL_TYPE', None) != 'tophat':
-                logger.info('Warning!! for ProbCover the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
-                print('Warning!! for ProbCover the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+                             delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
 
-                logger.info('Warning!! Running ProbCover as Sparse. Changing K_sparse to True')
-                print('Warning!! Running ProbCover as Sparse. Changing K_sparse to True')
+        elif sampling_fn in ["prob_cover", "probcover", "npc_probcover_crossval", "npc_probcover_knn",
+                             "npc_probcover_aum"]:
+            if getattr(self.cfg, 'KERNEL_TYPE', None) != 'tophat':
+                logger.info('Warning!! for ProbCover/NPC the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+                print('Warning!! for ProbCover/NPC the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+
+                logger.info('Warning!! Running ProbCover/NPC as Sparse. Changing SPARSE_K to True')
+                print('Warning!! Running ProbCover/NPC as Sparse. Changing SPARSE_K to True')
 
                 self.cfg['KERNEL_TYPE'] = 'tophat'
-                self.cfg['K_SPARSE'] = True
+                self.cfg['SPARSE_K'] = True
+
+            if sampling_fn == "npc_probcover_crossval":
+                self.cfg.ACTIVE_LEARNING.NAS_FILTER_METHOD = "crossval"
+            elif sampling_fn == "npc_probcover_knn":
+                self.cfg.ACTIVE_LEARNING.NAS_FILTER_METHOD = "knn"
+            elif sampling_fn == "npc_probcover_aum":
+                self.cfg.ACTIVE_LEARNING.NAS_FILTER_METHOD = "aum"
+
             cmm = CoverageMatrixMethod(self.cfg, train_labels=train_labels)
             return cmm
-                
+
         elif sampling_fn.startswith("typiclust"):
             is_scan = sampling_fn.endswith('dc')
             return TypiClust(self.cfg, lset if lset is not None else [], np.array([]),
-                            budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, is_scan=is_scan)
+                             budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, is_scan=is_scan)
         elif sampling_fn in ["maxherding_orig", "max_herding_orig"]:
             delta = self.cfg.ACTIVE_LEARNING.INITIAL_DELTA
             return MaxHerding(self.cfg, lset if lset is not None else [], np.array([]),
-                            self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, delta=delta)
-        
+                              self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, delta=delta)
+
         elif sampling_fn in ["maxherding", "max_herding"]:
             if getattr(self.cfg, 'KERNEL_TYPE', None) != 'rbf':
                 logger.info('Warning!! for MaxHerding the Kernel must be RBF. Changing KERNEL_TYPE to rbf')
@@ -114,11 +122,11 @@ class ActiveLearning:
         # DCoM (handles its own delta initialization internally)
         elif sampling_fn == "dcom":
             return DCoM(self.cfg, lset if lset is not None else [], [],
-                       budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
-                       max_delta=self.cfg.ACTIVE_LEARNING.MAX_DELTA,
-                       lSet_deltas=[],  # DCoM will initialize if empty
-                       data_obj=dataObj, plotting_manager=plotting_manager)
-        
+                        budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
+                        max_delta=self.cfg.ACTIVE_LEARNING.MAX_DELTA,
+                        lSet_deltas=[],  # DCoM will initialize if empty
+                        data_obj=dataObj, plotting_manager=plotting_manager)
+
         # Traditional sampling methods and special cases (from Sampling class)
         elif sampling_fn in ["random", "uncertainty", "entropy", "margin", "dbal", "bald", "ensemble_var_r"]:
             return Sampling(dataObj=dataObj, cfg=self.cfg)

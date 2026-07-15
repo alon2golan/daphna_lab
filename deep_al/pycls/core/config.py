@@ -199,6 +199,19 @@ _C.ACTIVE_LEARNING.MAX_DELTA = 1.1  # Max Delta for DCoM algorithm
 _C.ACTIVE_LEARNING.DELTA_RESOLUTION = 0.05  # Delta resolution for the binary search in DCoM algorithm
 _C.ACTIVE_LEARNING.FINE_TUNE = True  # continue after AL from existing model or from scratch
 
+# Noise-aware selection / NPC options
+_C.ACTIVE_LEARNING.NAS_FILTER_METHOD = 'none'  # none/crossval/knn/aum
+_C.ACTIVE_LEARNING.NAS_CV_FOLDS = 3
+_C.ACTIVE_LEARNING.NAS_CV_MAX_ITER = 300
+_C.ACTIVE_LEARNING.NAS_KNN_K = -1  # -1 means max(1, |L| / num_classes)
+_C.ACTIVE_LEARNING.NAS_AUM_EPOCHS = 40
+_C.ACTIVE_LEARNING.NAS_AUM_FAKE_RATIO = 1.0
+_C.ACTIVE_LEARNING.NAS_AUM_FAKE_PERCENTILE = 80.0
+_C.ACTIVE_LEARNING.NAS_AUM_LR = 0.1
+_C.ACTIVE_LEARNING.NAS_AUM_WEIGHT_DECAY = 0.0
+_C.ACTIVE_LEARNING.NAS_NOISE_DROPOUT = True
+_C.ACTIVE_LEARNING.NAS_NOISE_DROPOUT_MIN_FRACTION = 0.1
+
 # ---------------------------------------------------------------------------- #
 # Common train/test data loader options
 # ---------------------------------------------------------------------------- #

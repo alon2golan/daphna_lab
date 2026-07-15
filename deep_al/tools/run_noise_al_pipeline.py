@@ -78,6 +78,7 @@ CIFAR_N_VARIANTS = {
 COLD_START_AL_METHODS = {
     "typiclust", "typiclust_rp", "typiclust_dc",
     "probcover", "prob_cover", "probcover_orig", "prob_cover_orig",
+    "npc_probcover_crossval", "npc_probcover_knn", "npc_probcover_aum",
     "dcom",
     "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
     "misp", "mispc", "misp_plus", "all_misp",
@@ -268,7 +269,7 @@ def apply_paper_hparams(cfg: Any, pipeline: Dict[str, Any]) -> Dict[str, Dict[st
         # TypiClust constants are class constants in typiclust.py: K_NN=20, MAX_NUM_CLUSTERS=500, MIN_CLUSTER_SIZE=5.
         pass
 
-    elif al_name in {"probcover", "prob_cover", "probcover_orig", "prob_cover_orig"}:
+    elif al_name in {"probcover", "prob_cover", "probcover_orig", "prob_cover_orig", "npc_probcover_crossval", "npc_probcover_knn", "npc_probcover_aum"}:
         _set_default_cfg(cfg, pipeline, applied, "KERNEL_TYPE", "tophat", "ProbCover uses radius balls / TopHat kernel", run_arg="kernel_type")
         _set_default_cfg(cfg, pipeline, applied, "SPARSE_K", True, "ProbCover graph is sparse coverage", run_arg="sparse_K")
         delta, reason = _delta_from_table(cfg, prefer_dcom_table=True)
@@ -412,6 +413,17 @@ def build_cfg(cfg_file: str, pipeline: Dict[str, Any]) -> Any:
         "DECREASING_ALPHA": run_args.get("decrease_alpha"),
         "ACTIVE_LEARNING.A_LOGISTIC": run_args.get("a_logistic"),
         "ACTIVE_LEARNING.K_LOGISTIC": run_args.get("k_logistic"),
+        "ACTIVE_LEARNING.NAS_FILTER_METHOD": run_args.get("nas_filter_method"),
+        "ACTIVE_LEARNING.NAS_CV_FOLDS": run_args.get("nas_cv_folds"),
+        "ACTIVE_LEARNING.NAS_CV_MAX_ITER": run_args.get("nas_cv_max_iter"),
+        "ACTIVE_LEARNING.NAS_KNN_K": run_args.get("nas_knn_k"),
+        "ACTIVE_LEARNING.NAS_AUM_EPOCHS": run_args.get("nas_aum_epochs"),
+        "ACTIVE_LEARNING.NAS_AUM_FAKE_RATIO": run_args.get("nas_aum_fake_ratio"),
+        "ACTIVE_LEARNING.NAS_AUM_FAKE_PERCENTILE": run_args.get("nas_aum_fake_percentile"),
+        "ACTIVE_LEARNING.NAS_AUM_LR": run_args.get("nas_aum_lr"),
+        "ACTIVE_LEARNING.NAS_AUM_WEIGHT_DECAY": run_args.get("nas_aum_weight_decay"),
+        "ACTIVE_LEARNING.NAS_NOISE_DROPOUT": run_args.get("nas_noise_dropout"),
+        "ACTIVE_LEARNING.NAS_NOISE_DROPOUT_MIN_FRACTION": run_args.get("nas_noise_dropout_min_fraction"),
     }
     _apply_eval_model_alias(args_dict, run_args.get("eval_model_type"))
 
@@ -962,11 +974,43 @@ def make_loaders(data_obj: Any, cfg: Any, lSet: np.ndarray, valSet: np.ndarray, 
     return lSet_loader, valSet_loader, test_loader
 
 
-def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, train_data, uSet, valSet, clean_val_data, al_obj, train_al_module, pipeline):
+def active_sampling_part(
+    cfg,
+    checkpoint_file,
+    cur_episode,
+    data_obj,
+    lSet,
+    train_data,
+    uSet,
+    valSet,
+    clean_val_data,
+    al_obj,
+    train_al_module,
+    pipeline,
+    npc_filter_results,
+):
     logger.info("======== ACTIVE SAMPLING ========")
     log_episode_state(cfg, pipeline, cur_episode, lSet, uSet, valSet, "before_active_sampling")
     clf_model = train_al_module.mh.get_model(cfg, checkpoint_file)
-    activeSet, new_uSet = al_obj.sample_from_uSet(clf_model, lSet, uSet, train_data, checkpoint_file=checkpoint_file)
+    activeSet, new_uSet = al_obj.sample_from_uSet(
+        clf_model,
+        lSet,
+        uSet,
+        train_data,
+        checkpoint_file=checkpoint_file,
+    )
+
+    algorithm = getattr(al_obj, "al_algorithm", None)
+    npc_stats = getattr(algorithm, "last_npc_filter_stats", None)
+    if isinstance(npc_stats, dict):
+        npc_entry = {"episode": int(cur_episode), **copy.deepcopy(npc_stats)}
+        npc_filter_results.append(npc_entry)
+        append_to_single_run_log(
+            cfg,
+            f"NPC_FILTER_STATS_EPISODE_{cur_episode}",
+            npc_entry,
+        )
+        logger.info("NPC_FILTER_STATS %s", json.dumps(_jsonify(npc_entry), sort_keys=True))
 
     data_obj.saveSets(lSet, uSet, activeSet, cfg.EPISODE_DIR)
     lSet = np.append(lSet, activeSet)
@@ -1183,6 +1227,18 @@ def evaluate_final_knn(
 
 
 
+
+def _nas_filter_from_al_method(al_method: Optional[str]) -> Optional[str]:
+    name = "" if al_method is None else str(al_method).lower().replace("-", "_")
+    if name == "npc_probcover_crossval":
+        return "crossval"
+    if name == "npc_probcover_knn":
+        return "knn"
+    if name == "npc_probcover_aum":
+        return "aum"
+    return None
+
+
 def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_method: Optional[str], noise_method: Optional[str], exp_name: str) -> Dict[str, Any]:
     if args.cifar_n_variant not in CIFAR_N_VARIANTS:
         raise ValueError(f"Invalid cifar_n_variant={args.cifar_n_variant}")
@@ -1204,6 +1260,9 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "method": al_method,
             "budget": args.budget,
             "max_iter": args.max_iter,
+            "nas_filter_method": args.nas_filter_method or _nas_filter_from_al_method(al_method),
+            "nas_noise_dropout": bool(args.nas_noise_dropout),
+            "nas_noise_dropout_min_fraction": float(args.nas_noise_dropout_min_fraction),
         },
         "noise_handling": {
             "method": noise_method_norm,
@@ -1260,6 +1319,17 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "decrease_alpha": args.decrease_alpha,
             "a_logistic": args.a_logistic,
             "k_logistic": args.k_logistic,
+            "nas_filter_method": args.nas_filter_method,
+            "nas_cv_folds": args.nas_cv_folds,
+            "nas_cv_max_iter": args.nas_cv_max_iter,
+            "nas_knn_k": args.nas_knn_k,
+            "nas_aum_epochs": args.nas_aum_epochs,
+            "nas_aum_fake_ratio": args.nas_aum_fake_ratio,
+            "nas_aum_fake_percentile": args.nas_aum_fake_percentile,
+            "nas_aum_lr": args.nas_aum_lr,
+            "nas_aum_weight_decay": args.nas_aum_weight_decay,
+            "nas_noise_dropout": args.nas_noise_dropout,
+            "nas_noise_dropout_min_fraction": args.nas_noise_dropout_min_fraction,
         },
     }
 
@@ -1350,6 +1420,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
     episode_training_times = []
     episode_al_times = []
     noise_method_results = []
+    npc_filter_results = []
     final_train_acc = final_val_acc = final_test_acc = 0.0
     final_knn_eval = None
     checkpoint_file = None
@@ -1388,7 +1459,19 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         start = time.time()
         try:
             lSet, lSet_loader, uSet, valSet_loader = active_sampling_part(
-                cfg, checkpoint_file, cur_episode, data_obj, lSet, train_data, uSet, valSet, clean_train_data, al_obj, train_al_module, pipeline
+                cfg,
+                checkpoint_file,
+                cur_episode,
+                data_obj,
+                lSet,
+                train_data,
+                uSet,
+                valSet,
+                clean_train_data,
+                al_obj,
+                train_al_module,
+                pipeline,
+                npc_filter_results,
             )
         except Exception as exc:
             tb = traceback.format_exc()
@@ -1455,6 +1538,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         "episode_training_times": episode_training_times,
         "episode_al_times": episode_al_times,
         "noise_method_results": noise_method_results,
+        "npc_filter_results": npc_filter_results,
         "episode_states": episode_states,
     }
     log_run_summary(cfg, pipeline, "FINAL RUN SUMMARY", extra=final_extra)
@@ -1479,6 +1563,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
             "episode_training_times": episode_training_times,
             "episode_al_times": episode_al_times,
             "noise_method_results": noise_method_results,
+            "npc_filter_results": npc_filter_results,
             "episode_states": episode_states,
             "paper_hparams_applied": pipeline.get("paper_hparams_applied", {}),
         },
@@ -1567,6 +1652,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--a_logistic", default=None, type=float)
     parser.add_argument("--k_logistic", default=None, type=int)
     parser.add_argument("--soft_border_val", default=None, type=float)
+    parser.add_argument("--nas_filter_method", default=None, choices=["none", "crossval", "knn", "aum"], type=str)
+    parser.add_argument("--nas_cv_folds", default=3, type=int)
+    parser.add_argument("--nas_cv_max_iter", default=300, type=int)
+    parser.add_argument("--nas_knn_k", default=-1, type=int)
+    parser.add_argument("--nas_aum_epochs", default=40, type=int)
+    parser.add_argument("--nas_aum_fake_ratio", default=1.0, type=float)
+    parser.add_argument("--nas_aum_fake_percentile", default=80.0, type=float)
+    parser.add_argument("--nas_aum_lr", default=0.1, type=float)
+    parser.add_argument("--nas_aum_weight_decay", default=0.0, type=float)
+    parser.set_defaults(nas_noise_dropout=True)
+    parser.add_argument(
+        "--nas_noise_dropout",
+        dest="nas_noise_dropout",
+        action="store_true",
+        help="Enable the Shafir et al. NAS noise-dropout rule during query selection.",
+    )
+    parser.add_argument(
+        "--no_nas_noise_dropout",
+        dest="nas_noise_dropout",
+        action="store_false",
+        help="Disable NAS noise dropout.",
+    )
+    parser.add_argument(
+        "--nas_noise_dropout_min_fraction",
+        default=0.1,
+        type=float,
+        help="Minimum eta in eta=max(min(q_hat,1-q_hat), eta_min).",
+    )
 
     parser.add_argument("--also_eval_knn", action="store_true", help="After regular supervised training, also fit KNN on the final labeled set and evaluate train/val/test.")
     parser.add_argument("--knn_k", default=1, type=int, help="K for the additional final KNN evaluation.")
@@ -1641,6 +1754,38 @@ def _sum_noise_cleaning_results(noise_method_results: Any) -> Dict[str, Any]:
     return totals
 
 
+
+def _sum_npc_filter_results(npc_filter_results: Any) -> Dict[str, Any]:
+    """Aggregate NPC detector and noise-dropout statistics across AL queries."""
+    totals = {
+        "num_filter_calls": 0,
+        "pred_noisy_before_dropout": 0,
+        "noise_dropout_restored": 0,
+        "pred_noisy_after_dropout": 0,
+        "oracle_true_noisy": 0,
+        "oracle_correctly_flagged_before_dropout": 0,
+        "oracle_clean_flagged_before_dropout": 0,
+        "oracle_missed_noisy_before_dropout": 0,
+        "oracle_correctly_flagged": 0,
+        "oracle_clean_flagged": 0,
+        "oracle_missed_noisy": 0,
+    }
+    if not isinstance(npc_filter_results, list):
+        return totals
+
+    for item in npc_filter_results:
+        if not isinstance(item, dict):
+            continue
+        totals["num_filter_calls"] += 1
+        for key in list(totals.keys()):
+            if key == "num_filter_calls":
+                continue
+            try:
+                totals[key] += int(item.get(key, 0) or 0)
+            except Exception:
+                pass
+    return totals
+
 def _safe_sum(xs: Any) -> Optional[float]:
     try:
         return float(sum(float(x) for x in xs))
@@ -1677,6 +1822,9 @@ def _light_grid_entry(combo_name: str, pipeline: Dict[str, Any], results: Dict[s
         "noise_type": noise_cfg.get("type") or "clean",
         "noise_rate": noise_cfg.get("rate"),
         "al_method": al_cfg.get("method"),
+        "nas_filter_method": al_cfg.get("nas_filter_method"),
+        "nas_noise_dropout": al_cfg.get("nas_noise_dropout"),
+        "nas_noise_dropout_min_fraction": al_cfg.get("nas_noise_dropout_min_fraction"),
         "noise_method": nh_cfg.get("method") or "none",
         "loss_fun": loss_fun,
         "effective_loss_fun": summary.get("effective_loss_fun"),
@@ -1707,6 +1855,8 @@ def _light_grid_entry(combo_name: str, pipeline: Dict[str, Any], results: Dict[s
         "knn_k_effective": final_knn.get("k_effective"),
 
         "noise_cleaning_totals": _sum_noise_cleaning_results(summary.get("noise_method_results", [])),
+        "npc_filter_totals": _sum_npc_filter_results(summary.get("npc_filter_results", [])),
+        "npc_filter_results": summary.get("npc_filter_results", []),
 
         "total_training_time_s": _safe_sum(summary.get("episode_training_times", [])),
         "total_al_time_s": _safe_sum(summary.get("episode_al_times", [])),

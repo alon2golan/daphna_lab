@@ -2,6 +2,9 @@ import time
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from collections import Counter
 from tqdm import tqdm
 import deep_al.pycls.datasets.utils as ds_utils
 from deep_al.pycls.al.kernel_utils import build_K_general_matrix, RBFKernel, TopHatKernel
@@ -9,7 +12,7 @@ from deep_al.pycls.al.kernel_utils import build_K_general_matrix, RBFKernel, Top
 torch.cuda.empty_cache()
 
 
-class   CoverageMatrixMethod:
+class CoverageMatrixMethod:
     def __init__(self, cfg, train_labels):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
@@ -22,16 +25,20 @@ class   CoverageMatrixMethod:
 
         mat_type = getattr(self.cfg, 'MATRIX_DTYPE', 'float32')
         self.matrices_type = getattr(torch, mat_type)
-        
+
         self.features_gpu = torch.from_numpy(self.all_features).to(self.device, dtype=self.matrices_type)
         self.budgetSize = cfg.ACTIVE_LEARNING.BUDGET_SIZE
         self.sigma = cfg.ACTIVE_LEARNING.INITIAL_SIGMA if 'INITIAL_SIGMA' in cfg.ACTIVE_LEARNING else 1.0
-
+        self.sampling_fn = str(cfg.ACTIVE_LEARNING.SAMPLING_FN).lower().replace('-', '_')
+        self.is_npc = self.sampling_fn.startswith('npc_probcover')
+        self.nas_filter_method = str(getattr(cfg.ACTIVE_LEARNING, 'NAS_FILTER_METHOD', 'none')).lower()
+        self.last_npc_filter_stats = None
+        self.npc_filter_history = []
 
         self.alpha = 0
         if cfg.ACTIVE_LEARNING.INITIAL_DELTA < 0:
             print("Delta not specified. Starting automated selection process...")
-    
+
             # Track time for performance monitoring
             start_time = time.time()
 
@@ -77,14 +84,13 @@ class   CoverageMatrixMethod:
         )
 
         self.C_general = torch.full((self.all_features.shape[0], unique_labels.size), self.alpha, device=self.device,
-                                        dtype=self.matrices_type)
+                                    dtype=self.matrices_type)
 
-
-    def init_sampling_loop(self, lset, uset):
+    def init_sampling_loop(self, lset, uset, clean_lset_pos=None):
         torch.cuda.empty_cache()
         self.set_rel_features(lset, uset)
         self.activeSet = []
-        
+
         if self.use_sparse:
             K_csr_shuffled = self.K_general[self.relevant_indices, :][:, self.relevant_indices]
             crow_indices = torch.from_numpy(K_csr_shuffled.indptr).to(torch.int64)
@@ -101,10 +107,29 @@ class   CoverageMatrixMethod:
             del K_csr_shuffled, values, col_indices, crow_indices
         else:
             self.K = self.K_general[self.relevant_indices, :][:, self.relevant_indices]
-        self.K =  self.K.to(self.device) if self.K is not None else None
-        self.C = self.C_general[self.relevant_indices]
+        self.K = self.K.to(self.device) if self.K is not None else None
         self.train_labels = self.train_labels_general[self.relevant_indices]
-        
+
+        if self.is_npc:
+            # NAS/NPC: recompute the coverage state from scratch each episode.
+            # Clean labeled points cover their neighborhoods; suspected noisy points do not.
+            self.C = torch.full(
+                (len(self.relevant_indices), self.num_of_classes),
+                self.alpha,
+                device=self.device,
+                dtype=self.matrices_type,
+            )
+            if clean_lset_pos is not None and len(clean_lset_pos) > 0:
+                clean_lset_pos = np.asarray(clean_lset_pos, dtype=int)
+                for pos in clean_lset_pos:
+                    label = int(self.train_labels[int(pos)])
+                    K_row_dense = self.K[int(pos)].to_dense().squeeze() if self.use_sparse else self.K[
+                        int(pos)].squeeze()
+                    self.C[:, label] = torch.maximum(self.C[:, label], K_row_dense)
+                    del K_row_dense
+        else:
+            self.C = self.C_general[self.relevant_indices]
+
     def set_rel_features(self, lset, uset):
         self.lSet = lset
         self.uSet = uset
@@ -114,9 +139,313 @@ class   CoverageMatrixMethod:
             self.rel_features = self.all_features[self.relevant_indices]
         elif isinstance(self.all_features, np.ndarray):
             self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices])
-    
+
+    @staticmethod
+    def _l2_normalize_np(x, eps=1e-12):
+        x = np.asarray(x, dtype=np.float32)
+        return x / np.maximum(np.linalg.norm(x, axis=1, keepdims=True), eps)
+
+    @staticmethod
+    def _get_current_labels_from_dataset(trainDataset):
+        if hasattr(trainDataset, "noisy_labels"):
+            return np.asarray(trainDataset.noisy_labels, dtype=np.int64)
+        if hasattr(trainDataset, "targets"):
+            return np.asarray(trainDataset.targets, dtype=np.int64)
+        if hasattr(trainDataset, "dataset") and hasattr(trainDataset.dataset, "targets"):
+            return np.asarray(trainDataset.dataset.targets, dtype=np.int64)
+        raise RuntimeError("Could not read current labels from trainDataset")
+
+    @staticmethod
+    def _get_clean_labels_from_dataset(trainDataset):
+        if hasattr(trainDataset, "clean_labels"):
+            return np.asarray(trainDataset.clean_labels, dtype=np.int64)
+        return None
+
+    def _npc_stats(self, lset, noisy_mask, method):
+        lset = np.asarray(lset, dtype=int)
+        noisy_mask = np.asarray(noisy_mask, dtype=bool)
+        stats = {
+            "method": method,
+            "labeled_size": int(len(lset)),
+            "pred_noisy": int(noisy_mask.sum()),
+            "pred_clean": int(len(lset) - noisy_mask.sum()),
+            "predicted_noise_rate": float(noisy_mask.mean()) if len(noisy_mask) else 0.0,
+        }
+        return stats
+
+    def _apply_noise_dropout(self, noisy_mask, lset):
+        """Apply the NAS noise-dropout rule from Shafir et al.
+
+        Let q_hat be the predicted noise rate and
+            eta = max(min(q_hat, 1 - q_hat), min_fraction).
+        Randomly restore eta of the samples predicted as noisy to the clean set
+        for query selection only. Labels and the training set are not changed.
+        """
+        noisy_mask = np.asarray(noisy_mask, dtype=bool).copy()
+        enabled = bool(getattr(self.cfg.ACTIVE_LEARNING, "NAS_NOISE_DROPOUT", True))
+        min_fraction = float(
+            getattr(self.cfg.ACTIVE_LEARNING, "NAS_NOISE_DROPOUT_MIN_FRACTION", 0.1)
+        )
+        min_fraction = float(np.clip(min_fraction, 0.0, 1.0))
+
+        before = int(noisy_mask.sum())
+        q_hat = float(noisy_mask.mean()) if len(noisy_mask) else 0.0
+        info = {
+            "noise_dropout_enabled": enabled,
+            "pred_noisy_before_dropout": before,
+            "predicted_noise_rate_before_dropout": q_hat,
+            "noise_dropout_eta": 0.0,
+            "noise_dropout_restored": 0,
+        }
+
+        if (not enabled) or before == 0:
+            info["pred_noisy_after_dropout"] = before
+            info["predicted_noise_rate_after_dropout"] = q_hat
+            return noisy_mask, info
+
+        eta = float(max(min(q_hat, 1.0 - q_hat), min_fraction))
+        eta = float(np.clip(eta, 0.0, 1.0))
+        n_restore = int(round(eta * before))
+        n_restore = min(max(n_restore, 0), before)
+
+        if n_restore > 0:
+            noisy_positions = np.flatnonzero(noisy_mask)
+            # Deterministic per seed and AL query while still varying by episode.
+            query_index = len(self.npc_filter_history)
+            rng_seed = int(self.seed or 0) + 1009 * int(len(lset)) + 7919 * query_index
+            rng = np.random.default_rng(rng_seed)
+            restored = rng.choice(noisy_positions, size=n_restore, replace=False)
+            noisy_mask[restored] = False
+
+        after = int(noisy_mask.sum())
+        info.update({
+            "noise_dropout_eta": eta,
+            "noise_dropout_restored": int(before - after),
+            "pred_noisy_after_dropout": after,
+            "predicted_noise_rate_after_dropout": (
+                float(noisy_mask.mean()) if len(noisy_mask) else 0.0
+            ),
+        })
+        return noisy_mask, info
+
+    def _crossval_noisy_mask(self, trainDataset, lset):
+        """Netta-style CrossValidation filter.
+
+        Train k linear classifiers on SSL features. A sample is suspected noisy if fewer
+        than half of the models predict its current label.
+        """
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.model_selection import KFold
+
+        lset = np.asarray(lset, dtype=int)
+        y_all = self._get_current_labels_from_dataset(trainDataset)
+        y = y_all[lset]
+        x = self._l2_normalize_np(self.all_features[lset])
+
+        n = len(lset)
+        folds = int(max(2, min(getattr(self.cfg.ACTIVE_LEARNING, "NAS_CV_FOLDS", 3), n)))
+        max_iter = int(getattr(self.cfg.ACTIVE_LEARNING, "NAS_CV_MAX_ITER", 300))
+
+        if n < 2 or len(np.unique(y)) < 2:
+            return np.zeros(n, dtype=bool), {"reason": "too_few_samples_or_classes"}
+
+        agree = np.zeros(n, dtype=np.int64)
+        valid_models = 0
+        splitter = KFold(n_splits=folds, shuffle=True, random_state=int(self.seed or 0))
+        for train_pos, _ in splitter.split(x):
+            y_train = y[train_pos]
+            if len(np.unique(y_train)) < 2:
+                continue
+            clf = LogisticRegression(max_iter=max_iter, solver="lbfgs", n_jobs=-1)
+            clf.fit(x[train_pos], y_train)
+            pred = clf.predict(x)
+            agree += (pred.astype(np.int64) == y)
+            valid_models += 1
+
+        if valid_models == 0:
+            return np.zeros(n, dtype=bool), {"reason": "no_valid_cv_models"}
+
+        noisy = agree < (valid_models / 2.0)
+        return noisy.astype(bool), {
+            "valid_models": int(valid_models),
+            "agree_min": int(agree.min()),
+            "agree_max": int(agree.max()),
+            "agree_mean": float(agree.mean()),
+        }
+
+    def _knn_noisy_mask(self, trainDataset, lset):
+        """Appendix-style kNN filter over labeled SSL features."""
+        from sklearn.neighbors import NearestNeighbors
+
+        lset = np.asarray(lset, dtype=int)
+        y_all = self._get_current_labels_from_dataset(trainDataset)
+        y = y_all[lset]
+        x = self._l2_normalize_np(self.all_features[lset])
+
+        n = len(lset)
+        if n <= 1:
+            return np.zeros(n, dtype=bool), {"reason": "too_few_samples"}
+
+        k_cfg = int(getattr(self.cfg.ACTIVE_LEARNING, "NAS_KNN_K", -1))
+        if k_cfg <= 0:
+            k = max(1, int(n // max(1, int(self.cfg.MODEL.NUM_CLASSES))))
+        else:
+            k = k_cfg
+        k = int(min(k, n - 1))
+
+        nn = NearestNeighbors(n_neighbors=k + 1, metric="euclidean", n_jobs=-1)
+        nn.fit(x)
+        _, neigh = nn.kneighbors(x, return_distance=True)
+
+        noisy = np.zeros(n, dtype=bool)
+        for i in range(n):
+            neigh_i = neigh[i, 1:]  # remove self
+            votes = y[neigh_i]
+            if len(votes) == 0:
+                continue
+            majority = Counter(votes.tolist()).most_common(1)[0][0]
+            noisy[i] = int(majority) != int(y[i])
+
+        return noisy, {"k": int(k)}
+
+    def _lowbudget_aum_noisy_mask(self, trainDataset, lset, uset):
+        """Low-budget AUM-style filter on frozen SSL features with a fake class.
+
+        This is the paper-faithful direction: train a small linear classifier on
+        labeled features + fake-class unlabeled features, track average margins,
+        and threshold labeled samples by the fake-class AUM percentile.
+        """
+        lset = np.asarray(lset, dtype=int)
+        uset = np.asarray(uset, dtype=int)
+        y_all = self._get_current_labels_from_dataset(trainDataset)
+        y_l = y_all[lset]
+        x_l = self._l2_normalize_np(self.all_features[lset])
+
+        n = len(lset)
+        if n < 2 or len(np.unique(y_l)) < 2 or len(uset) == 0:
+            return np.zeros(n, dtype=bool), {"reason": "too_few_samples_classes_or_unlabeled"}
+
+        fake_ratio = float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_RATIO", 1.0))
+        n_fake = int(max(1, min(len(uset), round(fake_ratio * n))))
+        rng = np.random.default_rng(int(self.seed or 0) + 1337 + n)
+        fake_idx = rng.choice(uset, size=n_fake, replace=False)
+        x_fake = self._l2_normalize_np(self.all_features[fake_idx])
+
+        num_classes = int(self.cfg.MODEL.NUM_CLASSES)
+        fake_class = num_classes
+
+        x = np.concatenate([x_l, x_fake], axis=0).astype(np.float32)
+        y = np.concatenate([y_l, np.full(n_fake, fake_class, dtype=np.int64)], axis=0)
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        epochs = int(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_EPOCHS", 40))
+        aum_seed = int(self.seed or 0) + 4242 + n
+
+        # select_samples() intentionally runs under torch.inference_mode().
+        # LowBudgetAUM is the one part that must train a linear classifier, so
+        # gradients are locally re-enabled without changing the rest of sampling.
+        fork_devices = [torch.cuda.current_device()] if device.type == "cuda" else []
+        with torch.inference_mode(False), torch.enable_grad(), torch.random.fork_rng(devices=fork_devices):
+            torch.manual_seed(aum_seed)
+            if device.type == "cuda":
+                torch.cuda.manual_seed_all(aum_seed)
+
+            xt = torch.from_numpy(x).to(device)
+            yt = torch.from_numpy(y).to(device)
+
+            model = nn.Linear(xt.shape[1], num_classes + 1).to(device)
+            opt = torch.optim.SGD(
+                model.parameters(),
+                lr=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_LR", 0.1)),
+                weight_decay=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_WEIGHT_DECAY", 0.0)),
+            )
+            margin_sum = torch.zeros(xt.shape[0], device=device)
+
+            for _ in range(max(1, epochs)):
+                logits = model(xt)
+                with torch.no_grad():
+                    true_logits = logits.gather(1, yt.view(-1, 1)).squeeze(1)
+                    other_logits = logits.detach().clone()
+                    other_logits[torch.arange(yt.numel(), device=device), yt] = -float("inf")
+                    max_other = other_logits.max(dim=1).values
+                    margin_sum += (true_logits.detach() - max_other)
+
+                loss = F.cross_entropy(logits, yt)
+                opt.zero_grad(set_to_none=True)
+                loss.backward()
+                opt.step()
+
+            aum = (margin_sum / float(max(1, epochs))).detach().cpu().numpy()
+        labeled_aum = aum[:n]
+        fake_aum = aum[n:]
+        percentile = float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_PERCENTILE", 80.0))
+        threshold = float(np.percentile(fake_aum, percentile))
+        noisy = labeled_aum <= threshold
+
+        return noisy.astype(bool), {
+            "epochs": int(epochs),
+            "n_fake": int(n_fake),
+            "fake_percentile": float(percentile),
+            "threshold": threshold,
+            "labeled_aum_mean": float(labeled_aum.mean()),
+            "fake_aum_mean": float(fake_aum.mean()),
+        }
+
+    def _npc_clean_lset_positions(self, trainDataset, lset, uset):
+        method = str(self.nas_filter_method or "none").lower()
+        lset = np.asarray(lset, dtype=int)
+
+        if len(lset) == 0 or method in ["none", ""]:
+            noisy_mask = np.zeros(len(lset), dtype=bool)
+            extra = {"reason": "empty_or_no_filter"}
+        elif method == "crossval":
+            noisy_mask, extra = self._crossval_noisy_mask(trainDataset, lset)
+        elif method == "knn":
+            noisy_mask, extra = self._knn_noisy_mask(trainDataset, lset)
+        elif method == "aum":
+            noisy_mask, extra = self._lowbudget_aum_noisy_mask(trainDataset, lset, uset)
+        else:
+            raise ValueError(f"Unknown NAS_FILTER_METHOD={method}")
+
+        raw_noisy_mask = np.asarray(noisy_mask, dtype=bool).copy()
+        noisy_mask, dropout_info = self._apply_noise_dropout(raw_noisy_mask, lset)
+
+        clean_pos = np.where(~noisy_mask)[0].astype(int)
+        stats = self._npc_stats(lset, noisy_mask, method)
+        stats.update(extra or {})
+        stats.update(dropout_info)
+        stats["query_index"] = int(len(self.npc_filter_history))
+        stats["unlabeled_size"] = int(len(uset))
+
+        clean_labels = self._get_clean_labels_from_dataset(trainDataset)
+        if clean_labels is not None and len(lset) > 0:
+            current = self._get_current_labels_from_dataset(trainDataset)[lset]
+            true_noisy = current != clean_labels[lset]
+            stats.update({
+                # Detector quality before noise dropout.
+                "oracle_true_noisy": int(true_noisy.sum()),
+                "oracle_correctly_flagged_before_dropout": int(
+                    (raw_noisy_mask & true_noisy).sum()
+                ),
+                "oracle_clean_flagged_before_dropout": int(
+                    (raw_noisy_mask & (~true_noisy)).sum()
+                ),
+                "oracle_missed_noisy_before_dropout": int(
+                    ((~raw_noisy_mask) & true_noisy).sum()
+                ),
+                # Effective NPC mask after noise dropout.
+                "oracle_correctly_flagged": int((noisy_mask & true_noisy).sum()),
+                "oracle_clean_flagged": int((noisy_mask & (~true_noisy)).sum()),
+                "oracle_missed_noisy": int(((~noisy_mask) & true_noisy).sum()),
+            })
+
+        self.last_npc_filter_stats = dict(stats)
+        self.npc_filter_history.append(dict(stats))
+        print(f"NPC filter stats: {stats}")
+        return clean_pos
+
     @torch.inference_mode()
-    def select_samples(self, lset, uset):
+    def select_samples(self, lset, uset, trainDataset=None, checkpoint_file=None):
         """
         selecting samples using the greedy algorithm.
         iteratively:
@@ -125,7 +454,12 @@ class   CoverageMatrixMethod:
 
         """
 
-        self.init_sampling_loop(lset, uset)
+        clean_lset_pos = None
+        if self.is_npc:
+            if trainDataset is None:
+                raise RuntimeError('NPC selection requires trainDataset for noise filtering')
+            clean_lset_pos = self._npc_clean_lset_positions(trainDataset, lset, uset)
+        self.init_sampling_loop(lset, uset, clean_lset_pos=clean_lset_pos)
 
         print(f'Start selecting {self.budgetSize} samples.')
         selected = []
@@ -135,22 +469,21 @@ class   CoverageMatrixMethod:
             max_vals, indices = torch.max(self.C, dim=1)
             if self.use_sparse:
                 point_total_contribution = batched_diffs_sparse(self.K, max_vals, 0, self.num_of_classes,
-                                                         diff_method="abs_diff")
+                                                                diff_method="abs_diff")
             else:
                 point_total_contribution = batched_diffs(self.K, max_vals, 0, self.num_of_classes,
-                                                     diff_method="abs_diff")
-
+                                                         diff_method="abs_diff")
 
             point_total_contribution[curr_l_set] = -np.inf
-            
+
             sampled_point = torch.argmax(point_total_contribution).item()
             # sampled_point = np.argsort(-point_total_contribution.cpu().numpy(), kind='stable')[0].item()
             chosen_label = self.train_labels[sampled_point].item()
 
-            K_row_dense = self.K[sampled_point].to_dense().squeeze()
+            K_row_dense = self.K[sampled_point].to_dense().squeeze() if self.use_sparse else self.K[
+                sampled_point].squeeze()
 
             self.C[:, chosen_label] = torch.maximum(self.C[:, chosen_label], K_row_dense)
-
 
             assert sampled_point not in selected, 'sample was already selected'
             selected.append(sampled_point)
@@ -159,7 +492,8 @@ class   CoverageMatrixMethod:
         assert len(selected) == self.budgetSize, 'added a different number of samples'
         activeSet = self.relevant_indices[selected]
 
-        self.C_general[self.relevant_indices] = self.C
+        if not self.is_npc:
+            self.C_general[self.relevant_indices] = self.C
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
         self.activeSet = activeSet
         print(f'Finished the selection of {len(activeSet)} samples.')
@@ -168,21 +502,20 @@ class   CoverageMatrixMethod:
         del self.C
 
         return activeSet, remainSet
-    
+
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
-                        checkpoint_file=None):
+                         checkpoint_file=None):
         """
         Standard interface for active learning sampling.
         Adapts the algorithm to work with the unified AL interface.
-        
+
         Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
             f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
-        
-        return self.select_samples(lSet, uSet)
 
+        return self.select_samples(lSet, uSet, trainDataset=trainDataset, checkpoint_file=checkpoint_file)
 
 
 def batched_diffs(K, C, alpha, number_of_classes, chunk_size=1024, diff_method="abs_diff"):
@@ -191,10 +524,10 @@ def batched_diffs(K, C, alpha, number_of_classes, chunk_size=1024, diff_method="
     for start in range(0, N, chunk_size):
         end = min(start + chunk_size, N)
         if diff_method == "abs_diff":
-            
+
             K_batched = K[start:end]
             K_batched = K_batched.to(C.device)
-            diff = K_batched.sub(C) 
+            diff = K_batched.sub(C)
             diff.clamp_(min=0)
             result[start:end] = diff.sum(dim=1)
             del diff
@@ -229,8 +562,8 @@ def batched_diffs_sparse(K, C, alpha=None, number_of_classes=None, chunk_size=10
 
     # Extract CSR components and move to device
     crow = K.crow_indices().to(device)  # shape (D+1,)
-    ccol = K.col_indices().to(device)   # shape (nnz,)
-    cvals = K.values().to(device)       # shape (nnz,)
+    ccol = K.col_indices().to(device)  # shape (nnz,)
+    cvals = K.values().to(device)  # shape (nnz,)
 
     # Pre-allocate result on the correct device
     result = torch.zeros(D, device=device, dtype=cvals.dtype)
@@ -240,9 +573,9 @@ def batched_diffs_sparse(K, C, alpha=None, number_of_classes=None, chunk_size=10
         b = row_end - row_start
 
         # CSR pointers for the chunk
-        starts = crow[row_start:row_end]           # shape (b,)
-        ends = crow[row_start + 1: row_end + 1]    # shape (b,)
-        lengths = (ends - starts).to(torch.long)   # (b,)
+        starts = crow[row_start:row_end]  # shape (b,)
+        ends = crow[row_start + 1: row_end + 1]  # shape (b,)
+        lengths = (ends - starts).to(torch.long)  # (b,)
 
         total_nnz = int(lengths.sum().item())
 
@@ -254,7 +587,7 @@ def batched_diffs_sparse(K, C, alpha=None, number_of_classes=None, chunk_size=10
         slice_start = int(starts[0].item())
         slice_end = int(ends[-1].item())
 
-        cols_all = ccol[slice_start:slice_end]   # (total_nnz,)
+        cols_all = ccol[slice_start:slice_end]  # (total_nnz,)
         vals_all = cvals[slice_start:slice_end]  # (total_nnz,)
 
         # row index for each nnz entry within the chunk: 0..b-1 repeated by lengths
