@@ -33,7 +33,8 @@ def construct_optimizer(cfg, model, opt_init_state=None):
     when the learning rate is changed there is no need to perform the
     momentum correction by scaling V (unlike in the Caffe2 case).
     """
-    if cfg.MODEL.USE_1NN:
+    if cfg.MODEL.USE_1NN or getattr(cfg, 'EVAL_MODEL_TYPE', None) == 'from_mlp_sklearn':
+        # sklearn models (1-NN, MLPClassifier) train via .fit(); no torch optimizer.
         return None
 
     elif cfg.BN.USE_CUSTOM_WEIGHT_DECAY:

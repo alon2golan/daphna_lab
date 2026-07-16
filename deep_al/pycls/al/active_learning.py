@@ -19,6 +19,59 @@ import deep_al.pycls.datasets.utils as ds_utils
 logger = lu.get_logger(__name__)
 
 
+def _ensure_bayes_misp_cfg_defaults(cfg):
+    """Fill in the cfg keys BAYES_MISP reads that our fork doesn't declare.
+
+    Values are Itai's train_al.py CLI defaults (bayes_al_2025@main). Keys that
+    already exist (e.g. set via our CLI flags --alpha/--diff_method/--cont_method)
+    are left untouched.
+    """
+    defaults = {
+        'K_SPARSITY_THRESHOLD': 0.0,
+        'CALC_METHOD': 'max',
+        'ALPHA_INIT_MODE': 'constant',
+        'ALPHA_VECTOR_PATH': '',
+        'ALPHA_LOWER_BOUND': 1.0,
+        'ALPHA_UPPER_BOUND': 1.0,
+        'ALPHA_DECAY_GAMMA': 0.0,
+        'DISTRIBUTION_CONT_WEIGHT_METHOD': 'weighted',
+        'C_NORMALIZATION': 'sum',
+        'CLASS_WEIGHTING_METHOD': 'none',
+        'UPDATE_K_MATRIX': False,
+        'SWITCH_ALPHA_LOW_TO_HIGH': False,
+        'SWITCH_ALPHA_HIGH_TO_LOW': False,
+        'SWITCH_ALPHA_ALLTIME': False,
+        'LOCAL_ALPHA': False,
+        'LOCAL_ALPHA_ORACLE_METHOD': 'entropy',
+    }
+    for key, value in defaults.items():
+        if key not in cfg:
+            cfg[key] = value
+
+
+class BayesMispAdapter:
+    """Adapts Itai's stateful BAYES_MISP (select_samples(lset, uset)) to our
+    sample_from_uSet interface.
+
+    The wrapped object owns the C/K posterior state across episodes. Labels it
+    consumes during the greedy selection loop come from the observed-label table
+    it was constructed with (the annotator's precomputed noisy_labels), so the
+    orchestrator's post-hoc annotate_samples() call assigns the exact same
+    labels and only settles the cost accounting.
+    """
+
+    def __init__(self, misp):
+        self.misp = misp
+
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                         checkpoint_file=None, num_samples=None, **kwargs):
+        if num_samples is not None:
+            self.misp.budgetSize = int(num_samples)
+        activeSet, remainSet = self.misp.select_samples(
+            np.asarray(lSet, dtype=int), np.asarray(uSet, dtype=int))
+        return activeSet, remainSet
+
+
 class ActiveLearning:
     """
     Active Learning orchestrator that delegates to concrete AL strategies.
@@ -74,7 +127,24 @@ class ActiveLearning:
             )
 
         return activeSet, remain_set
-        
+
+    def _observed_train_labels(self):
+        """Full-length observed-label array for samplers that consume labels
+        in-loop from a table (BAYES_MISP). Uses the annotator's precomputed
+        noisy_labels so label noise is respected; at noise rate 0 this equals
+        the clean targets."""
+        am = self.annotator_manager
+        if am is None or not getattr(am, 'annotators', None):
+            raise ValueError(
+                "bayes_misp needs an observed-label table but no annotator is "
+                "configured. Enable ANNOTATORS (single mode) — the BAYESCOV_* "
+                "configs do this, including a rate-0.0 clean annotator.")
+        if len(am.annotators) != 1:
+            raise NotImplementedError(
+                "bayes_misp port supports a single annotator only; got "
+                f"{len(am.annotators)}. Its greedy loop reads one fixed label "
+                "table, so per-point annotator choice cannot be honoured.")
+        return np.asarray(am.annotators[0].noisy_labels)
 
     def _create_algorithm(self, lset=None, dataObj=None, plotting_manager=None):
         """
@@ -140,6 +210,33 @@ class ActiveLearning:
             elif sampling_fn == "bayes_additive":
                 self.cfg.BAYES_COVERAGE.COMBINE = 'additive'
             return BayesianCoverage(self.cfg, annotator_manager=self.annotator_manager)
+
+        # Itai David's BAYES_MISP (github.com/itaidavid1/bayes_al_2025), vendored
+        # port (BAYES_MISP.py + kernel_utils_misp.py + prior_selection.py). His
+        # CIFAR100 benchmark config: tophat kernel, delta=0.75, diff_method='max',
+        # sparse CSR K (the 'max' scoring path calls batched_diffs_sparse_max,
+        # which hard-requires a CSR K — dense K crashes). The object is stateful
+        # across episodes (C_general posterior persists), matching his pipeline
+        # where the AL object is constructed once per run.
+        elif sampling_fn in ["bayes_misp"]:
+            if getattr(self.cfg, 'KERNEL_TYPE', None) != 'tophat':
+                logger.info('Warning!! for BAYES_MISP (as benchmarked) the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+                print('Warning!! for BAYES_MISP (as benchmarked) the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+                self.cfg['KERNEL_TYPE'] = 'tophat'
+            if not self.cfg.get('SPARSE_K', False):
+                logger.info("Warning!! BAYES_MISP diff_method='max' requires a CSR K matrix. Forcing SPARSE_K=True")
+                print("Warning!! BAYES_MISP diff_method='max' requires a CSR K matrix. Forcing SPARSE_K=True")
+                self.cfg['SPARSE_K'] = True
+            _ensure_bayes_misp_cfg_defaults(self.cfg)
+            from .BAYES_MISP import BAYES_MISP  # lazy: touches CUDA at import
+            misp = BAYES_MISP(
+                self.cfg,
+                budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
+                train_labels=self._observed_train_labels(),
+                lset=np.asarray(lset if lset is not None else [], dtype=int),
+                delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA,
+            )
+            return BayesMispAdapter(misp)
 
         elif sampling_fn.startswith("typiclust"):
             is_scan = sampling_fn.endswith('dc')

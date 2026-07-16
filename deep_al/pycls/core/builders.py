@@ -12,6 +12,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neural_network import MLPClassifier
 # Supported models
 _models = {
     # VGG style architectures
@@ -84,6 +85,20 @@ def build_model(cfg):
         return model
 
     elif cfg.MODEL.LINEAR_FROM_FEATURES:
+        # sklearn MLP head on frozen features — Itai's eval model (bayes_al_2025).
+        # One hidden layer; hyperparams verbatim from his builders.py.
+        if getattr(cfg, 'EVAL_MODEL_TYPE', None) == 'from_mlp_sklearn':
+            hidden = 384 if cfg.DATASET.NAME in ['IMAGENET50', 'IMAGENET100', 'IMAGENET200'] else 256
+            hidden = 2 if cfg.DATASET.NAME in ['SCENARIO_A', 'HALF_MOON'] else hidden
+            return MLPClassifier(
+                hidden_layer_sizes=(hidden,),
+                activation='relu',
+                solver='adam',
+                alpha=3e-2,
+                max_iter=300,
+                random_state=cfg.RNG_SEED,
+                verbose=True
+            )
         num_features = 384 if cfg.DATASET.NAME in ['IMAGENET50', 'IMAGENET100', 'IMAGENET200'] else 512
         num_features = 2 if cfg.DATASET.NAME in ['SCENARIO_A', 'HALF_MOON'] else num_features
         return FeaturesNet(num_features, cfg.MODEL.NUM_CLASSES).cuda()

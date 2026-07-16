@@ -43,6 +43,8 @@ STUDY_SWEEPS = {
     "31048649",  # probcover 1-NN evaluator
     "30811243",  # Netta NPC repro
     "30863746",  # AUM clean-train ablation (Netta rows)
+    "31078514",  # BAYES_MISP port parity check: probcover / bayes_misp / bayes_additive under the MLP head (clean, seed 1)
+    "31084429",  # bayes_misp noise sweep: noise {0,.2,.5,.8} x seeds {1,2,3} x heads {MLP, linear}
 }
 
 FIELDS = ["sampling", "model", "train_labels", "norm", "noise", "budget", "seed", "test_acc", "sweep_id", "source"]
@@ -53,7 +55,8 @@ PSEUDO_K_AGG50 = "1,2,3,5,8,13,20,30,40,50"
 
 
 def model_of(p):
-    return {"from_features": "linear head", "NN1": "1-NN"}.get(p.get("eval_model_type"), p.get("eval_model_type"))
+    return {"from_features": "linear head", "NN1": "1-NN",
+            "from_mlp_sklearn": "MLP head"}.get(p.get("eval_model_type"), p.get("eval_model_type"))
 
 
 def train_labels_of(p):

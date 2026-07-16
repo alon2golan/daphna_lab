@@ -470,6 +470,14 @@ def get_config_aliases():
                 'MODEL.LINEAR_FROM_FEATURES': True,
                 'MODEL.LINEAR_FROM_IMAGES': False,
             },
+            # sklearn MLPClassifier head on frozen features (Itai's eval model,
+            # bayes_al_2025). The model branch keys off EVAL_MODEL_TYPE in
+            # builders.build_model; no torch optimizer is constructed.
+            'from_mlp_sklearn': {
+                'MODEL.USE_1NN': False,
+                'MODEL.LINEAR_FROM_FEATURES': True,
+                'MODEL.LINEAR_FROM_IMAGES': False,
+            },
             'from_images': {
                 'MODEL.USE_1NN': False,
                 'MODEL.LINEAR_FROM_FEATURES': False,

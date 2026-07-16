@@ -657,8 +657,9 @@ def main(cfg, args):
     # Construct the optimizer
     model = mh.get_model(cfg)
     optimizer = optim.construct_optimizer(cfg, model)
-    opt_init_state = deepcopy(optimizer.state_dict()) if not cfg.MODEL.USE_1NN else None
-    model_init_state = deepcopy(model.state_dict().copy()) if not cfg.MODEL.USE_1NN else None
+    _sklearn_eval = cfg.MODEL.USE_1NN or cfg.EVAL_MODEL_TYPE == 'from_mlp_sklearn'
+    opt_init_state = deepcopy(optimizer.state_dict()) if not _sklearn_eval else None
+    model_init_state = deepcopy(model.state_dict().copy()) if not _sklearn_eval else None
 
     # print("optimizer: {}\n".format(optimizer))
     # logger.info("optimizer: {}\n".format(optimizer))
@@ -931,22 +932,41 @@ def train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_l
     return checkpoint_file, train_time, epoch_times, best_train_acc, best_val_acc, test_acc
 
 
+def _collect_full(loader):
+    """Materialize a features DataLoader into (X, y) numpy arrays (full set,
+    not just the first batch). Used by the sklearn eval models (1-NN, MLP)."""
+    xs, ys = [], []
+    for xb, yb in loader:
+        # DataLoader may return numpy arrays or torch tensors
+        if hasattr(xb, "detach"):
+            xb = xb.detach().cpu().numpy()
+        if hasattr(yb, "detach"):
+            yb = yb.detach().cpu().numpy()
+        xs.append(xb)
+        ys.append(yb)
+    return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
+
+
 def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manager):
+
+    if cfg.EVAL_MODEL_TYPE == 'from_mlp_sklearn':
+        # sklearn MLPClassifier on frozen features (Itai's eval model). Fits on
+        # the RAW (un-normalized) features the dataset serves — matches his
+        # train_al.py, which feeds loader output straight into model.fit().
+        train_data, train_labels = _collect_full(train_loader)
+        print(f"sklearn MLP fit: train_data={train_data.shape} labels={train_labels.shape}")
+        model.fit(train_data, train_labels)
+
+        val_data, val_labels = _collect_full(val_loader)
+        preds = model.predict(val_data)
+        val_acc = 100. * (preds == np.array(val_labels)).mean()
+
+        # No checkpoint for sklearn models; train_acc reported on the fit set
+        train_acc = 100. * (model.predict(train_data) == train_labels).mean()
+        return val_acc, 0, train_acc, None, model, []
 
     if cfg.MODEL.USE_1NN:  # TODO move to train_model function
         # Fit 1-NN on the full labeled set (not just the first batch)
-        def _collect_full(loader):
-            xs, ys = [], []
-            for xb, yb in loader:
-                # DataLoader may return numpy arrays or torch tensors
-                if hasattr(xb, "detach"):
-                    xb = xb.detach().cpu().numpy()
-                if hasattr(yb, "detach"):
-                    yb = yb.detach().cpu().numpy()
-                xs.append(xb)
-                ys.append(yb)
-            return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
-
         train_data, train_labels = _collect_full(train_loader)
         # The dataset serves raw SimCLR features unless DATASET.NORMALIZE_FEATURES;
         # the ProbCover paper's 1-NN framework uses L2-normalized embeddings, and
@@ -1054,7 +1074,13 @@ def test_model(test_loader, checkpoint_file, cfg, cur_episode, model, plotting_m
 
     test_meter = TestMeter(len(test_loader))
 
-    if cfg.MODEL.USE_1NN:
+    if cfg.EVAL_MODEL_TYPE == 'from_mlp_sklearn':
+        # sklearn MLP predicts on the raw test features (no L2 norm — matches fit)
+        data = test_loader.dataset.features
+        labels = test_loader.dataset.targets
+        preds = model.predict(data)
+        test_acc = 100. * (preds == np.array(labels)).mean()
+    elif cfg.MODEL.USE_1NN:
         # # 1NN model does not have a predict method, so we use the fit method to train it
         data = test_loader.dataset.features
         data = data / np.linalg.norm(data, axis=1, keepdims=True)  # match the L2-normalized fit
