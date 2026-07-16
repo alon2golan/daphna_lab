@@ -51,7 +51,7 @@ ROW_SPEC = [
     row("probcover", "linear head", "observed", "30978366"),
     row("probcover", "1-NN", "observed", "31048649"),
     (SEP, "Bayesian coverage — selection only (train on observed labels)"),
-    row("bayes_additive", "linear head", "observed", "31066809", disp_sampling="bayes_additive (Itai)"),
+    row("bayes_additive", "linear head", "observed", "31066809"),
     row("bayes_product", "linear head", "observed", "30978366"),
     (SEP, "Bayesian coverage + label-correction training"),
     row("bayes_product", "linear head", "map_posterior", "30980646"),
@@ -69,6 +69,11 @@ ROW_SPEC = [
     row("probcover", "linear head", "AUM clean-train", "30863746"),
     row("npc", "linear head", "observed (sel. only)", "30863746"),
     row("npc", "linear head", "AUM clean-train", "30863746"),
+    (SEP, "BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)"),
+    row("bayes_misp", "linear head", "observed", "31084429", disp_sampling="bayes_misp (Itai)"),
+    row("bayes_misp", "MLP head", "observed", "31084429", disp_sampling="bayes_misp (Itai)"),
+    row("probcover", "MLP head", "observed", "31078514", disp_model="MLP head (seed 1)"),
+    row("bayes_additive", "MLP head", "observed", "31078514", disp_model="MLP head (seed 1)"),
 ]
 
 N_KEYCOLS = 3
@@ -109,14 +114,20 @@ def build_table(acc, noise):
                  for b in BUDGETS]
         grid.append(("data", spec, cells))
 
-    # bold the column-max per budget across data rows
+    # bold the column-max per budget across data rows — separately for the MLP-head
+    # rows and everything else: the sklearn-MLP evaluator sits ~10 pts above the
+    # linear protocol, so a single global bold would land on the MLP rows in every
+    # column and stop marking the best arm within the established linear tables.
     for j in range(len(BUDGETS)):
-        col = [(i, mean_of(g[2][j])) for i, g in enumerate(grid) if g[0] == "data" and g[2][j] is not None]
-        if not col:
-            continue
-        best_i = max(col, key=lambda t: t[1])[0]
-        txt = grid[best_i][2][j]
-        grid[best_i][2][j] = f"**{txt}**"
+        for head_is_mlp in (False, True):
+            col = [(i, mean_of(g[2][j])) for i, g in enumerate(grid)
+                   if g[0] == "data" and g[2][j] is not None
+                   and ("MLP" in g[1]["model"]) == head_is_mlp]
+            if not col:
+                continue
+            best_i = max(col, key=lambda t: t[1])[0]
+            txt = grid[best_i][2][j]
+            grid[best_i][2][j] = f"**{txt}**"
 
     lines = []
     for g in grid:

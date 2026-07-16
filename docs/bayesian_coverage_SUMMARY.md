@@ -15,3 +15,10 @@ The pre-split single file is in git history (last full version: this file at com
 plus the then-uncommitted "recommended configuration" section, now in RESULTS §0).
 `bayesian_coverage_SUMMARY.html` / `.pdf` are renders of the **pre-split** file — regenerate
 per-file with pandoc if needed.
+
+**Interactive report:** `bayes_coverage_summary.html` (same directory) is a self-contained
+offline page telling the whole story with interactive curves — the R2–R5 tables as a
+click-to-toggle curve explorer over all 34 arms and 4 noise levels. It is *generated*
+(never hand-edit) by `python3 batch_utils/build_summary_report.py` from
+`results/cifar100/results_master.csv`; its prose mirrors the three md files above, which
+remain the source of record.

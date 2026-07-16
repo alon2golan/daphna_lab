@@ -34,7 +34,8 @@ single most-cited block, the per-noise test-accuracy tables, is **§4.1 "Results
 | **R9** | Posterior quality vs ground truth — **noise 0.8** | §4.5 |
 
 The curriculum pseudo-labeling arms (`lin10`/`agg50`/`all`) are rows inside R2–R5, not
-separate tables (see §4.6).
+separate tables (see §4.6). The BAYES_MISP port rows (linear + MLP heads) are also
+inside R2–R5 (see §4.7).
 
 ---
 ## 0. TL;DR
@@ -105,6 +106,8 @@ Like-for-like regime: CIFAR100 SimCLR features, budget 100/episode, tophat $\del
 | AUM clean ablation | 30863746 | {npc, probcover, random} × clean {on, off} × noise {.2, .5, .8} × 3 seeds | 54/54 ✔ |
 | §7.5 pseudo-labeling | 31047129 | bayes_product + pseudo × {all, lin10, agg50} × noise {0, .2, .5, .8} × 3 seeds | 36/36 ✔ |
 | ProbCover + 1-NN eval | 31048649 | probcover × `--eval_model_type NN1` × noise {0, .2, .5, .8} × 3 seeds | 12/12 ✔ |
+| BAYES_MISP parity | 31078514 | {probcover, bayes_misp, bayes_additive} × MLP head, clean, seed 1 (port verification vs Itai's repo) | 3/3 ✔ |
+| BAYES_MISP noise | 31084429 | bayes_misp × noise {0, .2, .5, .8} × 3 seeds × head {MLP, linear} | 24/24 ✔ |
 
 All `bayes_*` selection rows train on **raw observed labels** unless a train-mode is
 named. Netta's sweeps have **no noise-0 arm** (never run) — hence the dashes.
@@ -187,8 +190,9 @@ the additive branch Itai David's saturating ceiling
 $f_1 = (\max_k \pi + 1)/(\sum_k \pi + 1)$ — the dominant-class mass after exactly one
 tophat in-ball label — and scores `max(f1 - max_k P, 0)`. For tophat $K\in\{0,1\}$ this is
 BAYES\_MISP's `diff_method='max'` score *exactly*, so one clean label now retires a point
-and clean/low-budget additive lands on ProbCover (24.8 vs 23.6 @100). The row is now a
-faithful Itai control.
+and clean/low-budget additive lands on ProbCover (24.8 vs 23.6 @100). Attribution note:
+the additive *combine* itself is our own variant — the saturating-ceiling **acquisition**
+is what comes from Itai; his actual method is the native `bayes_misp` port (§4.7).
 
 ### 4.1 Results by noise (Tables R2–R5)
 
@@ -234,7 +238,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | probcover | linear head | observed | 23.6±1.8 | 39.9±0.4 | 43.3±0.3 | 44.6±0.2 | 46.5±0.6 |
 | probcover | 1-NN | observed | 38.1±0.4 | 42.9±0.2 | 44.5±0.2 | 44.9±0.3 | 45.6±0.6 |
 | *Bayesian coverage — selection only (train on observed labels)* | | | | | | | |
-| bayes_additive (Itai) | linear head | observed | 24.8±0.6 | 30.5±0.7 | 33.1±0.1 | 35.9±0.4 | 39.2±0.3 |
+| bayes_additive | linear head | observed | 24.8±0.6 | 30.5±0.7 | 33.1±0.1 | 35.9±0.4 | 39.2±0.3 |
 | bayes_product | linear head | observed | 24.6±1.3 | 38.1±1.3 | 41.6±0.0 | 43.6±0.2 | 45.1±0.1 |
 | *Bayesian coverage + label-correction training* | | | | | | | |
 | bayes_product | linear head | map_posterior | 22.5±0.5 | 35.9±0.4 | 38.9±0.2 | 40.8±0.4 | 41.8±0.5 |
@@ -252,6 +256,11 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | probcover | linear head | AUM clean-train | — | — | — | — | — |
 | npc | linear head | observed (sel. only) | — | — | — | — | — |
 | npc | linear head | AUM clean-train | — | — | — | — | — |
+| *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
+| bayes_misp (Itai) | linear head | observed | 24.5±2.0 | 39.7±0.8 | 43.4±0.1 | 44.5±0.3 | 46.7±0.4 |
+| bayes_misp (Itai) | MLP head | observed | 34.9±1.1 | **40.3±0.7** | **42.5±0.4** | **43.7±0.3** | 45.4±0.5 |
+| probcover | MLP head (seed 1) | observed | **35.4±0.0** | 39.8±0.0 | 42.3±0.0 | 43.5±0.0 | **45.7±0.0** |
+| bayes_additive | MLP head (seed 1) | observed | 35.0±0.0 | 32.8±0.0 | 33.5±0.0 | 33.6±0.0 | 37.6±0.0 |
 <!-- END:R2 -->
 
 **Table R3 — Test accuracy by method, noise 0.2.**
@@ -265,7 +274,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | probcover | linear head | observed | 19.7±0.7 | 33.4±1.3 | 37.4±0.4 | 39.5±0.3 | 41.2±0.8 |
 | probcover | 1-NN | observed | **30.9±1.1** | 34.5±0.3 | 36.2±0.6 | 36.7±0.3 | 36.9±0.5 |
 | *Bayesian coverage — selection only (train on observed labels)* | | | | | | | |
-| bayes_additive (Itai) | linear head | observed | 20.7±0.9 | 24.8±1.9 | 22.9±0.7 | 23.7±0.5 | 27.3±1.1 |
+| bayes_additive | linear head | observed | 20.7±0.9 | 24.8±1.9 | 22.9±0.7 | 23.7±0.5 | 27.3±1.1 |
 | bayes_product | linear head | observed | 21.6±1.5 | 32.8±1.5 | 36.6±0.5 | 37.7±0.7 | 39.2±0.3 |
 | *Bayesian coverage + label-correction training* | | | | | | | |
 | bayes_product | linear head | map_posterior | 20.6±2.3 | 33.7±2.0 | 36.9±1.1 | 39.2±0.8 | 40.6±0.6 |
@@ -283,6 +292,11 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | probcover | linear head | AUM clean-train | 20.2±0.7 | 31.2±1.1 | 36.4±0.5 | 39.5±1.3 | 42.3±0.1 |
 | npc | linear head | observed (sel. only) | 19.7±0.7 | 33.9±1.0 | 37.4±1.7 | 39.8±1.1 | 42.0±0.7 |
 | npc | linear head | AUM clean-train | 20.2±0.7 | 32.0±0.6 | 36.5±0.6 | 40.4±0.8 | 43.3±0.6 |
+| *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
+| bayes_misp (Itai) | linear head | observed | 20.6±0.8 | 33.9±1.3 | 37.6±0.3 | 39.7±0.5 | 41.8±0.4 |
+| bayes_misp (Itai) | MLP head | observed | **28.3±1.3** | **32.1±0.9** | **34.1±0.7** | **35.1±0.1** | **37.1±0.2** |
+| probcover | MLP head (seed 1) | observed | — | — | — | — | — |
+| bayes_additive | MLP head (seed 1) | observed | — | — | — | — | — |
 <!-- END:R3 -->
 
 **Table R4 — Test accuracy by method, noise 0.5.**
@@ -296,7 +310,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | probcover | linear head | observed | 13.1±1.3 | 21.5±1.8 | 26.0±1.3 | 28.1±0.7 | 30.3±1.2 |
 | probcover | 1-NN | observed | **19.9±1.4** | 22.5±1.6 | 23.7±1.2 | 23.7±1.1 | 23.8±1.3 |
 | *Bayesian coverage — selection only (train on observed labels)* | | | | | | | |
-| bayes_additive (Itai) | linear head | observed | 13.5±1.3 | 14.8±3.4 | 14.6±2.8 | 14.8±2.4 | 15.1±2.3 |
+| bayes_additive | linear head | observed | 13.5±1.3 | 14.8±3.4 | 14.6±2.8 | 14.8±2.4 | 15.1±2.3 |
 | bayes_product | linear head | observed | 14.9±1.4 | 23.1±0.1 | 26.4±0.6 | 28.1±0.6 | 29.5±0.4 |
 | *Bayesian coverage + label-correction training* | | | | | | | |
 | bayes_product | linear head | map_posterior | 15.2±1.9 | 27.9±1.7 | 31.9±0.2 | 34.5±1.0 | 37.6±0.4 |
@@ -314,6 +328,11 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | probcover | linear head | AUM clean-train | 13.3±1.5 | 20.4±2.6 | 26.0±1.7 | 29.6±1.7 | 33.7±0.8 |
 | npc | linear head | observed (sel. only) | 13.1±1.3 | 22.1±1.3 | 25.8±1.5 | 28.6±1.4 | 30.9±1.0 |
 | npc | linear head | AUM clean-train | 13.3±1.5 | 20.7±1.0 | 26.6±1.3 | 30.4±1.7 | 35.6±1.0 |
+| *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
+| bayes_misp (Itai) | linear head | observed | 13.7±0.8 | 21.5±0.9 | 25.8±1.2 | 28.7±0.9 | 31.2±1.1 |
+| bayes_misp (Itai) | MLP head | observed | **17.4±1.4** | **20.0±0.9** | **21.7±1.4** | **22.6±1.2** | **24.6±0.8** |
+| probcover | MLP head (seed 1) | observed | — | — | — | — | — |
+| bayes_additive | MLP head (seed 1) | observed | — | — | — | — | — |
 <!-- END:R4 -->
 
 **Table R5 — Test accuracy by method, noise 0.8.**
@@ -327,7 +346,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | probcover | linear head | observed | 5.9±0.9 | 8.2±1.1 | 10.4±0.4 | 11.6±0.3 | 12.7±0.1 |
 | probcover | 1-NN | observed | **7.6±0.5** | 9.3±0.1 | 9.7±0.5 | 9.7±0.4 | 9.9±0.9 |
 | *Bayesian coverage — selection only (train on observed labels)* | | | | | | | |
-| bayes_additive (Itai) | linear head | observed | 5.5±2.0 | 6.0±2.3 | 5.7±2.1 | 5.3±1.4 | 5.4±0.9 |
+| bayes_additive | linear head | observed | 5.5±2.0 | 6.0±2.3 | 5.7±2.1 | 5.3±1.4 | 5.4±0.9 |
 | bayes_product | linear head | observed | 4.6±0.5 | 9.7±2.0 | 10.9±1.5 | 11.8±1.5 | 12.6±1.6 |
 | *Bayesian coverage + label-correction training* | | | | | | | |
 | bayes_product | linear head | map_posterior | 5.8±0.2 | 14.2±2.9 | 19.4±2.1 | 22.9±2.2 | 26.2±1.3 |
@@ -345,6 +364,11 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | probcover | linear head | AUM clean-train | 5.7±1.6 | 7.1±1.1 | 10.3±1.1 | 11.9±0.7 | 14.7±0.2 |
 | npc | linear head | observed (sel. only) | 5.9±0.9 | 8.1±0.9 | 9.8±1.2 | 10.8±0.4 | 12.5±0.4 |
 | npc | linear head | AUM clean-train | 5.7±1.6 | 7.4±0.6 | 10.3±0.7 | 11.7±1.0 | 15.0±0.8 |
+| *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
+| bayes_misp (Itai) | linear head | observed | 5.9±0.6 | 8.6±0.9 | 11.0±1.3 | 12.1±0.5 | 13.6±0.7 |
+| bayes_misp (Itai) | MLP head | observed | **7.0±0.9** | **7.5±0.9** | **8.5±0.8** | **9.4±0.8** | **9.9±0.4** |
+| probcover | MLP head (seed 1) | observed | — | — | — | — | — |
+| bayes_additive | MLP head (seed 1) | observed | — | — | — | — | — |
 <!-- END:R5 -->
 
 ---
@@ -508,6 +532,47 @@ is confirmed *directionally* by training, with one surprise: the arm helps on
 the sheer volume (~9–30k points) dominates the classifier's data diet at these
 budgets.
 
+### 4.7 BAYES_MISP port — Itai's method run natively in this repo (sweeps 31084429 + 31078514)
+
+`--al bayes_misp` is a faithful port of Itai David's `BAYES_MISP`
+(github `itaidavid1/bayes_al_2025`; vendored as `deep_al/pycls/al/BAYES_MISP.py`
++ `kernel_utils_misp.py` + `prior_selection.py`), run with his benchmark config:
+`--diff_method max --alpha 0.5 --sparse_K`, tophat δ=0.75. Port verified against
+his own repo on the shared SimCLR bank (clean, seed 1, sklearn-MLP head):
+45.0 @1000 here vs 45.2 in his repo vs 44.9 as he reported — and it tracks
+probcover within ≤0.7 at every budget, which is its signature (the max-normalized
+`f1` ceiling retires covered balls almost exactly like ProbCover's hard removal).
+
+Two evaluator heads are reported in the R2–R5 tables:
+
+- **linear head** — same protocol as every other row in these tables; directly
+  comparable. Expect `bayes_misp ≈ probcover` here too.
+- **MLP head** (`--eval_model_type from_mlp_sklearn`, new in this repo) — Itai's
+  evaluator: sklearn `MLPClassifier(hidden=(256,), relu, adam, α=3e-2,
+  max_iter=300)` fit on **raw** (un-normalized) features. It sits ~10 pts above
+  the linear protocol at low budget — this is an *evaluator* difference, not a
+  selection difference, so MLP rows must only be compared against other MLP rows
+  (the tables bold the two head classes separately). The seed-1 `probcover` /
+  `bayes_additive` MLP rows (parity sweep 31078514, clean only) provide that
+  in-head reference: additive is −7.4 @1000 vs misp under the identical MLP
+  evaluator, its known intrinsic deficit (§4 additive gate, takeaway 1) — under
+  the MLP head the gap opens from 300 labels already.
+
+Reading (sweep 31084429, 24/24): **under the linear head, `bayes_misp` ≈
+`probcover` at every noise level**, with a small consistent edge at 1000 labels
+(46.7 vs 46.5 clean; 41.8 vs 41.2 @.2; 31.2 vs 30.3 @.5; 13.6 vs 12.7 @.8) —
+Itai's clean-data signature carries over to noise unchanged. The more surprising
+result is the **evaluator × noise interaction: the MLP head's low-budget
+advantage inverts under label noise**. Clean, it leads the linear head by +10 @100
+and stays ahead through ~700; at noise ≥ .2 it *loses* to the linear head from
+~300 labels on, and by 1000 the deficit is large (37.1 vs 41.8 @.2; 24.6 vs 31.2
+@.5; 9.9 vs 13.6 @.8). The 256-unit adam-trained MLP (300 iterations, weak 3e-2
+L2) has the capacity to memorize noisy labels that the underparameterized linear
+probe cannot — so **the MLP evaluator is the flattering choice only on clean
+data**; under noise it understates every method. Any comparison against Itai's
+reported numbers must therefore hold the head fixed, and noise conclusions drawn
+on his MLP protocol do not transfer to ours.
+
 ## 5. Takeaways
 
 1. **Selection plane alone ≈ ProbCover.** `bayes_product` wins small at the very-low
@@ -525,7 +590,7 @@ budgets.
 4. **Product pulls ahead of additive as budget grows; the low-budget sanity now passes**
    (numbers re-run 2026-07-14 with the fixed additive acquisition — see the note above §4).
    At the lowest budget the two arms tie (24.8 additive vs 24.6 product @100 clean; both
-   ≈ probcover's 23.6) — so the "reproduces Itai ≈ probcover + training" sanity check now
+   ≈ probcover's 23.6) — so the "additive ≈ probcover + training" sanity check now
    **passes** on CIFAR100, as it always did on CIFAR10. Product then pulls decisively ahead
    at higher budgets and higher noise (45.1 vs 39.2 clean @1000; 29.5 vs 15.1 @1000 noise
    0.5), so the design-§3 product-over-additive gate still passes. The earlier "additive

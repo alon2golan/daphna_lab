@@ -139,10 +139,13 @@ $$
 into `self.C` by `_fold_neighbor`.)
 
 - **Product, not addition**: agreeing neighbors *sharpen* the posterior; a single
-  confident-but-wrong neighbor is overridable. The **additive** rule
-  ($C[:,\text{label}] \mathrel{+}= K_{\text{row}}$ — Itai David's `BAYES_MISP`) is kept behind
+  confident-but-wrong neighbor is overridable. An **additive** rule
+  ($C[:,\text{label}] \mathrel{+}= K_{\text{row}}$) is kept behind
   `COMBINE=additive` as the empirical control (design §3 demanded the comparison,
-  not an assumption). Result: product wins decisively (RESULTS, takeaway 4).
+  not an assumption). It is our own variant, additive *in the spirit of* Itai David's
+  `BAYES_MISP` (which also accumulates evidence); his actual method is ported
+  separately as `bayes_misp` and compared in RESULTS §4.7. Result: product wins
+  decisively (RESULTS, takeaway 4).
 
 ### 1.4 The weights $w_{u\ell}$ and the temper $\beta$ — correlated-neighbor overconfidence
 

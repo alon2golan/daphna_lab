@@ -2,7 +2,7 @@
 """Build the self-contained interactive summary report of the Bayesian-coverage study.
 
     python3 batch_utils/build_summary_report.py
-        -> results/cifar100/bayes_coverage_summary.html   (single file, works offline)
+        -> docs/bayes_coverage_summary.html   (single file, works offline)
 
 The report tells the story of the work (noise-aware ProbCover -> per-point
 posteriors -> product-vs-additive -> training modes -> pseudo-labeling ->
@@ -26,7 +26,7 @@ from collections import defaultdict
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSV = os.path.join(REPO, "results", "cifar100", "results_master.csv")
-OUT = os.path.join(REPO, "results", "cifar100", "bayes_coverage_summary.html")
+OUT = os.path.join(REPO, "docs", "bayes_coverage_summary.html")
 PLOTLY_CANDIDATES = [
     os.path.join(REPO, "venv", "lib", "python3.11", "site-packages",
                  "plotly", "package_data", "plotly.min.js"),
@@ -41,10 +41,14 @@ TBL_BUDGETS = [100, 300, 500, 700, 1000]
 # ---------------------------------------------------------------------------
 HUES = {  # name -> (light, dark)
     "blue":    ("#2a78d6", "#3987e5"),
-    "aqua":    ("#1baf7a", "#199e70"),
+    # true cyan replacing the reference teal-green aqua; dark step teal-leaning
+    # so it clears the normal-vision floor against dark blue (#3987e5)
+    "cyan":    ("#00b3d9", "#0ba69d"),
     "yellow":  ("#eda100", "#c98500"),
     "violet":  ("#4a3aa7", "#9085e9"),
-    "magenta": ("#e87ba4", "#d55181"),
+    # dark step darkened from the reference #d55181: keeps deutan separation
+    # from the cyan product hue when soft_posterior and product co-plot in dark
+    "magenta": ("#e87ba4", "#b13b64"),
     "orange":  ("#eb6834", "#d95926"),
     "red":     ("#e34948", "#e66767"),
     "green":   ("#008300", "#008300"),
@@ -85,6 +89,7 @@ GROUPS = [
     ("pseudo", "Bayesian coverage + pseudo-labeling"),
     ("postcls", "Posterior as classifier (no trained model)"),
     ("netta",  "Netta NPC / AUM"),
+    ("misp",   "BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; sweeps 31084429 + 31078514)"),
     ("norm",   "Normalized classifier inputs (sweep 31048960) — same arms, scale-preserving L2"),
     ("tfree",  "Training-free evaluator study (offline replay)"),
 ]
@@ -98,18 +103,18 @@ ARMS = [
         "probcover + 1-NN", "blue", dash="dash", on=True),
 
     arm("add_lin", "sel", "bayes_additive", "linear head", "observed", "31066809",
-        "additive (Itai)", "yellow", d_sampling="bayes_additive (Itai)"),
+        "additive", "cyan", dash="dash"),
     arm("prod_lin", "sel", "bayes_product", "linear head", "observed", "30978366",
-        "product (ours)", "aqua", on=True),
+        "product", "cyan", on=True),
 
     arm("map", "corr", "bayes_product", "linear head", "map_posterior", "30980646",
-        "map_posterior", "violet", dash="dash"),
+        "map_posterior", "yellow", dash="dash"),
     arm("soft", "corr", "bayes_product", "linear head", "soft_posterior", "30980646",
-        "soft_posterior", "violet", on=True),
+        "soft_posterior", "magenta", on=True),
     arm("filt", "corr", "bayes_product", "linear head", "filtered", "30980646",
-        "filtered", "magenta", dash="dash"),
+        "filtered", "violet", dash="dash"),
     arm("rew", "corr", "bayes_product", "linear head", "reweighted", "30980646",
-        "reweighted", "magenta", dash="dot"),
+        "reweighted", "violet", dash="dot"),
 
     arm("ps_lin10", "pseudo", "bayes_product", "linear head", "pseudo (lin10)", "31047129",
         "pseudo lin10", "orange", dash="dot"),
@@ -121,7 +126,7 @@ ARMS = [
         "pseudo all (norm)", "red", width=3, on=True, d_model="linear head (norm)"),
 
     arm("post_arg", "postcls", "bayes_product", "posterior-argmax", "—", "test_posterior_acc",
-        "posterior argmax", "aqua", dash="dot"),
+        "posterior argmax", "cyan", dash="dot"),
 
     arm("pc_aum", "netta", "probcover", "linear head", "AUM clean-train", "30863746",
         "PC + AUM", "green", dash="dash"),
@@ -130,21 +135,38 @@ ARMS = [
     arm("npc_aum", "netta", "npc", "linear head", "AUM clean-train", "30863746",
         "NPC + AUM", "green", on=True),
 
+    # -- BAYES_MISP port (Itai's method run in our repo) ----------------------
+    # linear-head row is directly comparable to every other curve; the MLP-head
+    # rows live ~10 pts above the linear protocol (different evaluator, not a
+    # better selector) — compare them only against each other.
+    arm("misp_lin", "misp", "bayes_misp", "linear head", "observed", "31084429",
+        "bayes_misp (linear)", "yellow", dash="dashdot", width=3, on=True,
+        d_sampling="bayes_misp (Itai)"),
+    arm("misp_mlp", "misp", "bayes_misp", "MLP head", "observed", "31084429",
+        "bayes_misp (MLP)", "yellow", width=3, markers=True,
+        d_sampling="bayes_misp (Itai)"),
+    arm("pc_mlp", "misp", "probcover", "MLP head", "observed", "31078514",
+        "probcover (MLP, seed 1)", "blue", dash="dashdot", markers=True,
+        d_model="MLP head (seed 1)"),
+    arm("add_mlp", "misp", "bayes_additive", "MLP head", "observed", "31078514",
+        "additive (MLP, seed 1)", "cyan", dash="dot", markers=True,
+        d_model="MLP head (seed 1)"),
+
     # -- normalized-input reruns (paired seeds vs the raw originals) ----------
     arm("n_rand", "norm", "random", "linear head", "observed", "31048960",
         "random (norm)", "gray", tint=True, markers=True, d_model="linear head (norm)"),
     arm("n_pc", "norm", "probcover", "linear head", "observed", "31048960",
         "probcover (norm)", "blue", tint=True, markers=True, d_model="linear head (norm)"),
     arm("n_prod", "norm", "bayes_product", "linear head", "observed", "31048960",
-        "product (norm)", "aqua", tint=True, markers=True, d_model="linear head (norm)"),
+        "product (norm)", "cyan", tint=True, markers=True, d_model="linear head (norm)"),
     arm("n_map", "norm", "bayes_product", "linear head", "map_posterior", "31048960",
-        "map (norm)", "violet", dash="dash", tint=True, markers=True, d_model="linear head (norm)"),
+        "map (norm)", "yellow", dash="dash", tint=True, markers=True, d_model="linear head (norm)"),
     arm("n_soft", "norm", "bayes_product", "linear head", "soft_posterior", "31048960",
-        "soft (norm)", "violet", tint=True, markers=True, d_model="linear head (norm)"),
+        "soft (norm)", "magenta", tint=True, markers=True, d_model="linear head (norm)"),
     arm("n_filt", "norm", "bayes_product", "linear head", "filtered", "31048960",
-        "filtered (norm)", "magenta", dash="dash", tint=True, markers=True, d_model="linear head (norm)"),
+        "filtered (norm)", "violet", dash="dash", tint=True, markers=True, d_model="linear head (norm)"),
     arm("n_rew", "norm", "bayes_product", "linear head", "reweighted", "31048960",
-        "reweighted (norm)", "magenta", dash="dot", tint=True, markers=True, d_model="linear head (norm)"),
+        "reweighted (norm)", "violet", dash="dot", tint=True, markers=True, d_model="linear head (norm)"),
     arm("n_lin10", "norm", "bayes_product", "linear head", "pseudo (lin10)", "31048960",
         "pseudo lin10 (norm)", "orange", dash="dot", tint=True, markers=True, d_model="linear head (norm)"),
     arm("n_agg50", "norm", "bayes_product", "linear head", "pseudo (agg50)", "31048960",
@@ -154,11 +176,11 @@ ARMS = [
     arm("t_rand1nn", "tfree", "random", "1-NN", "observed", "eval_1nn_all_arms",
         "random + 1-NN", "gray", dash="dash"),
     arm("t_prod1nn", "tfree", "bayes_product", "1-NN", "observed", "eval_1nn_all_arms",
-        "product + 1-NN", "aqua", dash="dash"),
+        "product + 1-NN", "cyan", dash="dash"),
     arm("t_arg1nn", "tfree", "bayes_product", "1-NN", "posterior-argmax", "eval_1nn_all_arms",
-        "denoise → 1-NN", "aqua", dash="dashdot"),
+        "denoise → 1-NN", "cyan", dash="dashdot"),
     arm("t_nw3", "tfree", "bayes_product", "NW (k=3)", "observed", "eval_1nn_all_arms",
-        "product + NW κ=3", "aqua", dash="longdash"),
+        "product + NW κ=3", "cyan", dash="longdash"),
 ]
 
 
@@ -240,11 +262,6 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.88em;
      background:var(--wash);padding:.08em .32em;border-radius:4px}
 #themeBtn{background:var(--surface);border:1px solid var(--border);color:var(--ink2);
           border-radius:8px;padding:6px 12px;cursor:pointer;font:13px system-ui}
-/* hero tiles */
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin:22px 0 8px}
-.tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
-.tile .v{font-size:32px;font-weight:650;line-height:1.1}
-.tile .l{color:var(--ink2);font-size:13.5px;margin-top:6px}
 /* formulas */
 .math{background:var(--surface);border:1px solid var(--border);border-radius:10px;
       padding:12px 18px;margin:14px 0;font-size:16.5px;overflow-x:auto;white-space:nowrap}
@@ -319,23 +336,11 @@ table.prov th{color:var(--muted)}
   <button id="themeBtn" title="Toggle light/dark">◐ theme</button>
 </header>
 
-<div class="tiles">
-  <div class="tile"><div class="v">29.2% <span style="font-size:16px;color:var(--muted)">vs 12.6%</span></div>
-    <div class="l">at <b>80% label noise</b>, 1000 labels — training on the posterior (pseudo&nbsp;all, norm)
-    vs training on the raw labels. 2.3× the accuracy from the same annotation budget.</div></div>
-  <div class="tile"><div class="v">48.4% <span style="font-size:16px;color:var(--muted)">vs 46.5%</span></div>
-    <div class="l"><b>clean data</b>, 1000 labels — the same recipe also wins with no noise at all
-    (vs probcover + training), so it needs no noise gate.</div></div>
-  <div class="tile"><div class="v">beats NPC+AUM</div>
-    <div class="l">at <b>every</b> noise level — including 0.2, its last stronghold
-    (46.6 vs 43.3 @1000), and by 2× at 0.8 (29.2 vs 15.0).</div></div>
-</div>
-
 <div class="toc"><ol>
   <li><a href="#s1">The idea: make ProbCover noise-aware</a></li>
   <li><a href="#s2">From covered bits to per-point posteriors</a></li>
   <li><a href="#s3">Selection: spend the budget where uncertainty mass remains</a></li>
-  <li><a href="#s4">Product vs additive — ours vs Itai's rule</a></li>
+  <li><a href="#s4">Product vs additive — two combination rules</a></li>
   <li><a href="#s5">The classification plane: five ways to train on the posterior</a></li>
   <li><a href="#s6">Pseudo-labeling: train on <i>all</i> the points</a></li>
   <li><a href="#s7">Normalized features: the final +1</a></li>
@@ -378,17 +383,20 @@ diluted toward the prior with distance:</p>
 assumption) so ℓ's belief transfers as-is; otherwise ℓ says nothing and the message is the prior.</p>
 
 <p><b>Step C — fuse all neighbors (product of experts).</b> All labeled neighbors combine in
-log space (naive Bayes over neighbors), each message entering as a fractional vote with
-exponent β·<em>w<sub>u</sub></em><sub>ℓ</sub> (defaults β=1, <em>w</em>=<em>K</em> — with tophat this is
-the exact naive-Bayes product):</p>
+log space (naive Bayes over neighbors):</p>
 <div class="math"><em>P</em>(<em>y<sub>u</sub></em>=<em>k</em>) <span class="op">∝</span>
-π(<em>k</em>) · ∏<sub>ℓ∈L</sub> <em>q</em><sub>ℓ</sub>(<em>u</em>,<em>k</em>)<sup>β·<em>w<sub>u</sub></em><sub>ℓ</sub></sup>
+π(<em>k</em>) · ∏<sub>ℓ∈L</sub> <em>q</em><sub>ℓ</sub>(<em>u</em>,<em>k</em>)
 &nbsp;&nbsp;&nbsp;<span style="color:var(--muted)">i.e.</span>&nbsp;
-<em>C</em>[<em>u</em>] = log&nbsp;π + Σ<sub>ℓ</sub> β<em>w<sub>u</sub></em><sub>ℓ</sub> log <em>q</em><sub>ℓ</sub>(<em>u</em>,·),&nbsp;
+<em>C</em>[<em>u</em>] = log&nbsp;π + Σ<sub>ℓ</sub> log <em>q</em><sub>ℓ</sub>(<em>u</em>,·),&nbsp;
 <em>P</em> = softmax(<em>C</em>[<em>u</em>])</div>
 <p>Agreeing neighbors <i>sharpen</i> the posterior; a single confident-but-wrong neighbor is
 overridable. Noise-awareness falls out for free: a noisy annotator's message is nearly flat,
 so its ball barely sharpens.</p>
+<p class="small">Future work (like the noise-rate estimation): the code also supports raising each
+message to a per-neighbor exponent β·<em>w<sub>u</sub></em><sub>ℓ</sub> (uniform tempering β and
+kernel weighting <em>w</em>=<em>K</em>) to damp the overconfidence of correlated neighbors — unused
+so far: all runs use β=1 and the tophat kernel, i.e. the exact plain product above; a β-sweep is
+on deck (§9).</p>
 
 <h2 id="s3">3 · Selection: spend the budget where uncertainty mass remains</h2>
 <p>Coverage is now graded — a point is well-covered when its posterior is peaked. Each point's
@@ -406,14 +414,16 @@ explore <i>breadth</i>), while a noisy label barely sharpens it, so the region s
 and gets re-sampled (<i>depth</i>) — the algorithm decides per region, from the annotator's
 accuracy, with no extra knob.</p>
 
-<h2 id="s4">4 · Product vs additive — ours vs Itai's rule</h2>
-<p>Itai's <code>BAYES_MISP</code> accumulates evidence <i>additively</i>; ours multiplies experts.
-Both live behind the same <code>COMBINE</code> switch, so the comparison is like-for-like
-(same kernel, same in-loop annotation):</p>
-<div class="math"><b>product (ours):</b>&nbsp;
-<em>C</em>[<em>u</em>] = log&nbsp;π + Σ<sub>ℓ</sub> β<em>w<sub>u</sub></em><sub>ℓ</sub> log <em>q</em><sub>ℓ</sub>(<em>u</em>,·),&nbsp;
+<h2 id="s4">4 · Product vs additive — two combination rules</h2>
+<p>Two ways to fuse the neighbors' messages were tried: the <b>product</b> rule multiplies experts
+(§2 above), and an <b>additive</b> rule accumulates evidence as pseudo-counts instead. Both live
+behind the same <code>COMBINE</code> switch, so the comparison is like-for-like
+(same kernel, same in-loop annotation). (Itai's <code>BAYES_MISP</code> is also additive in
+spirit — his actual method is ported and compared separately in §8's BAYES_MISP group.)</p>
+<div class="math"><b>product:</b>&nbsp;
+<em>C</em>[<em>u</em>] = log&nbsp;π + Σ<sub>ℓ</sub> log <em>q</em><sub>ℓ</sub>(<em>u</em>,·),&nbsp;
 <em>P</em> = softmax(<em>C</em>[<em>u</em>])</div>
-<div class="math"><b>additive (Itai):</b>&nbsp;
+<div class="math"><b>additive:</b>&nbsp;
 <em>C</em>[<em>u</em>] init = π&nbsp;(pseudo-counts);&nbsp;
 <em>C</em>[<em>u</em>, <em>ỹ</em><sub>ℓ</sub>] += <em>K</em>[<em>u</em>,ℓ];&nbsp;
 <em>P</em>(<em>y<sub>u</sub></em>=·) = <em>C</em>[<em>u</em>]&nbsp;/&nbsp;Σ<sub><em>k</em></sub><em>C</em>[<em>u</em>,<em>k</em>]</div>
@@ -421,22 +431,13 @@ Both live behind the same <code>COMBINE</code> switch, so the comparison is like
 after one clean in-ball label, so <code>1−max&nbsp;P</code> retires covered points. The additive
 posterior only reaches <em>n</em>/(<em>n</em>+1) after <em>n</em> labels — scored against a ceiling
 of 1 it never retires anything, the greedy clumps into dense regions, and low-budget accuracy
-collapses (13.4 @100 — the bug we found and fixed on 2026-07-14). The fix gives the additive
-branch Itai's own saturating ceiling:</p>
+collapses (13.4 @100 — the bug we found and fixed on 2026-07-14). The fix borrows the
+saturating ceiling from Itai's <code>BAYES_MISP</code> (his idea, <code>diff_method='max'</code>):</p>
 <div class="math"><b>additive deficit:</b>&nbsp;
 max( <em>f</em><sub>1</sub> − max<sub><em>k</em></sub> <em>P</em>(<em>y<sub>u</sub></em>=<em>k</em>), 0 ),&nbsp;&nbsp;
 <em>f</em><sub>1</sub> = (max<sub><em>k</em></sub> π + 1)&nbsp;/&nbsp;(Σ<sub><em>k</em></sub> π + 1)
 &nbsp;&nbsp;<span style="color:var(--muted)">— the dominant-class mass after exactly one tophat in-ball label
 (= BAYES_MISP diff_method='max'); one clean label now retires a point.</span></div>
-<p><b>Result</b> (re-run sweep 31066809): at budget 100 the two tie and both ≈ probcover
-(24.8 additive vs 24.6 product vs 23.6 — the "reproduces Itai" sanity check passes). Then the
-<b>product pulls decisively ahead</b> as budget and noise grow: 45.1 vs 39.2 clean @1000;
-29.5 vs 15.1 @1000 at noise 0.5. The residual high-budget gap is intrinsic to the additive
-rule (impure balls keep a residual deficit), not a bug.</p>
-<div class="chart"><div class="chart-title">Selection plane: probcover vs additive (Itai) vs product (ours)</div>
-<div class="chart-sub">Test accuracy vs annotation budget; one panel per noise level. All three train a linear head on observed labels. Hover for mean±std.</div>
-<div id="chartA" style="height:560px"></div></div>
-
 <h2 id="s5">5 · The classification plane: five ways to train on the posterior</h2>
 <p>Selection alone ≈ ProbCover — the posterior's real payoff is that <b>the same posterior can
 build the training targets</b>. Five arms (<code>TRAIN_LABEL_MODE</code>), all swept:</p>
@@ -463,7 +464,7 @@ posterior-argmax relabel is <b>61.6% correct vs the annotator's 20.6%</b> — of
 fix a wrong label, only 52 break a correct one. At noise ≤ 0.2 relabeling is net-negative
 (ball impurity) — the training-mode choice should be noise-gated… until pseudo-labeling removed
 the need (§6). This beat NPC + clean-data training everywhere the noise was real.</div>
-<div class="chart"><div class="chart-title">Training plane: observed vs map/soft posterior vs NPC+AUM (all bayes_product selection except NPC)</div>
+<div class="chart"><div class="chart-title">Training plane: observed vs map/soft posterior vs NPC+AUM (all bayes_product selection except NPC and probcover)</div>
 <div class="chart-sub">The gap grows with noise: soft targets carry what the annotations know without committing to their mistakes.</div>
 <div id="chartB" style="height:560px"></div></div>
 <details><summary>Posterior quality vs ground truth (offline replay, R6–R9): denoising + pseudo-label supply</summary>
@@ -494,7 +495,7 @@ unimplemented, and <code>all</code> amplifies noisy balls hardest exactly where 
 reliable. Out-of-ball targets (NW soft-kNN on the uncovered ~80%) were tested at several weights
 and <b>rejected</b> — far targets are confidently wrong, covered-only stands.</p>
 <div class="chart"><div class="chart-title">Pseudo-labeling: the jump from training on 100–1000 points to training on every covered point</div>
-<div class="chart-sub">pseudo all (norm) is the recommended configuration (§7). probcover + 1-NN shown as the training-free reference.</div>
+<div class="chart-sub">pseudo all (norm) is the recommended configuration (§7). probcover + 1-NN shown as the training-free reference; soft_posterior as the best labeled-only arm (§5).</div>
 <div id="chartC" style="height:560px"></div></div>
 
 <h2 id="s7">7 · Normalized features: the final +1</h2>
@@ -551,9 +552,28 @@ chart for exact mean±std of every visible arm. Values are test accuracy (%), me
   <li><b>The AUM idea, chicken-and-egg.</b> Feed the trained classifier's estimates back into
       the posterior (posterior → classifier → updated posterior → next selection round) — AUM's
       loop, but with the graph posterior as the anchor instead of a noisily-trained judge.</li>
-  <li class="small"><b>Also on deck:</b> estimate the annotator noise rate instead of assuming it
-      known (offline bake-off done: DS-EM separates 0-vs-0.2 at every budget, impurity-corrected
-      LOO is most accurate given a clean anchor); β-temper sweep for correlated-neighbor
+  <li><b>Estimate the annotator noise level instead of using the real one.</b> Every run above
+      feeds the annotator's <i>true</i> noise rate into Step A's confusion matrix — an oracle
+      assumption a real deployment doesn't get. Replace it with an estimate ρ̂ from the labeled
+      data itself. An offline bake-off (§9.4) already ran: <b>DS-EM</b> is the best
+      assumption-free estimator (separates noise 0 vs 0.2 at every budget, with a small
+      +~0.25 bias at low noise), <b>impurity-corrected LOO</b> is the most accurate
+      (MAE ≈ 0.016 @1000) but needs a clean anchor, raw LOO saturates at the ball-impurity
+      floor. Next: wire ρ̂ into the live pipeline and measure how much of the oracle-ρ
+      accuracy survives.</li>
+  <li><b>Compare to Itai's formalism.</b> The BAYES_MISP port shows the two methods land in the
+      same place empirically (linear head: misp ≈ probcover ≈ product at every noise level) —
+      the open work is the <i>theoretical</i> side-by-side: map his pseudo-count accumulation +
+      diff-max acquisition onto our posterior/uncertainty language, state exactly when the two
+      selection rules pick different points, and see whether either formalism predicts the
+      high-budget product-vs-additive gap.</li>
+  <li><b>KL loss instead of CE.</b> The soft-target arms (<code>soft_posterior</code>, pseudo)
+      train with soft cross-entropy. With <i>fixed</i> targets, forward KL(target‖model) equals
+      soft-CE up to the targets' entropy — same gradients — so the interesting variant is
+      <b>reverse</b> KL(model‖target): mode-seeking, it lets the classifier commit to one class
+      inside a spread-out posterior instead of averaging over it; possibly a better fit for
+      impure balls at high noise.</li>
+  <li class="small"><b>Also on deck:</b> β-temper sweep for correlated-neighbor
       overconfidence; per-ball caps (guard b) to make <code>pseudo all</code> safe at noise 0.8.</li>
 </ol>
 
@@ -799,9 +819,8 @@ document.getElementById("clearBtn").addEventListener("click", () => {
 
 /* ---------- render everything ---------- */
 function renderAll(){
-  smallMultiples("chartA", ["pc_lin","add_lin","prod_lin"], 1000);
-  smallMultiples("chartB", ["prod_lin","map","soft","npc_aum"], 1000);
-  smallMultiples("chartC", ["pc_1nn","prod_lin","ps_all","ps_all_n"], 1000);
+  smallMultiples("chartB", ["pc_lin","prod_lin","map","soft","npc_aum"], 1000);
+  smallMultiples("chartC", ["pc_lin","pc_1nn","prod_lin","soft","ps_all","ps_all_n"], 1000);
   renderTable(); renderChart();
 }
 renderAll();

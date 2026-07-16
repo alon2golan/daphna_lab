@@ -148,7 +148,15 @@ neighbors), and (b) replace the argmax rule with a percentile / calibrated cut o
 continuous $w_\ell$. Worth doing only if these modes stay in the story; if soft/map
 remain the winners, this becomes documentation rather than code.
 
-### 7.7 Additive-arm fidelity (Itai control)
+### 7.7 Additive-arm fidelity (Itai control) — superseded 2026-07-16
+
+> **Status:** the low-budget collapse was the acquisition bug, fixed 2026-07-14
+> (RESULTS, note above §4.1) — additive now ≈ probcover @100. More importantly, the
+> Itai repro established that his actual "bayes" method is `BAYES_MISP` (diff max),
+> **not** our `bayes_additive` — the faithful Itai control is the native `bayes_misp`
+> port (RESULTS §4.7). `bayes_additive` stands as our own additive variant, with
+> Itai's saturating deficit ceiling adopted for its acquisition. The theoretical
+> formalism comparison remains open → §9.6.
 
 On CIFAR100 our additive branch scores 13.4 @100 clean vs probcover + training's 23.6 —
 it fails the "reproduces Itai ≈ probcover + training" sanity check that it *passed* on
@@ -621,6 +629,35 @@ design section + offline simulation on replay trajectories (compare against NoAA
 threshold rule on the fig5.5 setup); no training runs needed until the simulation says it
 wins. Related: with 9.4's estimated confusion matrices this also handles *unknown*
 annotator quality — the full "who to ask" problem.
+
+### 9.6 Compare to Itai's formalism (theory side-by-side)
+
+The BAYES_MISP port (RESULTS §4.7) settled the *empirical* comparison: with the shared
+linear-head protocol, `bayes_misp` ≈ probcover ≈ `bayes_product` at every noise level.
+The open work is theoretical: map his pseudo-count accumulation + diff-max acquisition
+onto our posterior/uncertainty language (his $f_1$ ceiling is already identified with our
+fixed additive acquisition for tophat kernels, RESULTS note above §4.1), state exactly
+when the two selection rules pick different points, and check whether either formalism
+*predicts* the high-budget product-vs-additive gap. Deliverable: a THEORY section, no runs.
+
+### 9.7 MLP classifier head
+
+Itai reached 1-NN-competitive results with an MLP probe (his sklearn `from_mlp_sklearn`
+head, hidden 256 — now available in this repo via `--eval_model_type from_mlp_sklearn`).
+Swapping our linear head for an MLP could stack with `pseudo all`'s target volume — the
+cheapest possibly-large win on the board. Caveat from the §4.7 noise sweep: under label
+noise the MLP head *inverts* (memorizes noisy labels, 9.9 vs 13.6 @1000 noise .8), so
+this is a clean/low-noise play unless combined with posterior/pseudo targets.
+
+### 9.8 KL loss instead of CE
+
+The soft-target arms (`soft_posterior`, pseudo) train with soft cross-entropy. With
+*fixed* targets, forward KL(target‖model) = soft-CE minus the targets' entropy — the
+gradients are identical — so the variant with actual content is **reverse**
+KL(model‖target): mode-seeking, it lets the classifier commit to a single class inside a
+spread-out posterior instead of averaging over it. Possibly a better fit for impure balls
+at high noise. Cheap ablation: one loss-flag, re-run the soft/pseudo arms at one noise
+level first.
 
 ### Proposed execution order (all offline/CPU first)
 
