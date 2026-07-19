@@ -1,4 +1,4 @@
-# Build the TinyImageNet embeddings dir ProbCover/error_analysis expect.
+# Build the TinyImageNet embeddings dir ProbCover/accuracy_vs_budget expect.
 #
 # Feature source: itai.david's representation bank. NOTE the bank holds several
 # inconsistent SimCLR extractions; only features_seed1.npy is a strong, coherent
@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 BANK = "/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext"
-# with_priors/data/ holds all embedding banks (data_prep/ -> up one, into data/)
+# hierarchical_framework/data/ holds all embedding banks (data_prep/ -> up one, into data/)
 OUT = Path(__file__).resolve().parents[1] / "data" / "embeddings_deepal" / "tinyimagenet_simclr"
 PER_CLASS = 500          # images per class in TinyImageNet train
 N_CLASSES = 200

@@ -13,15 +13,15 @@ from pathlib import Path
 
 import numpy as np
 
-# with_priors/ root (analysis/ -> up one); make the pipeline package importable
-# for the shared selectors, and land figures in outputs/
-WP_ROOT = Path(__file__).resolve().parents[1]
-OUTPUTS = WP_ROOT / "outputs"
-if str(WP_ROOT / "pipeline") not in sys.path:
-    sys.path.insert(0, str(WP_ROOT / "pipeline"))
+# hierarchical_framework/ root (analysis/ -> up one); make the pipeline package
+# importable for the shared selectors, and land figures in outputs/
+HF_ROOT = Path(__file__).resolve().parents[1]
+OUTPUTS = HF_ROOT / "outputs"
+if str(HF_ROOT / "pipeline") not in sys.path:
+    sys.path.insert(0, str(HF_ROOT / "pipeline"))
 
 from selectors_al import SELECTORS
-from error_analysis import CIFAR100_COARSE
+from accuracy_vs_budget import CIFAR100_COARSE
 
 
 # 20 CIFAR-100 superclass names, indexed by coarse id (matches CIFAR100_COARSE)

@@ -1,11 +1,11 @@
 # Thin wrapper around deep_al's data-driven knee-point delta selector, so
-# run_al.py / error_analysis.py can resolve --delta knee the same way deep_al's
+# run_al.py / accuracy_vs_budget.py can resolve --delta knee the same way deep_al's
 # resolve_initial_delta does (KMeans pseudo-labels -> purity(delta) curve -> knee).
 
 import sys
 from pathlib import Path
 
-# deep_al lives at the repo root (with_priors/pipeline/ -> up three to daphna_lab/)
+# deep_al lives at the repo root (hierarchical_framework/pipeline/ -> up three to daphna_lab/)
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))

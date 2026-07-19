@@ -4,15 +4,15 @@
 #SBATCH -c 4
 #SBATCH --time=1:00:00
 #SBATCH --gres=gpu:l40s:1
-#SBATCH --output=with_priors/outputs/slurm_logs/run_al_%j.out
-#SBATCH --error=with_priors/outputs/slurm_logs/run_al_%j.err
+#SBATCH --output=hierarchical_framework/outputs/slurm_logs/run_al_%j.out
+#SBATCH --error=hierarchical_framework/outputs/slurm_logs/run_al_%j.err
 #SBATCH --killable
 #SBATCH --requeue
 
 # Run the AL pipeline (ProbCover or another strategy) with 1-NN eval + wandb.
 #
 # Usage:
-#   sbatch with_priors/scripts/run_al.sbatch <EMB_DIR> [STRATEGY] [DELTA] [BUDGET] [ROUNDS] [PROJECT]
+#   sbatch hierarchical_framework/scripts/run_al.sbatch <EMB_DIR> [STRATEGY] [DELTA] [BUDGET] [ROUNDS] [PROJECT]
 #
 # Positional args:
 #   1) EMB_DIR    embeddings dir with <split>_features_normalized.npy + labels + test_*
@@ -23,8 +23,8 @@
 #   6) PROJECT    wandb project         (default bayesian)
 #
 # Example:
-#   sbatch with_priors/scripts/run_al.sbatch \
-#       with_priors/data/embeddings_deepal/cifar100_simclr probcover 0.65 100 10
+#   sbatch hierarchical_framework/scripts/run_al.sbatch \
+#       hierarchical_framework/data/embeddings_deepal/cifar100_simclr probcover 0.65 100 10
 
 set -e
 
@@ -39,11 +39,11 @@ ROOT=/cs/labs/daphna/$USER/projects/daphna_lab
 cd "$ROOT"
 # venv has the full stack AND wandb (.venv_clean does not)
 source "$ROOT/venv/bin/activate"
-mkdir -p with_priors/outputs/slurm_logs
+mkdir -p hierarchical_framework/outputs/slurm_logs
 
 echo "AL: strategy=$STRATEGY emb=$EMB_DIR delta=$DELTA budget=$BUDGET rounds=$ROUNDS project=$PROJECT"
 
-python -u with_priors/pipeline/run_al.py \
+python -u hierarchical_framework/pipeline/run_al.py \
   --embeddings_dir "$EMB_DIR" \
   --strategy "$STRATEGY" \
   --delta "$DELTA" \

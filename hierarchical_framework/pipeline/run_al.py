@@ -9,7 +9,7 @@ import numpy as np
 
 from selectors_al import SELECTORS
 
-# with_priors/ root (pipeline/ -> up one); all rendered figures land under outputs/
+# hierarchical_framework/ root (pipeline/ -> up one); rendered figures land under outputs/
 OUTPUTS = Path(__file__).resolve().parents[1] / "outputs"
 
 

@@ -1,8 +1,9 @@
-# with_priors
+# hierarchical_framework
 
-Active-learning experiments testing whether class priors (superclass / coarse
-structure) help ProbCover-style selection. Everything runs over pre-extracted,
-L2-normalized SimCLR embeddings and is scored with 1-NN — no network training.
+Active-learning experiments testing whether class hierarchy priors (superclass /
+coarse structure) help ProbCover-style selection. Everything runs over
+pre-extracted, L2-normalized SimCLR embeddings and is scored with 1-NN — no
+network training.
 
 ## Layout
 
@@ -13,8 +14,10 @@ pipeline/     the AL loop and its swappable parts
   knee_delta.py        bridge to deep_al's knee-point --delta selector
 
 analysis/     post-hoc breakdowns of a run (both import pipeline/)
-  error_analysis.py    fine vs coarse vs superclass-oracle accuracy; near/far miss split
-  confusion.py         superclass confusion heatmaps + confused-pair lists (ceiling vs ProbCover)
+  accuracy_vs_budget.py   fine vs coarse vs superclass-oracle accuracy + near/far miss split,
+                          traced as the label budget grows
+  superclass_confusion.py 20x20 superclass confusion heatmap + confused-pair lists at the
+                          full budget, embedding-ceiling vs ProbCover
 
 data_prep/    build the embedding banks the pipeline reads
   prepare_tinyimagenet.py       TinyImageNet embeddings dir from itai.david's bank
@@ -22,7 +25,7 @@ data_prep/    build the embedding banks the pipeline reads
 
 scripts/      slurm launchers (run from the repo root)
   run_al.sbatch            one AL run on a given embeddings dir
-  run_tinyimagenet.sbatch  full TinyImageNet pipeline (prep -> knee delta -> run_al -> error_analysis)
+  run_tinyimagenet.sbatch  full TinyImageNet pipeline (prep -> knee delta -> run_al -> accuracy_vs_budget)
 
 data/         embeddings_deepal/<dataset>/  (gitignored, ~360MB)
 outputs/      figures/, wandb/, slurm_logs/  (gitignored)
@@ -36,11 +39,11 @@ and delta resolution stay identical across the whole pipeline.
 
 ```
 # one ProbCover run
-sbatch with_priors/scripts/run_al.sbatch \
-    with_priors/data/embeddings_deepal/cifar100_simclr probcover 0.65 100 10
+sbatch hierarchical_framework/scripts/run_al.sbatch \
+    hierarchical_framework/data/embeddings_deepal/cifar100_simclr probcover 0.65 100 10
 
 # full TinyImageNet pipeline
-sbatch with_priors/scripts/run_tinyimagenet.sbatch 200 10
+sbatch hierarchical_framework/scripts/run_tinyimagenet.sbatch 200 10
 ```
 
 `--delta` accepts a float or the keyword `knee` (runs deep_al's knee algorithm on
