@@ -18,6 +18,7 @@ class OneNearestNeighbourEvaluator(Evaluator):
 
     def predict_within_true_superclass(self, labeled_indices):
         """Oracle 1-NN: for each test point, search ONLY the labeled points inside its true superclass."""
+
         # Pull the labeled subset and roll its fine labels up to superclasses
         labeled_features = self.train_features[labeled_indices]
         labeled_fine_labels = self.train_labels[labeled_indices]
@@ -66,6 +67,7 @@ class MLPEvaluator(Evaluator):
 
     def predict_within_true_superclass(self, labeled_indices):
         """Oracle MLP: keep only the output classes living in each test point's true superclass, then argmax."""
+
         # Train one flat head on ALL labeled points, then read its per-class probabilities
         classifier = self.fit(labeled_indices)
         # Shape: (num_test, num_classes_seen_in_training)
@@ -93,9 +95,13 @@ class MLPEvaluator(Evaluator):
                 unresolved_count += len(test_rows)
                 continue
 
-            # Among only the allowed classes, take the highest-probability one per test point
+            # 1. Slice out only the allowed rows and columns
             allowed_probabilities = class_probabilities[np.ix_(test_rows, allowed_columns)]
+
+            # 2. Find the index of the highest score per row
             best_allowed = allowed_probabilities.argmax(axis=1)
+
+            # 3. Map relative index to real Class ID and save
             predictions[test_rows] = seen_classes[allowed_columns][best_allowed]
 
         # Announce how many points had no allowed class at all (counted as wrong)

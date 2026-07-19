@@ -172,6 +172,7 @@ class HierarchicalEvaluator(Evaluator):
 
     def labeled_arrays(self, labeled_indices):
         """Extracts and aligns training subsets using only the currently allowed labeled data indices."""
+
         # Get the feature vectors for the labeled items
         labeled_features = self.train_features[labeled_indices]
 

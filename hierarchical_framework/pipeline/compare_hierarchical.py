@@ -29,19 +29,29 @@ HF_ROOT = PIPELINE_DIR.parent
 FIGURE_DIR = HF_ROOT / "outputs" / "figures" / "hierarchical_comparison"
 
 # Every evaluator we score with: display label, base-classifier registry name, whether to turn
-# the superclass oracle on, its family (nn/mlp), and its role (floor/method/ceiling). The oracle
-# rows just reuse the flat classifiers with use_superclass_oracle=True -- there is no oracle class.
+# the superclass oracle on, its family (nn/mlp), its role, and a colour_key. A method and its own
+# MATCHED ceiling (the same method handed the TRUE superclass via use_superclass_oracle=True) share
+# a colour_key so they plot in the same colour -- the method solid, its ceiling dashed. Roles:
+#   floor        = flat classifier, ignores the hierarchy (family lower bound).
+#   method       = uses the PREDICTED superclass (what we are actually testing).
+#   ceiling      = that same method handed the TRUE superclass (its own matched upper bound).
+#   flat_ceiling = the flat classifier handed the TRUE superclass (the whole family's oracle).
 EVALUATION_SPECS = [
-    # label            eval name        oracle  family  role
-    ("flat-1nn",      "1nn",           False,  "nn",   "floor"),
-    ("hknn",          "hknn",          False,  "nn",   "method"),
-    ("hknn-marginal", "hknn_marginal", False,  "nn",   "method"),
-    ("oracle-1nn",    "1nn",           True,   "nn",   "ceiling"),
-    ("flat-mlp",      "mlp",           False,  "mlp",  "floor"),
-    ("hmlp-routed",   "hmlp_routed",   False,  "mlp",  "method"),
-    ("hmlp-marginal", "hmlp_marginal", False,  "mlp",  "method"),
-    ("hmlp-logits",   "hmlp_logits",   False,  "mlp",  "method"),
-    ("oracle-mlp",    "mlp",           True,   "mlp",  "ceiling"),
+    # label                  eval name        oracle  family  role            colour_key
+    ("flat-1nn",            "1nn",           False,  "nn",   "floor",        "flat-nn"),
+    ("oracle-1nn",          "1nn",           True,   "nn",   "flat_ceiling", "flat-nn"),
+    ("hknn",                "hknn",          False,  "nn",   "method",       "hknn"),
+    ("hknn ceiling",        "hknn",          True,   "nn",   "ceiling",      "hknn"),
+    ("hknn-marginal",       "hknn_marginal", False,  "nn",   "method",       "hknn-marg"),
+    ("hknn-marg ceiling",   "hknn_marginal", True,   "nn",   "ceiling",      "hknn-marg"),
+    ("flat-mlp",            "mlp",           False,  "mlp",  "floor",        "flat-mlp"),
+    ("oracle-mlp",          "mlp",           True,   "mlp",  "flat_ceiling", "flat-mlp"),
+    ("hmlp-routed",         "hmlp_routed",   False,  "mlp",  "method",       "routed"),
+    ("hmlp-routed ceiling", "hmlp_routed",   True,   "mlp",  "ceiling",      "routed"),
+    ("hmlp-marginal",       "hmlp_marginal", False,  "mlp",  "method",       "marg"),
+    ("hmlp-marg ceiling",   "hmlp_marginal", True,   "mlp",  "ceiling",      "marg"),
+    ("hmlp-logits",         "hmlp_logits",   False,  "mlp",  "method",       "logits"),
+    ("hmlp-logits ceiling", "hmlp_logits",   True,   "mlp",  "ceiling",      "logits"),
 ]
 
 # Strategies that grow over rounds are drawn as curves; "all" is full supervision (one point)
@@ -49,7 +59,7 @@ CURVE_STRATEGIES = ["probcover", "random"]
 REFERENCE_STRATEGY = "all"
 
 # Role -> line style for the growing-budget curves
-ROLE_LINESTYLE = {"floor": ":", "method": "-", "ceiling": "--"}
+ROLE_LINESTYLE = {"floor": ":", "method": "-", "ceiling": "--", "flat_ceiling": "-."}
 
 
 # --- Selection Replay + Scoring ---
@@ -82,7 +92,7 @@ def score_strategy(strategy, labeled_sets, scorers, num_classes):
         }
 
         # Score every evaluator on this same labeled set
-        for label, eval_name, use_oracle, _family, _role in EVALUATION_SPECS:
+        for label, eval_name, use_oracle, _family, _role, _colour in EVALUATION_SPECS:
             fine_accuracy, coarse_accuracy = scorers[eval_name].fine_and_coarse_accuracy(
                 labeled_array, use_superclass_oracle=use_oracle)
             row["accuracy"][label] = (fine_accuracy, coarse_accuracy)
@@ -106,7 +116,7 @@ def write_csv(results, output_base):
         # Flatten the nested results into rows
         for strategy, per_round in results.items():
             for row in per_round:
-                for label, eval_name, use_oracle, family, role in EVALUATION_SPECS:
+                for label, eval_name, use_oracle, family, role, _colour in EVALUATION_SPECS:
                     fine_accuracy, coarse_accuracy = row["accuracy"][label]
                     handle.write(f"{strategy},{label},{family},{role},{int(use_oracle)},"
                                  f"{row['num_labeled']},{row['labels_per_class']:.3f},"
@@ -115,15 +125,16 @@ def write_csv(results, output_base):
 
 
 def save_figure(results, output_base):
-    """Draws a family x strategy grid; each method curve is read against its floor/ceiling and full supervision."""
+    """Draws a family x strategy grid; each method curve is read against its own matched ceiling."""
     families = ["nn", "mlp"]
 
-    # Fix one colour per evaluator label so it reads the same across every cell
+    # One colour per colour_key, assigned in first-seen order. A method and its matched ceiling share
+    # a colour_key, so they draw in the same colour (method solid, ceiling dashed).
     colour_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-    label_colour = {label: colour_cycle[i % len(colour_cycle)]
-                    for i, (label, *_ ) in enumerate(EVALUATION_SPECS)}
+    colour_keys = list(dict.fromkeys(spec[5] for spec in EVALUATION_SPECS))
+    key_colour = {key: colour_cycle[i % len(colour_cycle)] for i, key in enumerate(colour_keys)}
 
-    # The full-supervision accuracies, drawn as a faint horizontal reference in every cell
+    # The full-supervision accuracies, drawn as a faint horizontal reference (methods only, to limit clutter)
     reference_round = results[REFERENCE_STRATEGY][0]["accuracy"] if REFERENCE_STRATEGY in results else {}
 
     # One row per family, one column per growing-budget strategy
@@ -136,15 +147,16 @@ def save_figure(results, output_base):
             per_round = results[strategy]
             budgets = [entry["labels_per_class"] for entry in per_round]
 
-            # One curve per evaluator, styled by role (floor dotted, method solid, ceiling dashed)
-            for label, eval_name, use_oracle, _family, role in family_specs:
+            # One curve per evaluator: colour by colour_key, line style by role
+            # (floor dotted, method solid, own ceiling dashed, flat family ceiling dash-dot)
+            for label, eval_name, use_oracle, _family, role, colour_key in family_specs:
                 fine_curve = [entry["accuracy"][label][0] for entry in per_round]
                 ax.plot(budgets, fine_curve, ROLE_LINESTYLE[role], marker="o", markersize=3,
-                        color=label_colour[label], label=label)
+                        color=key_colour[colour_key], label=label)
 
-                # Same-colour faint horizontal line = that evaluator's full-supervision accuracy
-                if label in reference_round:
-                    ax.axhline(reference_round[label][0], color=label_colour[label],
+                # For methods only: a faint same-colour horizontal line = its full-supervision accuracy
+                if role == "method" and label in reference_round:
+                    ax.axhline(reference_round[label][0], color=key_colour[colour_key],
                                linestyle="-", linewidth=0.8, alpha=0.25)
 
             # Label the outer edges of the grid only
@@ -157,8 +169,9 @@ def save_figure(results, output_base):
             ax.grid(alpha=0.3)
             ax.legend(fontsize=7, ncol=2)
 
-    fig.suptitle("Hierarchical evaluators vs selection strategy "
-                 "(dotted=floor, solid=method, dashed=ceiling; faint line = full supervision)")
+    fig.suptitle("Hierarchical evaluators vs selection strategy -- each method (solid) against its OWN "
+                 "matched ceiling (dashed, same colour)\n"
+                 "dotted = flat floor, dash-dot = flat family oracle, faint line = method at full supervision")
     fig.tight_layout()
     png_path = FIGURE_DIR / output_base / "hierarchical_comparison.png"
     png_path.parent.mkdir(parents=True, exist_ok=True)
