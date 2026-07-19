@@ -21,11 +21,11 @@ BUDGETS=${1:-${BUDGETS:-2,4,6,10,25,50}}
 SEED=${SEED:-1}
 GRID=${GRID:-"--bandwidths auto,0.5x,0.25x,0.1x --sim_thresholds 0.0,0.1,0.2,0.3 --conf_thresholds 0.8,0.9,0.95 --min_purity 0.9 --wrong_penalty 3.0"}
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # .../semi_supervised/scripts
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # .../ssl_framework/scripts
 ROOT=$(dirname "$(dirname "$SCRIPT_DIR")")
 cd "$ROOT"
 [ -f "$ROOT/venv/bin/activate" ] && source "$ROOT/venv/bin/activate"
-RESULTS_ROOT="$ROOT/semi_supervised/results"
+RESULTS_ROOT="$ROOT/ssl_framework/results"
 DATA_DIR="${DATA_DIR:-$ROOT/data}"
 
 for METHOD in simclr byol; do
@@ -42,7 +42,7 @@ for METHOD in simclr byol; do
     for L in "${LS[@]}"; do
       OUT="$CASE/threshold_search/L${L}.json"
       echo "================ $METHOD $DATASET L=$L ================"
-      python -u -m semi_supervised.old.threshold_search \
+      python -u -m ssl_framework.old.threshold_search \
         $SRC --dataset "$DATASET" --data_dir "$DATA_DIR" \
         --per_class_budget "$L" --seed "$SEED" \
         --kernels gaussian,laplacian,cosine $GRID --out "$OUT" \

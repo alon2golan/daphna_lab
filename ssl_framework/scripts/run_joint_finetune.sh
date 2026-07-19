@@ -22,21 +22,21 @@ EPOCHS=${EPOCHS:-50}
 UNSUP_WEIGHTS=${UNSUP_WEIGHTS:-1,2,5,10}
 SEED=${SEED:-1}
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # .../semi_supervised/scripts
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # .../ssl_framework/scripts
 ROOT=$(dirname "$(dirname "$SCRIPT_DIR")")
 case "$BASE_CKPT" in /*) ;; *) BASE_CKPT="$ROOT/solo-learn/$BASE_CKPT" ;; esac
 
 cd "$ROOT"
 [ -f "$ROOT/venv/bin/activate" ] && source "$ROOT/venv/bin/activate"
 DATA_DIR="${DATA_DIR:-$ROOT/data}"
-RESULTS_ROOT="$ROOT/semi_supervised/results"
+RESULTS_ROOT="$ROOT/ssl_framework/results"
 
 WANDB_OFFLINE_FLAG=""
 [[ "${WANDB_OFFLINE:-0}" == "1" ]] && WANDB_OFFLINE_FLAG="--wandb_offline"
 
 echo "Joint FT: base=$BASE_CKPT dataset=$DATASET L=$L n_labeled=$N_LABELED epochs=$EPOCHS weights=$UNSUP_WEIGHTS"
 
-python -u -m semi_supervised.algorithms.joint_finetune \
+python -u -m ssl_framework.algorithms.joint_finetune \
   --dataset "$DATASET" \
   --base_checkpoint "$BASE_CKPT" \
   --data_dir "$DATA_DIR" \

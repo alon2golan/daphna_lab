@@ -1,6 +1,6 @@
-"""Adapter between semi_supervised algorithms and the vendored solo-learn.
+"""Adapter between ssl_framework algorithms and the vendored solo-learn.
 
-This is the ONLY module in semi_supervised that imports solo-learn. Everything
+This is the ONLY module in ssl_framework that imports solo-learn. Everything
 else (the algorithms, the label selectors) talks to solo-learn through the
 functions here, so if the training backend is ever swapped this is the single
 file to rewrite.
@@ -34,7 +34,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, Subset
 
 # Make the vendored solo-learn importable without installing it. Layout:
-#   <repo>/semi_supervised/backends/solo_learn.py  ->  parents[2] == <repo>
+#   <repo>/ssl_framework/backends/solo_learn.py  ->  parents[2] == <repo>
 #   <repo>/solo-learn
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SOLO_ROOT = _REPO_ROOT / "solo-learn"

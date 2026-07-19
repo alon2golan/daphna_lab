@@ -24,7 +24,7 @@ L=${3:?usage: ./run_supcon_finetune.sh BASE_CKPT DATASET L}
 case "$DATASET" in cifar10) NCLASSES=10 ;; cifar100) NCLASSES=100 ;; *) NCLASSES=100 ;; esac
 N_LABELED=$(( L * NCLASSES ))
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # .../semi_supervised/scripts
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # .../ssl_framework/scripts
 ROOT=$(dirname "$(dirname "$SCRIPT_DIR")")
 # a relative checkpoint is taken under solo-learn (where trained_models lives).
 case "$BASE_CKPT" in /*) ;; *) BASE_CKPT="$ROOT/solo-learn/$BASE_CKPT" ;; esac
@@ -32,14 +32,14 @@ case "$BASE_CKPT" in /*) ;; *) BASE_CKPT="$ROOT/solo-learn/$BASE_CKPT" ;; esac
 cd "$ROOT"
 [ -f "$ROOT/venv/bin/activate" ] && source "$ROOT/venv/bin/activate"
 DATA_DIR="${DATA_DIR:-$ROOT/data}"
-RESULTS_ROOT="$ROOT/semi_supervised/results"
+RESULTS_ROOT="$ROOT/ssl_framework/results"
 
 WANDB_OFFLINE_FLAG=""
 [[ "${WANDB_OFFLINE:-0}" == "1" ]] && WANDB_OFFLINE_FLAG="--wandb_offline"
 
 echo "SupCon FT (mode all): base=$BASE_CKPT dataset=$DATASET L=$L n_labeled=$N_LABELED"
 
-python -u -m semi_supervised.old.supcon_finetune \
+python -u -m ssl_framework.old.supcon_finetune \
   --dataset "$DATASET" \
   --base_checkpoint "$BASE_CKPT" \
   --data_dir "$DATA_DIR" \

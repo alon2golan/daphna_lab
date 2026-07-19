@@ -12,7 +12,7 @@ It reads the base features saved by a supcon_finetune run (output_dir/base_featu
 or extracts them fresh from a checkpoint. The labeled set is reconstructed from
 the same (n_labeled, seed) so it matches the run you will launch.
 
-    python -m semi_supervised.algorithms.propagation_sweep \
+    python -m ssl_framework.algorithms.propagation_sweep \
         --features runs/supcon_ft_cifar100_l1000/base_features \
         --dataset cifar100 --n_labeled 1000 --seed 1 \
         --kernel gaussian \

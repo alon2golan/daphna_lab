@@ -1,9 +1,9 @@
 """Archived SimCLR<->SupCon concept work (shelved, not under active development).
 
 Kept runnable -- these still import the live shared modules (labeling,
-propagation, evaluation, backends) from the semi_supervised package, so nothing
+propagation, evaluation, backends) from the ssl_framework package, so nothing
 here was edited beyond its folder. Invoke with e.g.
-    python -m semi_supervised.old.supcon_finetune ...
+    python -m ssl_framework.old.supcon_finetune ...
 
     simclr_supcon     -- iterate between unsupervised SimCLR (full pool) and
                          supervised SupCon (labeled subset) on a shared backbone.

@@ -25,7 +25,7 @@ from the vendored [solo-learn](https://github.com/vturrisi/solo-learn) repo at
                  top-1/5.
 - `old/`         archived SimCLR<->SupCon concept work (shelved). See
                  `old/README.md`. Still runnable via
-                 `python -m semi_supervised.old.<module>`.
+                 `python -m ssl_framework.old.<module>`.
 
 ## Running the joint fine-tuning
 

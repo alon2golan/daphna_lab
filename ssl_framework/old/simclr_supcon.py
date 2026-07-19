@@ -7,14 +7,14 @@ phase produced. SimCLR keeps the representation general; SupCon pulls same-class
 samples together using the few labels available.
 
 Both phases are real solo-learn training runs executed through
-semi_supervised.backends.solo_learn; the only thing carried between them is the
+ssl_framework.backends.solo_learn; the only thing carried between them is the
 backbone's weights. The labeled subset is chosen once by a Selector (random for
 now -- swap in an active-learning selector later without changing this file).
 
 Everything runs in a single process, so the whole iteration is one job. Run it
 directly:
 
-    python -m semi_supervised.algorithms.simclr_supcon \
+    python -m ssl_framework.algorithms.simclr_supcon \
         --dataset cifar100 --n_labeled 1000 \
         --num_iterations 3 --simclr_epochs 200 --supcon_epochs 100 \
         --output_dir runs/simclr_supcon_cifar100_l1000

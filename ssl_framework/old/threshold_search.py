@@ -24,7 +24,7 @@ a recommended shortlist to json -- feed that shortlist to supcon_finetune's
 list-valued --sim_threshold / --conf_threshold / --bandwidth to train only the
 combinations that look worth it.
 
-    python -m semi_supervised.algorithms.threshold_search \
+    python -m ssl_framework.algorithms.threshold_search \
         --features results/cifar100/simclr/base_features \
         --dataset cifar100 --per_class_budget 10 --seed 1 \
         --kernels gaussian,laplacian,cosine \

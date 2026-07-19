@@ -6,5 +6,5 @@
                       and compare conditions on val_acc1/5 + val_knn_acc1/5.
 
 The earlier SimCLR<->SupCon concept work (simclr_supcon, supcon_finetune,
-propagation_sweep, threshold_search) is shelved under semi_supervised.old.
+propagation_sweep, threshold_search) is shelved under ssl_framework.old.
 """

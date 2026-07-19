@@ -33,7 +33,7 @@ reuse. --mode controls which part runs:
 
 Run one case end to end locally:
 
-    python -m semi_supervised.algorithms.supcon_finetune \
+    python -m ssl_framework.algorithms.supcon_finetune \
         --dataset cifar100 \
         --base_checkpoint ../solo-learn/trained_models/simclr/cifar100/1000ep \
         --n_labeled 1000 --per_class_budget 10 --with_propagation --mode all
@@ -520,7 +520,7 @@ def main():
     p.add_argument("--base_checkpoint", required=True,
                    help="run dir (args.json + *.ckpt) or a .ckpt of the base encoder")
     p.add_argument("--results_root", default=str(Path(__file__).resolve().parents[1] / "results"),
-                   help="root of the results tree (default semi_supervised/results)")
+                   help="root of the results tree (default ssl_framework/results)")
     p.add_argument("--mode", default="all", choices=["baseline", "budget", "all"],
                    help="baseline: extract+cache+score encoder; budget: supcon runs "
                         "for one budget (needs cached features); all: both")

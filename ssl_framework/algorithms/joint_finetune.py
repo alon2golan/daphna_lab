@@ -13,7 +13,7 @@ Everything lands in its OWN wandb project (default semi-supervised-joint) and it
 own results subtree, so it never mixes with the old supcon_finetune runs -- filter
 by project, or by the group/tags/unsup_weight config.
 
-    python -m semi_supervised.algorithms.joint_finetune \
+    python -m ssl_framework.algorithms.joint_finetune \
         --dataset cifar100 \
         --base_checkpoint ../solo-learn/trained_models/simclr/cifar100/1000ep \
         --n_labeled 1000 --per_class_budget 10 --epochs 50 \

@@ -1,11 +1,11 @@
 # Archived: SimCLR<->SupCon concept work
 
 > Shelved, not under active development. These modules now live in
-> `semi_supervised/old/` and the run scripts in `semi_supervised/scripts/`; the
+> `ssl_framework/old/` and the run scripts in `ssl_framework/scripts/`; the
 > shared modules they use (`labeling.py`, `propagation.py`, `evaluation.py`,
-> `backends/`) still sit one level up in `semi_supervised/`. The current line of
+> `backends/`) still sit one level up in `ssl_framework/`. The current line of
 > work is `algorithms/joint_finetune.py`. Paths below are relative to
-> `semi_supervised/` unless noted.
+> `ssl_framework/` unless noted.
 
 Workspace for semi-supervised learning ideas built on top of self-supervised
 encoders. The base encoders and their training (SimCLR, SupCon, BYOL, ...) come
@@ -40,7 +40,7 @@ from the vendored [solo-learn](https://github.com/vturrisi/solo-learn) repo at
 One process, one job (uses the CIFAR copies under `../data`):
 
 ```
-python -m semi_supervised.old.simclr_supcon \
+python -m ssl_framework.old.simclr_supcon \
     --dataset cifar100 --n_labeled 1000 \
     --num_iterations 3 --simclr_epochs 200 --supcon_epochs 100 \
     --output_dir runs/simclr_supcon_cifar100_l1000
@@ -66,7 +66,7 @@ wandb.
 
 One launcher submits everything: `{simclr,byol}` x `{cifar10,cifar100}` x per-class
 budgets `L` x kernels `{gaussian,laplacian,cosine}`. The run scripts live in
-`scripts/`; invoke them from `semi_supervised/` (they locate the project root
+`scripts/`; invoke them from `ssl_framework/` (they locate the project root
 themselves, so the exact cwd does not matter):
 
 ```
@@ -129,7 +129,7 @@ and needs its own SupCon run, so preview the grid first -- no training -- with
 `propagation_sweep`, which reports pseudo-count + pseudo-label accuracy per combo:
 
 ```
-python -m semi_supervised.old.propagation_sweep \
+python -m ssl_framework.old.propagation_sweep \
     --features results/cifar100/simclr/base_features \
     --dataset cifar100 --n_labeled 1000 --seed 1 --kernel gaussian \
     --bandwidth 5,10,20 --sim_threshold 0.0,0.1,0.2 --conf_threshold 0.7,0.8,0.9

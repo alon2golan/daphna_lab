@@ -14,8 +14,8 @@
 #      appear quickly in wandb and grow.
 # => 4 baseline jobs + 4 x len(BUDGETS) budget jobs.
 #
-# Results tree:  semi_supervised/results/<dataset>/<embedding>/{baseline,supcon_only,supcon_prop/...}
-# Slurm logs:    semi_supervised/slurm_logs/<jobname>_<jobid>.{out,err}
+# Results tree:  ssl_framework/results/<dataset>/<embedding>/{baseline,supcon_only,supcon_prop/...}
+# Slurm logs:    ssl_framework/slurm_logs/<jobname>_<jobid>.{out,err}
 # wandb:         project semi-supervised-supcon, group=<embedding>-<dataset>,
 #                job_type=baseline|supcon_only|supcon_prop, tags + rich config so
 #                you can plot X=per_class_budget vs Y=metric, split by embedding,
@@ -35,12 +35,12 @@ set -e
 BUDGETS=${1:-${BUDGETS:-2,4,6,10,25,50}}
 SEED=${SEED:-1}
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # .../semi_supervised/scripts
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # .../ssl_framework/scripts
 ROOT=$(dirname "$(dirname "$SCRIPT_DIR")")
 SBATCH="$SCRIPT_DIR/run_supcon_finetune.sbatch"
-RESULTS_ROOT="$ROOT/semi_supervised/results"
+RESULTS_ROOT="$ROOT/ssl_framework/results"
 KERNELS="gaussian,laplacian,cosine"
-mkdir -p "$ROOT/semi_supervised/slurm_logs"
+mkdir -p "$ROOT/ssl_framework/slurm_logs"
 
 submit() {  # prints jobid on stdout; honours DRY / WANDB_OFFLINE
   local jobname=$1 extra=$2 dep=$3 ckpt=$4 dataset=$5
@@ -88,4 +88,4 @@ for METHOD in simclr byol; do
 done
 
 echo "$njobs jobs (4 baseline + budgets) for BUDGETS=$BUDGETS SEED=$SEED"
-echo "track: squeue -u \$USER   |   results: $RESULTS_ROOT   |   logs: $ROOT/semi_supervised/slurm_logs"
+echo "track: squeue -u \$USER   |   results: $RESULTS_ROOT   |   logs: $ROOT/ssl_framework/slurm_logs"

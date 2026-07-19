@@ -4,8 +4,8 @@
 #SBATCH -c 8
 #SBATCH --time=24:00:00
 #SBATCH --gres=gpu:l40s:1
-#SBATCH --output=/cs/labs/daphna/%u/projects/daphna_lab/semi_supervised/slurm_logs/%x_%j.out
-#SBATCH --error=/cs/labs/daphna/%u/projects/daphna_lab/semi_supervised/slurm_logs/%x_%j.err
+#SBATCH --output=/cs/labs/daphna/%u/projects/daphna_lab/ssl_framework/slurm_logs/%x_%j.out
+#SBATCH --error=/cs/labs/daphna/%u/projects/daphna_lab/ssl_framework/slurm_logs/%x_%j.err
 #SBATCH --killable
 #SBATCH --requeue
 
@@ -39,19 +39,19 @@ SEED=${SEED:-1}
 
 ROOT=/cs/labs/daphna/$USER/projects/daphna_lab
 DATA_DIR="$ROOT/data"
-RESULTS_ROOT="$ROOT/semi_supervised/results"
+RESULTS_ROOT="$ROOT/ssl_framework/results"
 case "$BASE_CKPT" in /*) ;; *) BASE_CKPT="$ROOT/solo-learn/$BASE_CKPT" ;; esac
 
 cd "$ROOT"
 source "$ROOT/venv/bin/activate"
-mkdir -p "$ROOT/semi_supervised/slurm_logs"
+mkdir -p "$ROOT/ssl_framework/slurm_logs"
 
 WANDB_OFFLINE_FLAG=""
 [[ "${WANDB_OFFLINE:-0}" == "1" ]] && WANDB_OFFLINE_FLAG="--wandb_offline"
 
 echo "Joint FT: base=$BASE_CKPT dataset=$DATASET L=$L n_labeled=$N_LABELED epochs=$EPOCHS weights=$UNSUP_WEIGHTS EXTRA=${EXTRA:-}"
 
-python -u -m semi_supervised.algorithms.joint_finetune \
+python -u -m ssl_framework.algorithms.joint_finetune \
   --dataset "$DATASET" \
   --base_checkpoint "$BASE_CKPT" \
   --data_dir "$DATA_DIR" \
