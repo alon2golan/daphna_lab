@@ -237,16 +237,15 @@ def save_figure_png(figure, output_base):
 # --- wandb ---
 
 def init_combo_run(base_kwargs, strategy, spec):
-    """Opens the wandb run for ONE (selection strategy x evaluator) pair, named
-    <strategy>_<evaluator>_<base> so the selection+evaluation lead the name and the embeddings tag
-    trails at the end, and tags strategy/evaluator/family/role/oracle in the config. Pins the total
-    labeled count as the x-axis."""
+    """Opens the wandb run for ONE (selection strategy x evaluator) pair, named just
+    <strategy>_<evaluator>. The embeddings identity is kept OUT of the name -- it lives in the run's
+    group and its config (embeddings_tag/embeddings_dir). Also tags strategy/evaluator/family/role/
+    oracle in the config. Pins the total labeled count as the x-axis."""
     label, _eval_name, use_oracle, family, role, _colour = spec
     kwargs = dict(base_kwargs or {})
-    base_name = kwargs.get("name") or "run"
-    kwargs["name"] = f"{strategy}_{label.replace(' ', '_')}_{base_name}"   # selection + evaluation first, tag last
-    kwargs["group"] = kwargs.get("group") or "hierarchical_comparison"     # keep the whole sweep together
-    kwargs["job_type"] = strategy                                          # quick filter by selection method
+    kwargs["name"] = f"{strategy}_{label.replace(' ', '_')}"           # selection + evaluation only
+    kwargs["group"] = kwargs.get("group") or "hierarchical_comparison" # embeddings identity tracked here
+    kwargs["job_type"] = strategy                                      # quick filter by selection method
     config = dict(kwargs.get("config") or {})
     config.update(strategy=strategy, evaluator=label, family=family, role=role, oracle=int(use_oracle))
     kwargs["config"] = config
@@ -257,10 +256,11 @@ def init_combo_run(base_kwargs, strategy, spec):
 
 
 def log_combined_figure(base_kwargs, figure):
-    """Opens one small 'summary_<name>' run holding just the cross-strategy grid figure (methods
-    head-to-head, probcover and random side by side) -- the one artifact that spans strategies."""
+    """Opens one small 'summary' run holding just the cross-strategy grid figure (methods
+    head-to-head, probcover and random side by side) -- the one artifact that spans strategies.
+    The embeddings identity stays in the group/config, not the name."""
     kwargs = dict(base_kwargs or {})
-    kwargs["name"] = f"summary_{(kwargs.get('name') or 'run')}"
+    kwargs["name"] = "summary"
     kwargs["group"] = kwargs.get("group") or "hierarchical_comparison"
     wandb.init(**kwargs)
     wandb.log({"comparison_figure": wandb.Image(figure)})
@@ -339,21 +339,23 @@ def main():
     parser.add_argument("--delta", default="auto_delta",
                         help="a float, 'knee_delta', or 'auto_delta' (default: pinned table, knee fallback)")
     parser.add_argument("--budget", type=int, default=100, help="points labeled per round (probcover/random)")
-    parser.add_argument("--rounds", type=int, default=6, help="rounds for the growing-budget strategies")
+    parser.add_argument("--rounds", type=int, default=10, help="rounds for the growing-budget strategies")
     parser.add_argument("--split", default="train")
     parser.add_argument("--seed", type=int, default=0)
 
     # wandb: send the plots to the project instead of only writing them to disk
     parser.add_argument("--wandb", action="store_true", help="log the comparison to Weights & Biases")
     parser.add_argument("--project", default="superclass_analysis", help="wandb project name")
-    parser.add_argument("--name", default=None, help="wandb run name (defaults to an auto name from the embeddings path)")
-    parser.add_argument("--group", default="hierarchical_comparison", help="wandb group")
+    parser.add_argument("--group", default=None, help="wandb group (defaults to the embeddings tag, so each source's sweep is its own group)")
     args = parser.parse_args()
 
-    # Auto run name from the embeddings path, e.g. cifar100_simclr_new_solo_learn_hierarchical
-    run_name = args.name or f"{wandb_run_tag(args.embeddings_dir)}_hierarchical"
-    wandb_kwargs = dict(project=args.project, name=run_name, group=args.group,
-                        config=dict(embeddings_dir=args.embeddings_dir, dataset=args.dataset, delta=args.delta,
+    # The embeddings identity, e.g. cifar100_simclr_new_solo_learn_hierarchical. Kept OUT of the run
+    # names (which are just <strategy>_<evaluator>); tracked as the wandb group + a config field.
+    embeddings_tag = f"{wandb_run_tag(args.embeddings_dir)}_hierarchical"
+    group = args.group or embeddings_tag
+    wandb_kwargs = dict(project=args.project, group=group,
+                        config=dict(embeddings_tag=embeddings_tag, embeddings_dir=args.embeddings_dir,
+                                    dataset=args.dataset, delta=args.delta,
                                     budget=args.budget, rounds=args.rounds, seed=args.seed))
 
     run(args.embeddings_dir, delta=args.delta, budget=args.budget, rounds=args.rounds,

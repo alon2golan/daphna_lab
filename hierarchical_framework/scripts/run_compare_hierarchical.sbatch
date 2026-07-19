@@ -20,7 +20,7 @@
 #   1) EMB_DIR   embeddings dir with <split>_features_normalized.npy + labels + test_*
 #   2) DELTA     float | knee_delta | auto_delta   (default auto_delta: pinned table -> knee)
 #   3) BUDGET    points per round                  (default 100)
-#   4) ROUNDS    rounds for the growing strategies (default 6)
+#   4) ROUNDS    rounds for the growing strategies (default 10 -> 1000 labeled at budget 100)
 #   5) PROJECT   wandb project                     (default superclass_analysis)
 #
 # Example (new = solo-learn; swap new_solo_learn -> old_deep_al for itai's baseline):
@@ -32,7 +32,7 @@ set -e
 EMB_DIR=${1:?usage: sbatch run_compare_hierarchical.sbatch EMB_DIR [DELTA] [BUDGET] [ROUNDS] [PROJECT]}
 DELTA=${2:-auto_delta}
 BUDGET=${3:-100}
-ROUNDS=${4:-6}
+ROUNDS=${4:-10}
 PROJECT=${5:-superclass_analysis}
 
 ROOT=/cs/labs/daphna/$USER/projects/daphna_lab
