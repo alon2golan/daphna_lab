@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 
 from selection_strategies import SELECTORS
-from pick_reports import report_picks_per_class, report_coverage_gain
+from diagnostic_plots import plot_picks_per_class, plot_coverage_gain
 
 
 def eval_1nn(train_feats, train_labels, labeled_idx, test_feats, test_labels):
@@ -73,9 +73,9 @@ def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
 
     # out_base = <embedding family>_<dataset> (old_embeddings_* / new_embeddings_*), so runs never collide
     out_base = f"{emb.parent.name}_{emb.name}_{strategy}_d{delta}_b{budget}"
-    report_picks_per_class(picked_classes_by_round, num_classes, out_base, use_wandb=use_wandb) # which classes got picked, when
+    plot_picks_per_class(picked_classes_by_round, num_classes, out_base, use_wandb=use_wandb) # which classes got picked, when
     if any(len(g) for g in coverage_gains_by_round): # coverage-gain plot only for strategies that produce gains (skip random)
-        report_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_base, use_wandb=use_wandb)
+        plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_base, use_wandb=use_wandb)
 
     if use_wandb:
         import wandb
