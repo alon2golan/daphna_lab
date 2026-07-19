@@ -9,6 +9,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+try:
+    import wandb
+except ImportError:
+    wandb = None                 # only needed for --wandb runs; absent in .venv_clean
+
 # --- Import Path Setup ---
 
 # pipeline/ is this file's own directory; put it on the path so the sibling packages import
@@ -20,7 +25,7 @@ from selection import SELECTORS
 from evaluators import EVALUATORS
 from shared.superclass_maps import load_coarse_map
 from shared.delta_resolution import resolve_delta
-from shared.run_naming import figure_output_base
+from shared.run_naming import figure_output_base, wandb_run_tag
 
 
 # --- Configuration ---
@@ -178,12 +183,52 @@ def save_figure(results, output_base):
     fig.savefig(png_path, dpi=130)
     plt.close(fig)
     print(f"saved -> {png_path}", flush=True)
+    return png_path
+
+
+# --- wandb ---
+
+def log_wandb(results, figure_png, wandb_kwargs):
+    """Logs the comparison to wandb: one multi-line chart per (family, strategy), a results table, and the figure."""
+    wandb.init(**(wandb_kwargs or {}))
+    families = ["nn", "mlp"]
+
+    # One interactive multi-line chart per family x growing-budget strategy. Each line is an
+    # evaluator's fine-accuracy curve (method, its ceiling, floor, flat oracle) vs budget.
+    for strategy in CURVE_STRATEGIES:
+        per_round = results[strategy]
+        budgets = [entry["labels_per_class"] for entry in per_round]
+        for family in families:
+            family_specs = [spec for spec in EVALUATION_SPECS if spec[3] == family]
+            curves = [[entry["accuracy"][label][0] for entry in per_round] for label, *_ in family_specs]
+            keys = [label for label, *_ in family_specs]
+            wandb.log({f"{family}_{strategy}_fine_acc": wandb.plot.line_series(
+                xs=budgets, ys=curves, keys=keys,
+                title=f"{family} family | {strategy}: fine accuracy vs budget",
+                xname="budget (labels per class)")})
+
+    # A tidy table of every (strategy, evaluator, budget) row, including the full-supervision "all"
+    table = wandb.Table(columns=["strategy", "evaluator", "family", "role", "oracle",
+                                 "num_labeled", "budget_per_class", "fine_acc", "coarse_acc"])
+    for strategy, per_round in results.items():
+        for row in per_round:
+            for label, eval_name, use_oracle, family, role, _colour in EVALUATION_SPECS:
+                fine_accuracy, coarse_accuracy = row["accuracy"][label]
+                table.add_data(strategy, label, family, role, int(use_oracle), row["num_labeled"],
+                               round(row["labels_per_class"], 3), fine_accuracy, coarse_accuracy)
+    wandb.log({"results_table": table})
+
+    # The composite grid figure as an image, so that view lives in wandb too
+    if figure_png is not None:
+        wandb.log({"comparison_figure": wandb.Image(str(figure_png))})
+    wandb.finish()
 
 
 # --- Orchestration ---
 
-def run(embeddings_dir, delta="auto_delta", budget=100, rounds=6, split="train", seed=0, dataset="cifar100"):
-    """Loads the embeddings, runs every strategy x evaluator combination, and writes the CSV + figure."""
+def run(embeddings_dir, delta="auto_delta", budget=100, rounds=6, split="train", seed=0, dataset="cifar100",
+        use_wandb=False, wandb_kwargs=None):
+    """Loads the embeddings, runs every strategy x evaluator combination, and writes the CSV + figure (+ wandb)."""
     embeddings_path = Path(embeddings_dir)
 
     # The pool we select from, and the held-out test split we score on
@@ -220,7 +265,11 @@ def run(embeddings_dir, delta="auto_delta", budget=100, rounds=6, split="train",
     # Nested output path shared with the other analysis tools: cifar100/simclr/<source>_d<delta>
     output_base = figure_output_base(embeddings_dir, delta)
     write_csv(results, output_base)
-    save_figure(results, output_base)
+    figure_png = save_figure(results, output_base)
+
+    # Send the same curves + a results table + the figure to the wandb project, if requested
+    if use_wandb and wandb is not None:
+        log_wandb(results, figure_png, wandb_kwargs)
     return results
 
 
@@ -237,10 +286,23 @@ def main():
     parser.add_argument("--rounds", type=int, default=6, help="rounds for the growing-budget strategies")
     parser.add_argument("--split", default="train")
     parser.add_argument("--seed", type=int, default=0)
+
+    # wandb: send the plots to the project instead of only writing them to disk
+    parser.add_argument("--wandb", action="store_true", help="log the comparison to Weights & Biases")
+    parser.add_argument("--project", default="superclass_analysis", help="wandb project name")
+    parser.add_argument("--name", default=None, help="wandb run name (defaults to an auto name from the embeddings path)")
+    parser.add_argument("--group", default="hierarchical_comparison", help="wandb group")
     args = parser.parse_args()
 
+    # Auto run name from the embeddings path, e.g. cifar100_simclr_new_solo_learn_hierarchical
+    run_name = args.name or f"{wandb_run_tag(args.embeddings_dir)}_hierarchical"
+    wandb_kwargs = dict(project=args.project, name=run_name, group=args.group,
+                        config=dict(embeddings_dir=args.embeddings_dir, dataset=args.dataset, delta=args.delta,
+                                    budget=args.budget, rounds=args.rounds, seed=args.seed))
+
     run(args.embeddings_dir, delta=args.delta, budget=args.budget, rounds=args.rounds,
-        split=args.split, seed=args.seed, dataset=args.dataset)
+        split=args.split, seed=args.seed, dataset=args.dataset,
+        use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
 
 
 if __name__ == "__main__":
