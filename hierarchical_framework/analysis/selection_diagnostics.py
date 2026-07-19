@@ -18,7 +18,7 @@ HF_ROOT = Path(__file__).resolve().parents[1]
 if str(HF_ROOT / "pipeline") not in sys.path:
     sys.path.insert(0, str(HF_ROOT / "pipeline"))
 
-from selectors import SELECTORS
+from selection import SELECTORS
 from shared.delta_resolution import resolve_delta
 from shared.run_naming import figure_output_base
 

@@ -25,7 +25,8 @@ wandb config rather than the folder name).
 pipeline/     the runner and its swappable parts. Logs accuracy to wandb; makes NO figures.
   run_active_learning.py   the runner: each round, a Selector picks and an Evaluator scores -> wandb
   compare_hierarchical.py  scores every evaluator across strategies (probcover/random/all) -> figure + CSV
-  selectors/               WHICH points to pick (a package) + SELECTORS registry
+  selection/               WHICH points to pick (a package) + SELECTORS registry
+                           (named 'selection', not 'selectors', to avoid shadowing the stdlib)
     selector_base.py       Selector / CoverageSelector + the delta-graph builder
     probcover.py           ProbCoverSelector (coverage-greedy)
     baselines.py           RandomSelector, AllLabeledSelector

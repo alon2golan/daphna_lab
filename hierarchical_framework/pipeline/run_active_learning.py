@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-from selectors import SELECTORS
+from selection import SELECTORS
 from evaluators import EVALUATORS
 from shared.superclass_maps import load_coarse_map
 from shared.delta_resolution import resolve_delta

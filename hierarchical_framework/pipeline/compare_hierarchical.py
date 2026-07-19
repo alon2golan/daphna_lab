@@ -16,7 +16,7 @@ PIPELINE_DIR = Path(__file__).resolve().parent
 if str(PIPELINE_DIR) not in sys.path:
     sys.path.insert(0, str(PIPELINE_DIR))
 
-from selectors import SELECTORS
+from selection import SELECTORS
 from evaluators import EVALUATORS
 from shared.superclass_maps import load_coarse_map
 from shared.delta_resolution import resolve_delta

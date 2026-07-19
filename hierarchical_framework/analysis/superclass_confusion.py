@@ -30,7 +30,7 @@ OUTPUTS = HF_ROOT / "outputs"
 if str(HF_ROOT / "pipeline") not in sys.path:
     sys.path.insert(0, str(HF_ROOT / "pipeline"))
 
-from selectors import SELECTORS
+from selection import SELECTORS
 from evaluators import OneNearestNeighbourEvaluator
 from shared.superclass_maps import CIFAR100_COARSE, CIFAR100_COARSE_NAMES as SUPERCLASS_NAMES, CIFAR100_FINE_NAMES as FINE_NAMES
 from shared.delta_resolution import resolve_delta
