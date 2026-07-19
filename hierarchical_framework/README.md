@@ -45,7 +45,8 @@ analysis/     on-demand figure tools; each replays a run, imports pipeline/, wri
   superclass_confusion.py  20x20 superclass confusion heatmap + confused-pair lists, ceiling vs selected
 
 scripts/      slurm launchers (run from the repo root)
-  run_active_learning.sbatch  one AL run on a given embeddings dir
+  run_active_learning.sbatch     one AL run on a given embeddings dir -> wandb
+  run_compare_hierarchical.sbatch  all evaluators x strategies -> figure + CSV
 
 embeddings/   (gitignored) <dataset>/<technique>/<source>
   cifar100/simclr/old_deep_al/     itai's SimCLR features, L2-normalized
