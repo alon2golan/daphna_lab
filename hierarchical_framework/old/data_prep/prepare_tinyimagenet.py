@@ -16,8 +16,8 @@ from pathlib import Path
 import numpy as np
 
 BANK = "/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext"
-# hierarchical_framework/data/ holds all embedding banks (data_prep/ -> up one, into data/)
-OUT = Path(__file__).resolve().parents[1] / "data" / "embeddings_deepal" / "tinyimagenet_simclr"
+# old/data/ holds the old embeddings copied out of the deep_al pipeline (data_prep/ -> up one)
+OUT = Path(__file__).resolve().parents[1] / "data" / "embeddings_from_deep_al" / "tinyimagenet_simclr"
 PER_CLASS = 500          # images per class in TinyImageNet train
 N_CLASSES = 200
 HOLDOUT = 50             # images per class held out as the eval set

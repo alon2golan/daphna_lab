@@ -31,7 +31,7 @@ cd "$ROOT"
 source "$ROOT/venv/bin/activate"          # full stack + wandb
 mkdir -p hierarchical_framework/old/outputs/slurm_logs
 
-EMB=hierarchical_framework/old/data/embeddings_deepal/tinyimagenet_simclr
+EMB=hierarchical_framework/old/data/embeddings_from_deep_al/tinyimagenet_simclr
 CM=$EMB/coarse_map.npy
 
 echo "== step 1: build embeddings dir =="

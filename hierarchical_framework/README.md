@@ -29,15 +29,18 @@ scripts/      slurm launchers (run from the repo root)
 data/         embedding banks (gitignored)
 outputs/      figures/, wandb/, slurm_logs/  (gitignored)
 
-old/          retired deep_al work, kept for reference (mirrors the layout above)
+old/          retired work on the old embeddings, kept for reference (mirrors the layout above)
   data_prep/   prepare_tinyimagenet.py, build_tinyimagenet_coarse.py
   scripts/     run_tinyimagenet.sbatch
-  data/        embeddings_deepal/<dataset>/  (gitignored)
+  data/        embeddings_from_deep_al/<dataset>/  (old embeddings copied out of the deep_al pipeline; gitignored)
   outputs/     figures/  (gitignored)
 ```
 
-The deep_al TinyImageNet results were found to be incorrect and were removed;
-only the deep_al CIFAR-100 embeddings + figures were archived under `old/`.
+`embeddings_from_deep_al/` holds the old embeddings that were copied out of the
+deep_al pipeline — kept because their features exist nowhere else in the repo (the
+label files happen to match solo-learn's, but the features are distinct). The
+deep_al TinyImageNet results were found to be incorrect and were removed; only the
+deep_al CIFAR-100 embeddings + figures were archived under `old/`.
 
 ## Running
 
