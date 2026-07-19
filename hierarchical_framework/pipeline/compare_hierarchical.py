@@ -89,13 +89,13 @@ def score_strategy(strategy, labeled_sets, scorers, num_classes, wandb_base=None
     """Scores every evaluator across this strategy's rounds; returns a per-round list of accuracies.
 
     The wandb x-axis is the TOTAL number of labeled samples (reaches budget*rounds), not per-class.
-    With wandb_base set, EACH evaluator gets its OWN wandb run named
-    <strategy>_<evaluator>_<base>, streaming live. Besides the plain fine_acc/coarse_acc (all runs
-    overlaid on one panel), each point is ALSO logged under namespaced keys -- by_selection/
-    <strategy>/... and by_evaluation/<evaluator>/... . wandb makes one panel per distinct key, so a
-    "by_selection" section gives a panel per selection method (evaluators overlaid) and a
-    "by_evaluation" section gives a panel per evaluation method (selection methods overlaid), each
-    showing the individual run lines -- no UI grouping/aggregation needed.
+    With wandb_base set, EACH (selection, classification) pair gets its OWN wandb run named
+    <strategy>_<classifier>, streaming live. Besides the plain fine_acc/coarse_acc (all runs overlaid
+    on one panel), each point is ALSO logged under namespaced keys -- by_selection/<strategy>/... and
+    by_classification/<classifier>/... . wandb makes one panel per distinct key, so a "by_selection"
+    section gives a panel per selection method (classifiers overlaid) and a "by_classification"
+    section gives a panel per classification method (selection methods overlaid), each showing the
+    individual run lines -- no UI grouping/aggregation needed.
 
     flat_x: for a single-set reference strategy ('all', full supervision) whose accuracy does not
     change with budget, pass the curve budgets to replicate its one accuracy across, so it draws as
@@ -138,8 +138,8 @@ def score_strategy(strategy, labeled_sets, scorers, num_classes, wandb_base=None
                     "fine_acc": fine_accuracy, "coarse_acc": coarse_accuracy,
                     f"by_selection/{strategy}/fine_acc": fine_accuracy,
                     f"by_selection/{strategy}/coarse_acc": coarse_accuracy,
-                    f"by_evaluation/{eval_slug}/fine_acc": fine_accuracy,
-                    f"by_evaluation/{eval_slug}/coarse_acc": coarse_accuracy,
+                    f"by_classification/{eval_slug}/fine_acc": fine_accuracy,
+                    f"by_classification/{eval_slug}/coarse_acc": coarse_accuracy,
                 })
             wandb.finish()   # close before the next evaluator's run
     return rows
@@ -237,20 +237,22 @@ def save_figure_png(figure, output_base):
 # --- wandb ---
 
 def init_combo_run(base_kwargs, strategy, spec):
-    """Opens the wandb run for ONE (selection strategy x evaluator) pair, named just
-    <strategy>_<evaluator>. The embeddings identity is kept OUT of the name -- it lives in the run's
-    group and its config (embeddings_tag/embeddings_dir). Also tags strategy/evaluator/family/role/
-    oracle in the config. Pins the total labeled count as the x-axis."""
+    """Opens the wandb run for ONE (selection strategy x classification method) pair, named just
+    <strategy>_<classifier>. The embeddings identity is kept OUT of the name -- it lives in the run's
+    group and its config (embeddings_tag/embeddings_dir). Config also carries strategy/classifier/
+    family/role/oracle, so a panel's legend can be shortened to just ${config:strategy} (in the
+    by_classification panels) or ${config:classifier} (in the by_selection panels). Pins total
+    labeled count as the x-axis."""
     label, _eval_name, use_oracle, family, role, _colour = spec
     kwargs = dict(base_kwargs or {})
-    kwargs["name"] = f"{strategy}_{label.replace(' ', '_')}"           # selection + evaluation only
+    kwargs["name"] = f"{strategy}_{label.replace(' ', '_')}"           # selection + classification only
     kwargs["group"] = kwargs.get("group") or "hierarchical_comparison" # embeddings identity tracked here
     kwargs["job_type"] = strategy                                      # quick filter by selection method
     config = dict(kwargs.get("config") or {})
-    config.update(strategy=strategy, evaluator=label, family=family, role=role, oracle=int(use_oracle))
+    config.update(strategy=strategy, classifier=label, family=family, role=role, oracle=int(use_oracle))
     kwargs["config"] = config
     wandb.init(**kwargs)
-    # Total labeled count is the x-axis for every metric, including by_selection/* and by_evaluation/*
+    # Total labeled count is the x-axis for every metric, including by_selection/* and by_classification/*
     wandb.define_metric("num_labeled")
     wandb.define_metric("*", step_metric="num_labeled")
 
