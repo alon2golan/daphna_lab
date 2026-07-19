@@ -141,53 +141,62 @@ def write_csv(results, output_base):
 
 
 def build_figure(results):
-    """Builds the family x strategy grid (each method vs its own matched ceiling); returns the Figure."""
-    families = ["nn", "mlp"]
+    """Builds one panel per strategy with EVERY classification method overlaid, so the methods can be
+    compared head-to-head. Methods are bold solid coloured lines; each method's matched superclass
+    ceiling, the flat floors, and the full-supervision level are drawn faint for reference."""
+    # The methods we are actually comparing -- one bold coloured line each, across both families
+    method_specs = [spec for spec in EVALUATION_SPECS if spec[4] == "method"]
+    floor_specs = [spec for spec in EVALUATION_SPECS if spec[4] == "floor"]
 
-    # One colour per colour_key, assigned in first-seen order. A method and its matched ceiling share
-    # a colour_key, so they draw in the same colour (method solid, ceiling dashed).
+    # One distinct colour per method, assigned in listing order; a method and its matched ceiling
+    # share a colour_key (spec[5]) so the faint ceiling draws in its method's colour
     colour_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-    colour_keys = list(dict.fromkeys(spec[5] for spec in EVALUATION_SPECS))
-    key_colour = {key: colour_cycle[i % len(colour_cycle)] for i, key in enumerate(colour_keys)}
+    method_colour = {spec[5]: colour_cycle[i % len(colour_cycle)] for i, spec in enumerate(method_specs)}
+    # colour_key -> the matched ceiling's label, so we can look up each method's ceiling curve
+    ceiling_label = {spec[5]: spec[0] for spec in EVALUATION_SPECS if spec[4] == "ceiling"}
 
-    # The full-supervision accuracies, drawn as a faint horizontal reference (methods only, to limit clutter)
+    # Full-supervision accuracies (the "all" round), drawn as a faint horizontal target per method
     reference_round = results[REFERENCE_STRATEGY][0]["accuracy"] if REFERENCE_STRATEGY in results else {}
 
-    # One row per family, one column per growing-budget strategy
-    fig, axes = plt.subplots(len(families), len(CURVE_STRATEGIES), figsize=(14, 10), sharex=True, sharey=True)
-    for row_index, family in enumerate(families):
-        # The evaluators belonging to this family (spec[3] is the family field)
-        family_specs = [spec for spec in EVALUATION_SPECS if spec[3] == family]
-        for column_index, strategy in enumerate(CURVE_STRATEGIES):
-            ax = axes[row_index][column_index]
-            per_round = results[strategy]
-            budgets = [entry["labels_per_class"] for entry in per_round]
+    # One panel per growing-budget strategy, side by side, sharing axes
+    fig, axes = plt.subplots(1, len(CURVE_STRATEGIES), figsize=(15, 7), sharex=True, sharey=True)
+    for column_index, strategy in enumerate(CURVE_STRATEGIES):
+        ax = axes[column_index]
+        per_round = results[strategy]
+        budgets = [entry["labels_per_class"] for entry in per_round]
 
-            # One curve per evaluator: colour by colour_key, line style by role
-            # (floor dotted, method solid, own ceiling dashed, flat family ceiling dash-dot)
-            for label, eval_name, use_oracle, _family, role, colour_key in family_specs:
-                fine_curve = [entry["accuracy"][label][0] for entry in per_round]
-                ax.plot(budgets, fine_curve, ROLE_LINESTYLE[role], marker="o", markersize=3,
-                        color=key_colour[colour_key], label=label)
+        # Each method: a bold solid line in its own colour -- this is the head-to-head comparison
+        for label, _eval, _oracle, _family, _role, colour_key in method_specs:
+            colour = method_colour[colour_key]
+            fine_curve = [entry["accuracy"][label][0] for entry in per_round]
+            ax.plot(budgets, fine_curve, "-", marker="o", markersize=4, linewidth=2,
+                    color=colour, label=label)
 
-                # For methods only: a faint same-colour horizontal line = its full-supervision accuracy
-                if role == "method" and label in reference_round:
-                    ax.axhline(reference_round[label][0], color=key_colour[colour_key],
-                               linestyle="-", linewidth=0.8, alpha=0.25)
+            # Faint dashed same-colour line = this method's matched superclass ceiling (reference)
+            ceil = ceiling_label.get(colour_key)
+            if ceil is not None:
+                ceil_curve = [entry["accuracy"][ceil][0] for entry in per_round]
+                ax.plot(budgets, ceil_curve, "--", linewidth=1, alpha=0.35, color=colour)
 
-            # Label the outer edges of the grid only
-            if row_index == 0:
-                ax.set_title(f"strategy = {strategy}")
-            if column_index == 0:
-                ax.set_ylabel(f"{family} family\ntest fine accuracy (%)")
-            if row_index == len(families) - 1:
-                ax.set_xlabel("budget (labels per class, B)")
-            ax.grid(alpha=0.3)
-            ax.legend(fontsize=7, ncol=2)
+            # Faint horizontal same-colour line = this method at full supervision (its target)
+            if label in reference_round:
+                ax.axhline(reference_round[label][0], linestyle="-", linewidth=0.8, alpha=0.2, color=colour)
 
-    fig.suptitle("Hierarchical evaluators vs selection strategy -- each method (solid) against its OWN "
-                 "matched ceiling (dashed, same colour)\n"
-                 "dotted = flat floor, dash-dot = flat family oracle, faint line = method at full supervision")
+        # The flat floors (1nn / mlp, no hierarchy) as faint grey dotted reference baselines
+        for label, _eval, _oracle, _family, _role, _colour in floor_specs:
+            floor_curve = [entry["accuracy"][label][0] for entry in per_round]
+            ax.plot(budgets, floor_curve, ":", linewidth=1.2, alpha=0.5, color="grey", label=label)
+
+        ax.set_title(f"strategy = {strategy}")
+        ax.set_xlabel("budget (labels per class, B)")
+        if column_index == 0:
+            ax.set_ylabel("test fine accuracy (%)")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8, ncol=2)
+
+    fig.suptitle("Classification methods head-to-head (solid = method, one colour each)\n"
+                 "faint dashed = that method's matched superclass ceiling, faint grey dotted = flat floor, "
+                 "faint horizontal = method at full supervision")
     fig.tight_layout()
     return fig
 
