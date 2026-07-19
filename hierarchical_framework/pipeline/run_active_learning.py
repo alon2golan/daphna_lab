@@ -14,177 +14,68 @@ from pathlib import Path
 import numpy as np
 
 from selection_strategies import SELECTORS
-
-# hierarchical_framework/ root (pipeline/ -> up one); rendered figures land under outputs/
-OUTPUTS = Path(__file__).resolve().parents[1] / "outputs"
+from pick_reports import report_picks_per_class, report_coverage_gain
 
 
 def eval_1nn(train_feats, train_labels, labeled_idx, test_feats, test_labels):
-    # deep_al's NN1_normalized: 1-NN on the (already L2-normalized) labeled features
     from sklearn.neighbors import KNeighborsClassifier
-    clf = KNeighborsClassifier(n_neighbors=1)
-    # train points = the labeled subset, predict the whole test split
-    clf.fit(train_feats[labeled_idx], train_labels[labeled_idx])
-    preds = clf.predict(test_feats)
-    # accuracy in percent
-    return 100.0 * float((preds == test_labels).mean())
-
-
-def class_pick_report(picks_by_round, num_classes, out_base, use_wandb=False):
-    import matplotlib
-    matplotlib.use("Agg")                 # render to file, no display
-    import matplotlib.pyplot as plt
-    R = len(picks_by_round)
-    # counts[c, r] = how many class-c points were chosen in round r
-    counts = np.zeros((num_classes, R), dtype=int)
-    for r, classes in enumerate(picks_by_round):
-        for c in classes:
-            counts[c, r] += 1
-    # total picks per class over the whole run
-    total = counts.sum(axis=1)
-
-    fig, ax = plt.subplots(1, 2, figsize=(14, 6))
-    # left: which class got picked in which round
-    im = ax[0].imshow(counts, aspect="auto", cmap="viridis", interpolation="nearest")
-    ax[0].set_xlabel("round"); ax[0].set_ylabel("class")
-    ax[0].set_title("picks per class per round")
-    fig.colorbar(im, ax=ax[0], fraction=0.046)
-    # right: how often each class was chosen in total
-    ax[1].bar(np.arange(num_classes), total, color="steelblue")
-    ax[1].set_xlabel("class"); ax[1].set_ylabel("total picks")
-    ax[1].set_title(f"picks per class (distinct chosen={int((total > 0).sum())}/{num_classes})")
-    fig.tight_layout()
-
-    figdir = OUTPUTS / "figures" / "al_picks"
-    figdir.mkdir(parents=True, exist_ok=True)
-    png = figdir / f"{out_base}_classpicks.png"
-    fig.savefig(png, dpi=130)
-    print(f"saved -> {png}", flush=True)
-
-    # table: for each class, its total and the exact rounds it was chosen in
-    csv = figdir / f"{out_base}_classpicks.csv"
-    with open(csv, "w") as fh:
-        fh.write("class,total,rounds\n")
-        for c in range(num_classes):
-            rounds = " ".join(str(r) for r in range(R) if counts[c, r] > 0)
-            fh.write(f"{c},{int(total[c])},{rounds}\n")
-    print(f"saved -> {csv}", flush=True)
-
-    if use_wandb:
-        import wandb
-        # log the figure and the per-class table into the run
-        wandb.log({"class_picks": wandb.Image(str(png))})
-        tbl = wandb.Table(columns=["class", "total", "rounds"])
-        for c in range(num_classes):
-            rounds = " ".join(str(r) for r in range(R) if counts[c, r] > 0)
-            tbl.add_data(int(c), int(total[c]), rounds)
-        wandb.log({"class_picks_table": tbl})
-    plt.close(fig)
-    return counts
-
-
-def pick_degree_report(neighbors_by_round, bpc_by_round, out_base, use_wandb=False):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    xs, means, lows, highs = [], [], [], []
-    # per round: mean / min / max of the uncovered-neighbor count of the chosen points
-    for bpc, scores in zip(bpc_by_round, neighbors_by_round):
-        if len(scores) == 0:
-            continue
-        a = np.asarray(scores, dtype=float)
-        xs.append(bpc); means.append(a.mean()); lows.append(a.min()); highs.append(a.max())
-    xs = np.array(xs); means = np.array(means)
-    # error bar spans min..max around the mean point
-    yerr = np.vstack([means - np.array(lows), np.array(highs) - means])
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    # point = round average; bar = that round's min and max
-    ax.errorbar(xs, means, yerr=yerr, fmt="o-", capsize=4, color="darkred", ecolor="gray")
-    ax.set_xlabel("budget (labels per class, B)")
-    ax.set_ylabel("uncovered neighbors of chosen points")
-    ax.set_title("coverage gain per pick: round mean (bar = min..max)")
-    fig.tight_layout()
-
-    figdir = OUTPUTS / "figures" / "al_picks"
-    figdir.mkdir(parents=True, exist_ok=True)
-    png = figdir / f"{out_base}_pickdegree.png"
-    fig.savefig(png, dpi=130)
-    print(f"saved -> {png}", flush=True)
-    if use_wandb:
-        import wandb
-        wandb.log({"pick_degree": wandb.Image(str(png))})
-    plt.close(fig)
+    clf = KNeighborsClassifier(n_neighbors=1) # deep_al's NN1_normalized scorer, on the already-L2-normalized features
+    clf.fit(train_feats[labeled_idx], train_labels[labeled_idx]) # fit on just the labeled subset
+    preds = clf.predict(test_feats) # predict every test point
+    return 100.0 * float((preds == test_labels).mean()) # accuracy in percent
 
 
 def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
         split="train", seed=0, use_wandb=False, wandb_kwargs=None):
     emb = Path(embeddings_dir)
-    # pool features/labels -- selection happens over these
-    train_feats = np.load(emb / f"{split}_features_normalized.npy").astype(np.float32)
+    train_feats = np.load(emb / f"{split}_features_normalized.npy").astype(np.float32) # pool features -- selection happens over these
     train_labels = np.load(emb / f"{split}_labels.npy")
-    # test features/labels -- only used to score the selection
-    test_feats = np.load(emb / "test_features_normalized.npy").astype(np.float32)
+    test_feats = np.load(emb / "test_features_normalized.npy").astype(np.float32) # test features -- only used to score the selection
     test_labels = np.load(emb / "test_labels.npy")
-    # number of classes -> lets us report the budget as labels-per-class (the paper's
-    # x-axis "B": e.g. 100 labeled over 100 CIFAR-100 classes = 1B)
-    num_classes = int(train_labels.max()) + 1
+    num_classes = int(train_labels.max()) + 1 # lets us report the budget as labels-per-class (the paper's x-axis "B")
 
-    # resolve delta: a float, or "knee" -> deep_al's knee-point algorithm on these feats
     from delta_selection import resolve_delta
-    delta = resolve_delta(delta, train_feats, num_classes, seed=seed)
-    # build the chosen strategy; kwargs it doesn't use (delta/seed) are ignored
-    cls = SELECTORS[strategy]
-    selector = cls(train_feats, delta=delta, seed=seed)
+    delta = resolve_delta(delta, train_feats, num_classes, seed=seed) # a float, or "knee" -> deep_al's knee-point algorithm
+    selector = SELECTORS[strategy](train_feats, delta=delta, seed=seed) # kwargs a strategy ignores (delta/seed) are harmless
     print(f"strategy={strategy} on {train_feats.shape[0]} points", flush=True)
 
     if use_wandb:
         import wandb
         wandb.init(**(wandb_kwargs or {}))
-        # x-axis is the budget in labels-per-class (1B..10B), not raw count
-        wandb.define_metric("test_accuracy", step_metric="budget_per_class")
+        wandb.define_metric("test_accuracy", step_metric="budget_per_class") # x-axis is labels-per-class (1B..10B), not raw count
 
-    labeled = []
-    # the class of each pick, grouped by round (labels read only for diagnostics)
-    picks_by_round = []
-    # the coverage score of each pick, grouped by round (coverage-family only)
-    neighbors_by_round, bpc_by_round = [], []
-    n_scores = 0                                  # how many coverage_gains we've consumed
+    labeled = [] # every point labeled so far, across all rounds
+    picked_classes_by_round = [] # the class of each pick, grouped by round (labels read only for diagnostics)
+    coverage_gains_by_round = [] # per round, the coverage gain of each pick (empty for non-coverage strategies)
+    labels_per_class_by_round = [] # per round, the running labels-per-class ("B") -- the plots' x-axis
+    gains_seen = 0 # how many of the selector's coverage_gains we've already split off per round
     for r in range(rounds):
-        # this round's points; the selector updates its own state
-        chosen = selector.select_round(budget)
-        labeled.extend(chosen)
-        picks_by_round.append(train_labels[np.array(chosen)] if chosen else [])
-        # slice off the coverage gains this round appended (empty for non-coverage strategies)
-        neighbors_by_round.append(selector.coverage_gains[n_scores:])
-        n_scores = len(selector.coverage_gains)
-        # score the growing labeled set
-        acc = eval_1nn(train_feats, train_labels, np.array(labeled), test_feats, test_labels)
-        # budget expressed as average labels per class (the paper's "B")
-        bpc = len(labeled) / num_classes
-        bpc_by_round.append(bpc)
-        # coverage exists only for the coverage-family strategies
-        cov = selector.coverage() if hasattr(selector, "coverage") else None
-        msg = f"round {r}: labeled={len(labeled)} ({bpc:.1f}B) test_acc={acc:.2f}"
-        if cov is not None:
-            msg += f" coverage={cov:.3f}"
+        newly_labeled = selector.select_round(budget) # this round's points; the selector updates its own state
+        labeled.extend(newly_labeled)
+        picked_classes_by_round.append(train_labels[np.array(newly_labeled)] if newly_labeled else [])
+        coverage_gains_by_round.append(selector.coverage_gains[gains_seen:]) # just the gains this round appended
+        gains_seen = len(selector.coverage_gains)
+        test_acc = eval_1nn(train_feats, train_labels, np.array(labeled), test_feats, test_labels) # score the growing labeled set
+        labels_per_class = len(labeled) / num_classes # budget as average labels per class (the paper's "B")
+        labels_per_class_by_round.append(labels_per_class)
+        coverage = selector.coverage() if hasattr(selector, "coverage") else None # coverage exists only for coverage-family strategies
+        msg = f"round {r}: labeled={len(labeled)} ({labels_per_class:.1f}B) test_acc={test_acc:.2f}"
+        if coverage is not None:
+            msg += f" coverage={coverage:.3f}"
         print(msg, flush=True)
         if use_wandb:
             import wandb
-            log = {"budget_per_class": bpc, "num_labeled": len(labeled),
-                   "test_accuracy": acc, "episode": r}
-            if cov is not None:
-                log["coverage"] = cov
+            log = {"budget_per_class": labels_per_class, "num_labeled": len(labeled),
+                   "test_accuracy": test_acc, "episode": r}
+            if coverage is not None:
+                log["coverage"] = coverage
             wandb.log(log)
 
-    # class-provenance report: which class was picked when, how often
-    # out_base = <embedding group>_<dataset> (old_embeddings_* / new_embeddings_*)
-    emb = Path(embeddings_dir)
+    # out_base = <embedding family>_<dataset> (old_embeddings_* / new_embeddings_*), so runs never collide
     out_base = f"{emb.parent.name}_{emb.name}_{strategy}_d{delta}_b{budget}"
-    class_pick_report(picks_by_round, num_classes, out_base, use_wandb=use_wandb)
-    # per-round coverage gain of the chosen points (skip if no scores, e.g. random)
-    if any(len(s) for s in neighbors_by_round):
-        pick_degree_report(neighbors_by_round, bpc_by_round, out_base, use_wandb=use_wandb)
+    report_picks_per_class(picked_classes_by_round, num_classes, out_base, use_wandb=use_wandb) # which classes got picked, when
+    if any(len(g) for g in coverage_gains_by_round): # coverage-gain plot only for strategies that produce gains (skip random)
+        report_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_base, use_wandb=use_wandb)
 
     if use_wandb:
         import wandb
