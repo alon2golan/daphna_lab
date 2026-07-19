@@ -25,7 +25,7 @@ wandb config rather than the folder name).
 pipeline/     the AL loop and its swappable parts
   run_active_learning.py   the runner: each round, a Selector picks and an Evaluator scores
   selection_strategies.py  WHICH points to pick (delta-graph, ProbCover, Random) + SELECTORS registry
-  evaluators.py            HOW to score a labeled set (1nn, mlp, superclass_oracle) + EVALUATORS registry
+  evaluators.py            HOW to score a labeled set (1nn, mlp) + optional superclass oracle + EVALUATORS registry
   delta_selection.py       resolves --delta via deep_al's resolve_initial_delta (auto_delta table / knee)
   coarse_maps.py           fine->coarse (superclass) maps, shared with analysis/
   run_logging.py           RunLogger: console line + wandb (accuracy + regular scalars only)
@@ -81,8 +81,10 @@ dataset (CIFAR-100 -> 0.65) and falls back to the knee if the row is missing. Th
 run prints a `[delta]` line saying which value was chosen. Add `--strategy random`
 for the baseline.
 
-`--eval` picks how the labeled set is scored each round: `1nn` (default), `mlp`, or
-`superclass_oracle` (1-NN restricted to the true superclass — an upper bound). Only
+`--eval` picks the base classifier used to score the labeled set each round: `1nn`
+(default) or `mlp`. Add `--oracle` to restrict every prediction to the test point's
+true superclass — an upper bound that composes with either base (1-NN searches only
+same-superclass neighbours; the MLP keeps only same-superclass output classes). Only
 the accuracy + the regular AL scalars go to wandb (project `superclass_analysis`).
 
 Pass `--figures` to also write the selection-diagnostic figures

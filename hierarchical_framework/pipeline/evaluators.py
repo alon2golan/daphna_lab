@@ -1,96 +1,157 @@
-# Framework for evaluation methods to score a labeled subset.
+# Evaluation methods -- the overridable "how do we score a labeled set?".
+#
+# The AL loop hands an Evaluator the labeled indices each round and gets back a test
+# accuracy (percent). There are two INDEPENDENT choices:
+#
+#   * the base classifier   -- 1nn or mlp        (the --eval flag / the EVALUATORS registry)
+#   * the superclass oracle -- optionally restrict each prediction to the test point's
+#                              TRUE superclass   (the --oracle flag)
+#
+# The oracle is base-method-agnostic: every base classifier defines how IT restricts a
+# prediction to a superclass. 1-NN restricts the neighbour pool to that superclass; the
+# MLP keeps only the output classes in that superclass. Add a new base classifier by
+# subclassing Evaluator and registering it in EVALUATORS.
 
 import numpy as np
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 
 
+def report_unresolved(unresolved_count, test_count):
+    # When a test point's true superclass has NO labeled example, the oracle has nothing
+    # to answer with. We leave those points unresolved (a miss) and say so out loud,
+    # rather than quietly answering them from some other superclass.
+    if unresolved_count:
+        print(
+            f"[oracle] {unresolved_count}/{test_count} test points had no labeled example "
+            f"in their true superclass -> left unresolved (counted as wrong)",
+            flush=True,
+        )
+
+
 class Evaluator:
+
     name = "base"
 
-    def __init__(self, train_feats, train_labels, test_feats, test_labels, coarse_map=None, seed=0):
-        self.train_feats = train_feats  # Store pool features
-        self.train_labels = train_labels  # Store pool labels
-        self.test_feats = test_feats  # Store test features
-        self.test_labels = test_labels  # Store test labels
-        self.coarse_map = coarse_map  # Store superclass map
-        self.seed = seed  # Store random seed
+    def __init__(self, train_features, train_labels, test_features, test_labels, coarse_map=None, seed=0):
+        self.train_features = train_features   # pool features (selection happens over these)
+        self.train_labels = train_labels       # pool fine labels
+        self.test_features = test_features     # held-out features, only ever used to score
+        self.test_labels = test_labels         # held-out fine labels
+        self.coarse_map = coarse_map           # fine label -> superclass id; only the oracle path reads this
+        self.seed = seed
 
-    def accuracy(self, labeled_idx):
-        """Computes test set accuracy (percent) using only the labeled subset."""
-        raise NotImplementedError  # Force subclass override
+    def fit(self, labeled_indices):
+        # Train and return an sklearn classifier on the labeled subset. Subclasses pick the model.
+        raise NotImplementedError
+
+    def predict(self, labeled_indices):
+        # Plain prediction: the trained classifier labels every test point.
+        classifier = self.fit(labeled_indices)
+        return classifier.predict(self.test_features)
+
+    def predict_within_true_superclass(self, labeled_indices):
+        # Oracle prediction: each test point's answer is restricted to its TRUE superclass.
+        # Each subclass implements the restriction in whatever way suits its model.
+        raise NotImplementedError
+
+    def accuracy(self, labeled_indices, use_superclass_oracle=False):
+        # Percent of test points classified correctly using only the labeled subset.
+        if use_superclass_oracle:
+            if self.coarse_map is None:
+                raise SystemExit(
+                    "--oracle needs a coarse map (coarse_map.npy alongside the embeddings, "
+                    "or a built-in dataset like cifar100)"
+                )
+            predictions = self.predict_within_true_superclass(labeled_indices)
+        else:
+            predictions = self.predict(labeled_indices)
+
+        return 100.0 * float((predictions == self.test_labels).mean())
 
 
-class OneNNEvaluator(Evaluator):
+class OneNearestNeighbourEvaluator(Evaluator):
+
     name = "1nn"
 
-    def accuracy(self, labeled_idx):
-        clf = KNeighborsClassifier(n_neighbors=1)  # Init 1-NN model
-        clf.fit(self.train_feats[labeled_idx], self.train_labels[labeled_idx])  # Train on labeled pool
-        preds = clf.predict(self.test_feats)  # Predict test set
-        return 100.0 * float((preds == self.test_labels).mean())  # Calculate accuracy %
+    def fit(self, labeled_indices):
+        # 1-nearest-neighbour on the labeled subset (features are already L2-normalized).
+        classifier = KNeighborsClassifier(n_neighbors=1)
+        classifier.fit(self.train_features[labeled_indices], self.train_labels[labeled_indices])
+        return classifier
+
+    def predict_within_true_superclass(self, labeled_indices):
+        # For 1-NN, "superclass known" means: only search labeled points inside that superclass.
+        labeled_features = self.train_features[labeled_indices]
+        labeled_fine_labels = self.train_labels[labeled_indices]
+        labeled_superclasses = self.coarse_map[labeled_fine_labels]
+        test_superclasses = self.coarse_map[self.test_labels]
+
+        # -1 marks an unresolved test point; it never equals a real label, so it counts as a miss.
+        predictions = np.full(len(self.test_labels), -1, dtype=np.int64)
+        unresolved_count = 0
+
+        for superclass in np.unique(test_superclasses):
+            test_in_superclass = test_superclasses == superclass          # the test points to answer this pass
+            labeled_in_superclass = labeled_superclasses == superclass    # candidate neighbours in that superclass
+
+            # No labeled example in this true superclass -> genuinely nothing to search.
+            if not labeled_in_superclass.any():
+                unresolved_count += int(test_in_superclass.sum())
+                continue
+
+            # 1-NN over only the same-superclass labeled points.
+            classifier = KNeighborsClassifier(n_neighbors=1)
+            classifier.fit(labeled_features[labeled_in_superclass], labeled_fine_labels[labeled_in_superclass])
+            predictions[test_in_superclass] = classifier.predict(self.test_features[test_in_superclass])
+
+        report_unresolved(unresolved_count, len(self.test_labels))
+        return predictions
 
 
 class MLPEvaluator(Evaluator):
+
     name = "mlp"
 
-    def accuracy(self, labeled_idx):
-        # Init MLP network with 1 hidden layer of 256 units
-        clf = MLPClassifier(hidden_layer_sizes=(256,), max_iter=300, random_state=self.seed)
-        clf.fit(self.train_feats[labeled_idx], self.train_labels[labeled_idx])  # Train on labeled pool
-        preds = clf.predict(self.test_feats)  # Predict test set
-        return 100.0 * float((preds == self.test_labels).mean())  # Calculate accuracy %
+    def fit(self, labeled_indices):
+        # A small MLP head (one hidden layer of 256 units) trained on the labeled subset.
+        classifier = MLPClassifier(hidden_layer_sizes=(256,), max_iter=300, random_state=self.seed)
+        classifier.fit(self.train_features[labeled_indices], self.train_labels[labeled_indices])
+        return classifier
 
+    def predict_within_true_superclass(self, labeled_indices):
+        # For the MLP, "superclass known" means: keep only the output classes that live in the
+        # test point's true superclass, then take the highest-scoring of those.
+        classifier = self.fit(labeled_indices)                              # trained on ALL labeled points
+        class_probabilities = classifier.predict_proba(self.test_features)  # (num_test, num_seen_classes)
+        seen_classes = classifier.classes_                                  # the fine classes the MLP actually saw
+        seen_class_superclasses = self.coarse_map[seen_classes]
+        test_superclasses = self.coarse_map[self.test_labels]
 
-class SuperclassOracleEvaluator(Evaluator):
-    name = "superclass_oracle"
-    """
-        Computes an upper-bound accuracy score by giving the model a "coarse oracle" helper.
-        When predicting a test point's specific fine label, the 1-NN search space is strictly 
-        restricted to training samples that share the exact same broad superclass category. 
-        This measures performance gains achieved when broad class confusion is eliminated.
-        """
+        predictions = np.full(len(self.test_labels), -1, dtype=np.int64)
+        unresolved_count = 0
 
-    def accuracy(self, labeled_idx):
-        if self.coarse_map is None:
-            raise SystemExit("Error: --eval superclass_oracle requires a valid coarse map matrix.")
+        for superclass in np.unique(test_superclasses):
+            test_rows = np.where(test_superclasses == superclass)[0]              # test points in this superclass
+            allowed_columns = np.where(seen_class_superclasses == superclass)[0]  # output classes in this superclass
 
-        labeled_features = self.train_feats[labeled_idx]  # Get labeled pool features
-        labeled_fine_labels = self.train_labels[labeled_idx]  # Get labeled pool fine labels
-
-        labeled_superclasses = self.coarse_map[labeled_fine_labels]  # Get labeled pool superclasses
-        test_superclasses = self.coarse_map[self.test_labels]  # Get test set superclasses
-        # -1 = unresolved: never equals a real label, so it counts as a miss. int64 avoids uint wrap-around.
-        test_predictions = np.full(len(self.test_labels), -1, dtype=np.int64)
-        unresolved = 0  # test points whose true superclass has no labeled exemplar yet
-
-        for superclass_id in np.unique(test_superclasses):  # Loop through unique superclasses
-            test_points_in_superclass = test_superclasses == superclass_id  # Mask matching test points
-            candidate_pool_in_superclass = labeled_superclasses == superclass_id  # Mask matching training points
-
-            # Nothing labeled in this true superclass yet -> there is genuinely nothing to search.
-            # Leave these points unresolved (a miss); do NOT answer them from another superclass,
-            # which would violate the "true superclass known" premise this evaluator measures.
-            if not candidate_pool_in_superclass.any():
-                unresolved += int(test_points_in_superclass.sum())
+            # None of this superclass's fine classes was ever labeled -> nothing allowed to predict.
+            if allowed_columns.size == 0:
+                unresolved_count += len(test_rows)
                 continue
 
-            classifier = KNeighborsClassifier(n_neighbors=1)  # 1-NN restricted to the known superclass
-            classifier.fit(labeled_features[candidate_pool_in_superclass],
-                           labeled_fine_labels[candidate_pool_in_superclass])
-            test_predictions[test_points_in_superclass] = classifier.predict(self.test_feats[test_points_in_superclass])
+            # Among the allowed classes, pick the highest-probability one for each test point.
+            allowed_probabilities = class_probabilities[np.ix_(test_rows, allowed_columns)]
+            best_allowed = allowed_probabilities.argmax(axis=1)
+            predictions[test_rows] = seen_classes[allowed_columns][best_allowed]
 
-        # Make that decision visible instead of hiding it inside the accuracy number
-        if unresolved:
-            print(f"[superclass_oracle] {unresolved}/{len(self.test_labels)} test points had no labeled "
-                  f"exemplar in their superclass -> left unresolved (counted as wrong)", flush=True)
-
-        return 100.0 * float((test_predictions == self.test_labels).mean())  # Calculate accuracy %
+        report_unresolved(unresolved_count, len(self.test_labels))
+        return predictions
 
 
-# Registry dictionary for dynamic CLI string lookup mapping
+# name -> class, so --eval can pick a base classifier by string. The superclass oracle
+# is a separate flag (--oracle) that composes with whichever base classifier is chosen.
 EVALUATORS = {
-    OneNNEvaluator.name: OneNNEvaluator,
+    OneNearestNeighbourEvaluator.name: OneNearestNeighbourEvaluator,
     MLPEvaluator.name: MLPEvaluator,
-    SuperclassOracleEvaluator.name: SuperclassOracleEvaluator,
 }

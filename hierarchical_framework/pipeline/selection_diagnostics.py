@@ -75,10 +75,11 @@ def plot_picks_per_class(picked_classes_by_round, num_classes, out_base):
 
 def plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_base):
     """
-    Audits strategy efficiency by plotting a geometric utility curve over time.
-    It tracks how many brand-new points were covered per pick, showing whether the strategy
-    is still discovering massive data clusters or hitting diminishing returns.
-    """
+        Audits strategy efficiency by plotting a geometric utility curve over time.
+        It tracks how many brand-new points were covered per pick, showing whether the strategy
+        is still discovering massive data clusters or hitting diminishing returns.
+        """
+
     x, mean_gain, min_gain, max_gain = [], [], [], []
 
     # Process the metrics gathered across each round
