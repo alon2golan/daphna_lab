@@ -149,15 +149,15 @@ def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
     picks_by_round = []
     # the coverage score of each pick, grouped by round (coverage-family only)
     neighbors_by_round, bpc_by_round = [], []
-    n_scores = 0                                  # how many pick_scores we've consumed
+    n_scores = 0                                  # how many coverage_gains we've consumed
     for r in range(rounds):
         # this round's points; the selector updates its own state
         chosen = selector.select_round(budget)
         labeled.extend(chosen)
         picks_by_round.append(train_labels[np.array(chosen)] if chosen else [])
-        # slice off the scores this round appended (empty for non-coverage strategies)
-        neighbors_by_round.append(selector.pick_scores[n_scores:])
-        n_scores = len(selector.pick_scores)
+        # slice off the coverage gains this round appended (empty for non-coverage strategies)
+        neighbors_by_round.append(selector.coverage_gains[n_scores:])
+        n_scores = len(selector.coverage_gains)
         # score the growing labeled set
         acc = eval_1nn(train_feats, train_labels, np.array(labeled), test_feats, test_labels)
         # budget expressed as average labels per class (the paper's "B")
