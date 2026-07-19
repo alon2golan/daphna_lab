@@ -14,17 +14,17 @@ def build_graph(features, delta, batch_size=500, device=None):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu") # use the GPU if one is available, else fall back to CPU
     X = torch.as_tensor(np.asarray(features), dtype=torch.float32, device=device) # move the whole feature matrix onto the device once
     n = X.shape[0]
-    covering, covered = [], [] # the two endpoints of every edge we keep: a point, and a point its delta-ball reaches
+    labeling, covered = [], [] # the two endpoints of every edge we keep: a point you could label, and a point its delta-ball reaches
     for start in range(0, n, batch_size): # walk the points in row-batches so we never hold the full N x N distance matrix
         cur = X[start:start + batch_size]
         dist = torch.cdist(cur, X) # L2 distance from each point in this batch to every point -> (batch, N)
         under_delta = dist < delta # an edge exists wherever two points are closer than delta (a point also covers itself, dist 0)
         a, b = under_delta.nonzero(as_tuple=False).T # (row, col) of each surviving edge: labeling point a would cover point b
-        covering.append((a + start).cpu().numpy()) # shift the batch-local row index back to a global point index
+        labeling.append((a + start).cpu().numpy()) # shift the batch-local row index back to a global point index
         covered.append(b.cpu().numpy())
-    covering_point = np.concatenate(covering).astype(np.int64) # for each edge e: labeling covering_point[e] covers covered_point[e]
+    labeling_point = np.concatenate(labeling).astype(np.int64) # for each edge e: labeling labeling_point[e] covers covered_point[e]
     covered_point = np.concatenate(covered).astype(np.int64)
-    return covering_point, covered_point
+    return labeling_point, covered_point
 
 
 # base strategy: the shared "label `budget` points this round" loop.
@@ -65,7 +65,7 @@ class CoverageSelector(Selector):
 
     def __init__(self, features, delta=0.65, batch_size=500, device=None, **kwargs):
         super().__init__(features, **kwargs)
-        self.covering_point, self.covered_point = build_graph(features, delta, batch_size, device) # delta-graph edge list: labeling covering_point[e] covers covered_point[e]
+        self.labeling_point, self.covered_point = build_graph(features, delta, batch_size, device) # delta-graph edge list: labeling labeling_point[e] covers covered_point[e]
         self.is_covered = np.zeros(self.n, dtype=bool) # is_covered[j] becomes True once a labeled point's delta-ball reaches point j
         self.delta = delta
 
@@ -74,22 +74,22 @@ class CoverageSelector(Selector):
         raise NotImplementedError
 
     def choose_next(self):
-        s = self.score().astype(np.float64) # score every point as a candidate to label next
-        s[self.is_labeled] = -np.inf # rule out points already in the labeled set
-        i = int(np.argmax(s)) # the best-scoring candidate
-        if not np.isfinite(s[i]) or s[i] <= 0: # nothing left that covers new ground -> just take any unlabeled point
+        score = self.score().astype(np.float64) # score every point as a candidate to label next
+        score[self.is_labeled] = -np.inf # rule out points already in the labeled set
+        i = int(np.argmax(score)) # the best-scoring candidate
+        if not np.isfinite(score[i]) or score[i] <= 0: # nothing left that covers new ground -> just take any unlabeled point
             unlabeled = np.where(~self.is_labeled)[0]
             if unlabeled.size == 0: # whole pool is labeled, nothing to return
                 return None
             self.coverage_gains.append(0.0) # this label adds no new coverage
             return int(unlabeled[0])
-        self.coverage_gains.append(float(s[i])) # record how many still-uncovered neighbors labeling i will cover
+        self.coverage_gains.append(float(score[i])) # record how many still-uncovered neighbors labeling i will cover
         return i
 
     def label(self, i):
-        edge_reaches_uncovered = ~self.is_covered[self.covered_point] # for every edge, is the point it reaches still uncovered?
-        newly = self.covered_point[edge_reaches_uncovered & (self.covering_point == i)] # the still-uncovered points that labeling i now covers
-        self.is_covered[newly] = True # those points are now covered
+        reaches_uncovered = ~self.is_covered[self.covered_point] # for every edge, is the point it reaches still uncovered?
+        newly_covered = self.covered_point[reaches_uncovered & (self.labeling_point == i)] # the still-uncovered points that labeling i now covers
+        self.is_covered[newly_covered] = True # those points are now covered
         self.is_covered[i] = True # and i covers itself
         self.is_labeled[i] = True # finally, i joins the labeled set
 
@@ -104,7 +104,7 @@ class ProbCoverSelector(CoverageSelector):
 
     def score(self):
         edge_reaches_uncovered = ~self.is_covered[self.covered_point] # keep only edges that reach a still-uncovered point
-        return np.bincount(self.covering_point[edge_reaches_uncovered], minlength=self.n) # per point, count those edges = how many new points labeling it would cover
+        return np.bincount(self.labeling_point[edge_reaches_uncovered], minlength=self.n) # per point, count those edges = how many new points labeling it would cover
 
 
 # baseline: choose uniformly at random among the unlabeled points
