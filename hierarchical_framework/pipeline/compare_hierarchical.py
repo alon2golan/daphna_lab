@@ -89,10 +89,12 @@ def score_strategy(strategy, labeled_sets, scorers, num_classes, wandb_base=None
     """Scores every evaluator across this strategy's rounds; returns a per-round list of accuracies.
 
     With wandb_base set, EACH evaluator gets its OWN wandb run named
-    <base>_<strategy>_<evaluator>, and its fine_acc + coarse_acc stream in live per round. Every
-    run logs the SAME metric names (fine_acc/coarse_acc), so in wandb you group the runs by
-    config.strategy (one panel per selection method, all evaluators overlaid) or by config.evaluator
-    (one panel per evaluation method, all selection methods overlaid), or ungroup for all-at-once."""
+    <base>_<strategy>_<evaluator>, streaming live per round. Besides the plain fine_acc/coarse_acc
+    (all runs overlaid on one panel), each round is ALSO logged under namespaced metric keys --
+    by_selection/<strategy>/... and by_evaluation/<evaluator>/... . wandb makes one panel per
+    distinct key, so a "by_selection" section gives a panel per selection method (evaluators overlaid)
+    and a "by_evaluation" section gives a panel per evaluation method (selection methods overlaid),
+    each showing the individual run lines -- no UI grouping/aggregation needed."""
     # One record per budget/round; the accuracy dict is filled evaluator by evaluator below
     rows = [{"num_labeled": int(len(labeled_array)),
              "labels_per_class": len(labeled_array) / num_classes,   # the paper's "B", the x-axis
@@ -101,6 +103,7 @@ def score_strategy(strategy, labeled_sets, scorers, num_classes, wandb_base=None
     # Evaluator-outer so each evaluator's whole curve streams into its own run, one active run at a time
     for spec in EVALUATION_SPECS:
         label, eval_name, use_oracle, _family, _role, _colour = spec
+        eval_slug = label.replace(" ", "_")   # metric-key-safe evaluator name
         if wandb_base is not None:
             init_combo_run(wandb_base, strategy, spec)   # this (strategy, evaluator) run
 
@@ -108,10 +111,18 @@ def score_strategy(strategy, labeled_sets, scorers, num_classes, wandb_base=None
             fine_accuracy, coarse_accuracy = scorers[eval_name].fine_and_coarse_accuracy(
                 labeled_array, use_superclass_oracle=use_oracle)
             row["accuracy"][label] = (fine_accuracy, coarse_accuracy)
-            # Stream this round live: same metric names in every run so wandb can overlay across runs
+            # Stream this round live under three key families: plain (all overlaid), by_selection
+            # (one panel per strategy), by_evaluation (one panel per evaluator). Same keys across the
+            # matching runs so wandb draws each contributing run as its own line in that panel.
             if wandb_base is not None:
-                wandb.log({"budget_per_class": row["labels_per_class"],
-                           "fine_acc": fine_accuracy, "coarse_acc": coarse_accuracy})
+                wandb.log({
+                    "budget_per_class": row["labels_per_class"],
+                    "fine_acc": fine_accuracy, "coarse_acc": coarse_accuracy,
+                    f"by_selection/{strategy}/fine_acc": fine_accuracy,
+                    f"by_selection/{strategy}/coarse_acc": coarse_accuracy,
+                    f"by_evaluation/{eval_slug}/fine_acc": fine_accuracy,
+                    f"by_evaluation/{eval_slug}/coarse_acc": coarse_accuracy,
+                })
 
         # One console line per evaluator: its fine-accuracy curve across the budgets
         print(f"  [{strategy}/{label}] "
@@ -227,10 +238,9 @@ def init_combo_run(base_kwargs, strategy, spec):
     config.update(strategy=strategy, evaluator=label, family=family, role=role, oracle=int(use_oracle))
     kwargs["config"] = config
     wandb.init(**kwargs)
-    # Same metric names in every run so wandb overlays them when grouped; both plot against budget
+    # Budget is the x-axis for every metric, including the by_selection/* and by_evaluation/* keys
     wandb.define_metric("budget_per_class")
-    wandb.define_metric("fine_acc", step_metric="budget_per_class")
-    wandb.define_metric("coarse_acc", step_metric="budget_per_class")
+    wandb.define_metric("*", step_metric="budget_per_class")
 
 
 def log_combined_figure(base_kwargs, figure):
