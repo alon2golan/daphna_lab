@@ -1,12 +1,11 @@
-# Fine-label -> coarse (superclass) maps, shared by the evaluators (pipeline/) and
-# the analysis tools (analysis/). One definition, imported by both.
+# Fine -> coarse maps shared across the pipeline and analysis tools.
 
 from pathlib import Path
-
 import numpy as np
 
-# canonical torchvision CIFAR-100 fine(0-99) -> coarse(0-19) superclass map.
-# index = fine label id, value = its superclass id. verified 20 groups x 5.
+# Maps 100 fine labels (0-99) to 20 coarse superclasses (0-19).
+# Array index = Fine Label ID, Value at index = Coarse Superclass ID.
+# Example: CIFAR100_COARSE[0] is 4 -> Fine class 0 belongs to superclass 4.
 CIFAR100_COARSE = np.array([
     4, 1, 14, 8, 0, 6, 7, 7, 18, 3, 3, 14, 9, 18, 7, 11, 3, 9, 7, 11,
     6, 11, 5, 10, 7, 6, 13, 15, 3, 15, 0, 11, 1, 10, 12, 14, 16, 9, 11, 5,
@@ -17,11 +16,15 @@ CIFAR100_COARSE = np.array([
 
 
 def load_coarse_map(embeddings_dir, dataset="cifar100"):
-    # prefer a coarse_map.npy shipped alongside the embeddings (any dataset); else the
-    # built-in CIFAR-100 map; else None (the superclass_oracle evaluator will complain).
+    """Loads custom map from disk, falls back to CIFAR-100 defaults, or returns None."""
     p = Path(embeddings_dir) / "coarse_map.npy"
+
+    # 1. Try loading external map file if present
     if p.exists():
         return np.load(p)
+
+    # 2. Use built-in map for standard CIFAR-100 runs
     if dataset.lower().startswith("cifar100"):
         return CIFAR100_COARSE
+
     return None
