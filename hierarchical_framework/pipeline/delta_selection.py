@@ -1,5 +1,5 @@
 # Thin wrapper around deep_al's data-driven knee-point delta selector, so
-# run_al.py / accuracy_vs_budget.py can resolve --delta knee the same way deep_al's
+# run_active_learning.py / accuracy_vs_budget.py can resolve --delta knee the same way deep_al's
 # resolve_initial_delta does (KMeans pseudo-labels -> purity(delta) curve -> knee).
 
 import sys

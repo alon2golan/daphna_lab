@@ -20,7 +20,7 @@ OUTPUTS = HF_ROOT / "outputs"
 if str(HF_ROOT / "pipeline") not in sys.path:
     sys.path.insert(0, str(HF_ROOT / "pipeline"))
 
-from selectors_al import SELECTORS
+from selection_strategies import SELECTORS
 from accuracy_vs_budget import CIFAR100_COARSE
 
 

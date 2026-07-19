@@ -12,7 +12,7 @@
 # Run the AL pipeline (ProbCover or another strategy) with 1-NN eval + wandb.
 #
 # Usage:
-#   sbatch hierarchical_framework/scripts/run_al.sbatch <EMB_DIR> [STRATEGY] [DELTA] [BUDGET] [ROUNDS] [PROJECT]
+#   sbatch hierarchical_framework/scripts/run_active_learning.sbatch <EMB_DIR> [STRATEGY] [DELTA] [BUDGET] [ROUNDS] [PROJECT]
 #
 # Positional args:
 #   1) EMB_DIR    embeddings dir with <split>_features_normalized.npy + labels + test_*
@@ -23,12 +23,12 @@
 #   6) PROJECT    wandb project         (default bayesian)
 #
 # Example:
-#   sbatch hierarchical_framework/scripts/run_al.sbatch \
+#   sbatch hierarchical_framework/scripts/run_active_learning.sbatch \
 #       solo-learn/embeddings/simclr/cifar100/1000ep probcover 0.65 100 10
 
 set -e
 
-EMB_DIR=${1:?usage: sbatch run_al.sbatch EMB_DIR [STRATEGY] [DELTA] [BUDGET] [ROUNDS] [PROJECT]}
+EMB_DIR=${1:?usage: sbatch run_active_learning.sbatch EMB_DIR [STRATEGY] [DELTA] [BUDGET] [ROUNDS] [PROJECT]}
 STRATEGY=${2:-probcover}
 DELTA=${3:-0.65}
 BUDGET=${4:-100}
@@ -43,7 +43,7 @@ mkdir -p hierarchical_framework/outputs/slurm_logs
 
 echo "AL: strategy=$STRATEGY emb=$EMB_DIR delta=$DELTA budget=$BUDGET rounds=$ROUNDS project=$PROJECT"
 
-python -u hierarchical_framework/pipeline/run_al.py \
+python -u hierarchical_framework/pipeline/run_active_learning.py \
   --embeddings_dir "$EMB_DIR" \
   --strategy "$STRATEGY" \
   --delta "$DELTA" \

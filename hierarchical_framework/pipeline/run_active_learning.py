@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from selectors_al import SELECTORS
+from selection_strategies import SELECTORS
 
 # hierarchical_framework/ root (pipeline/ -> up one); rendered figures land under outputs/
 OUTPUTS = Path(__file__).resolve().parents[1] / "outputs"
@@ -125,7 +125,7 @@ def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
     num_classes = int(train_labels.max()) + 1
 
     # resolve delta: a float, or "knee" -> deep_al's knee-point algorithm on these feats
-    from knee_delta import resolve_delta
+    from delta_selection import resolve_delta
     delta = resolve_delta(delta, train_feats, num_classes, seed=seed)
     # build the chosen strategy; kwargs it doesn't use (delta/seed) are ignored
     cls = SELECTORS[strategy]

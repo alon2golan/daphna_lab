@@ -2,7 +2,7 @@
 # accuracy into fine (subclass) vs coarse (superclass) accuracy, and break the
 # errors into "near miss" (right superclass, wrong subclass) vs "far miss"
 # (wrong superclass). Also dumps a per-class-per-budget table. Reuses the exact
-# same selectors as run_al.py so the numbers match the probcover results.
+# same selectors as run_active_learning.py so the numbers match the probcover results.
 
 import argparse
 import sys
@@ -17,7 +17,7 @@ OUTPUTS = HF_ROOT / "outputs"
 if str(HF_ROOT / "pipeline") not in sys.path:
     sys.path.insert(0, str(HF_ROOT / "pipeline"))
 
-from selectors_al import SELECTORS
+from selection_strategies import SELECTORS
 
 
 # canonical torchvision CIFAR-100 fine(0-99) -> coarse(0-19) superclass map.
@@ -201,9 +201,9 @@ def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
         raise SystemExit(f"no coarse map for dataset={dataset}; pass --coarse_map")
 
     # resolve delta: a float, or "knee" -> deep_al's knee-point algorithm on these feats
-    from knee_delta import resolve_delta
+    from delta_selection import resolve_delta
     delta = resolve_delta(delta, train_feats, num_classes, seed=seed)
-    # same selector construction as run_al.py, so the picks are identical
+    # same selector construction as run_active_learning.py, so the picks are identical
     selector = SELECTORS[strategy](train_feats, delta=delta, seed=seed)
     print(f"strategy={strategy} on {train_feats.shape[0]} points", flush=True)
 
