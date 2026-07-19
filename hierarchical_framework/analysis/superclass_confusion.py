@@ -21,7 +21,7 @@ if str(HF_ROOT / "pipeline") not in sys.path:
     sys.path.insert(0, str(HF_ROOT / "pipeline"))
 
 from selection_strategies import SELECTORS
-from accuracy_vs_budget import CIFAR100_COARSE
+from coarse_maps import CIFAR100_COARSE
 
 
 # 20 CIFAR-100 superclass names, indexed by coarse id (matches CIFAR100_COARSE)

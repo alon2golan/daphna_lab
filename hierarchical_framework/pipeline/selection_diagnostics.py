@@ -9,21 +9,16 @@ import matplotlib
 matplotlib.use("Agg")  # Render straight to PNG files; no GUI environment or display window needed
 import matplotlib.pyplot as plt
 
-try:
-    import wandb
-except ImportError:
-    wandb = None  # Safely fallback if the Weights & Biases library isn't installed in this environment
-
 # Resolve the absolute path where all diagnostic output images and tables will be saved
 FIGDIR = Path(__file__).resolve().parents[1] / "outputs" / "figures" / "selection_diagnostics"
 
 
-def plot_picks_per_class(picked_classes_by_round, num_classes, out_base, use_wandb=False):
+def plot_picks_per_class(picked_classes_by_round, num_classes, out_base):
     """
     Audits class balance across active learning rounds. Generates a dual-plot figure:
     1. A heatmap showing which classes were targeted round-by-round.
     2. A bar chart showing total accumulated selections per class.
-    Also saves a raw companion CSV table and logs everything to Weights & Biases if enabled.
+    Also saves a raw companion CSV table. Local files only -- nothing goes to wandb.
     """
     n_rounds = len(picked_classes_by_round)
 
@@ -58,9 +53,9 @@ def plot_picks_per_class(picked_classes_by_round, num_classes, out_base, use_wan
     ax[1].set_title(f"picks per class (distinct chosen={n_classes_hit}/{num_classes})")
     fig.tight_layout()  # Auto-adjust layout spacing to prevent labels from overlapping
 
-    # Ensure the target directory exists, then save the combined visualization as a PNG
-    FIGDIR.mkdir(parents=True, exist_ok=True)
+    # Save the combined visualization as a PNG (out_base is a nested <dataset>/<technique>/... path)
     png = FIGDIR / f"{out_base}_classpicks.png"
+    png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(png, dpi=130)
     print(f"saved -> {png}", flush=True)
 
@@ -74,21 +69,11 @@ def plot_picks_per_class(picked_classes_by_round, num_classes, out_base, use_wan
             fh.write(f"{c},{int(total_per_class[c])},{rounds_hit}\n")
     print(f"saved -> {csv}", flush=True)
 
-    # If cloud logging is active, sync both the static image plot and an interactive version of the table
-    if use_wandb and wandb is not None:
-        wandb.log({"class_picks": wandb.Image(str(png))})
-
-        table = wandb.Table(columns=["class", "total", "rounds"])
-        for c in range(num_classes):
-            rounds_hit = " ".join(str(r) for r in range(n_rounds) if counts[c, r] > 0)
-            table.add_data(int(c), int(total_per_class[c]), rounds_hit)
-        wandb.log({"class_picks_table": table})
-
     plt.close(fig)  # Free up system memory by explicitly closing the Matplotlib figure
     return counts
 
 
-def plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_base, use_wandb=False):
+def plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_base):
     """
     Audits strategy efficiency by plotting a geometric utility curve over time.
     It tracks how many brand-new points were covered per pick, showing whether the strategy
@@ -125,14 +110,10 @@ def plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_b
     ax.set_title("coverage gain per pick: round mean (bar = min..max)")
     fig.tight_layout()
 
-    # Save the generated efficiency trend graph as a PNG file
-    FIGDIR.mkdir(parents=True, exist_ok=True)
+    # Save the generated efficiency trend graph as a PNG file (out_base is a nested path)
     png = FIGDIR / f"{out_base}_pickdegree.png"
+    png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(png, dpi=130)
     print(f"saved -> {png}", flush=True)
-
-    # Sync the final efficiency plot to the cloud dashboard if enabled
-    if use_wandb and wandb is not None:
-        wandb.log({"pick_degree": wandb.Image(str(png))})
 
     plt.close(fig)  # Clean up memory allocations

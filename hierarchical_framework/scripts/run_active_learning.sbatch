@@ -20,7 +20,7 @@
 #   3) DELTA      float | knee_delta | auto_delta   (default auto_delta: pinned table -> knee)
 #   4) BUDGET     points per round      (default 100)
 #   5) ROUNDS     number of AL rounds   (default 10)
-#   6) PROJECT    wandb project         (default bayesian)
+#   6) PROJECT    wandb project         (default superclass_analysis)
 #
 # Example (new = solo-learn; swap new_solo_learn -> old_deep_al for itai's baseline):
 #   sbatch hierarchical_framework/scripts/run_active_learning.sbatch \
@@ -33,7 +33,7 @@ STRATEGY=${2:-probcover}
 DELTA=${3:-auto_delta}
 BUDGET=${4:-100}
 ROUNDS=${5:-10}
-PROJECT=${6:-bayesian}      # wandb project (6th arg); default keeps old behaviour
+PROJECT=${6:-superclass_analysis}      # wandb project (6th arg)
 
 ROOT=/cs/labs/daphna/$USER/projects/daphna_lab
 cd "$ROOT"

@@ -23,9 +23,13 @@ wandb config rather than the folder name).
 
 ```
 pipeline/     the AL loop and its swappable parts
-  run_active_learning.py   strategy-agnostic runner: pick budget points/round, 1-NN eval, wandb
-  selection_strategies.py  selection strategies (delta-graph, ProbCover, Random) + SELECTORS registry
+  run_active_learning.py   the runner: each round, a Selector picks and an Evaluator scores
+  selection_strategies.py  WHICH points to pick (delta-graph, ProbCover, Random) + SELECTORS registry
+  evaluators.py            HOW to score a labeled set (1nn, mlp, superclass_oracle) + EVALUATORS registry
   delta_selection.py       resolves --delta via deep_al's resolve_initial_delta (auto_delta table / knee)
+  coarse_maps.py           fine->coarse (superclass) maps, shared with analysis/
+  run_logging.py           RunLogger: console line + wandb (accuracy + regular scalars only)
+  selection_diagnostics.py opt-in (--figures) picks-per-class + coverage-gain plots (local files only)
 
 analysis/     post-hoc breakdowns of a run (both import pipeline/)
   accuracy_vs_budget.py   fine vs coarse vs superclass-oracle accuracy + near/far miss split,
@@ -76,6 +80,10 @@ uses): a float is used as-is, `knee_delta` runs the data-driven knee algorithm, 
 dataset (CIFAR-100 -> 0.65) and falls back to the knee if the row is missing. The
 run prints a `[delta]` line saying which value was chosen. Add `--strategy random`
 for the baseline.
+
+`--eval` picks how the labeled set is scored each round: `1nn` (default), `mlp`, or
+`superclass_oracle` (1-NN restricted to the true superclass — an upper bound). Only
+the accuracy + the regular AL scalars go to wandb (project `superclass_analysis`).
 
 Pass `--figures` to also write the selection-diagnostic figures
 (`outputs/figures/selection_diagnostics/<dataset>/<technique>/<source>_d<delta>_*`).
