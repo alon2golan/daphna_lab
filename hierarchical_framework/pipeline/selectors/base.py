@@ -1,10 +1,9 @@
-# Point-selection strategies for the AL pipeline -- the overridable "choice".
+# Selector base classes -- the shared "label `budget` points this round" bookkeeping.
 #
-# The pool starts fully UNLABELED. Each round we CHOOSE some unlabeled points to
-# label, then LABEL them (move them from the unlabeled set into the labeled set).
-# A strategy only decides WHICH unlabeled point to take next; the choose->label
-# round bookkeeping is shared here. Add a strategy by subclassing and registering
-# it in SELECTORS.
+# The pool starts fully UNLABELED. Each round we CHOOSE some unlabeled points and LABEL them
+# (move them into the labeled set). A strategy only decides WHICH point to take next; the
+# round loop and the ProbCover-style coverage tracking live here. Add a strategy by
+# subclassing and registering it in the SELECTORS dict (see __init__.py).
 
 import numpy as np
 import torch
@@ -95,36 +94,3 @@ class CoverageSelector(Selector):
 
     def coverage(self):
         return float(self.is_covered.mean()) # fraction of the pool currently covered
-
-
-# classic ProbCover: label the point that covers the most still-uncovered points
-class ProbCoverSelector(CoverageSelector):
-
-    name = "probcover"
-
-    def score(self):
-        edge_reaches_uncovered = ~self.is_covered[self.covered_point] # keep only edges that reach a still-uncovered point
-        return np.bincount(self.labeling_point[edge_reaches_uncovered], minlength=self.n) # per point, count those edges = how many new points labeling it would cover
-
-
-# baseline: choose uniformly at random among the unlabeled points
-class RandomSelector(Selector):
-
-    name = "random"
-
-    def __init__(self, features, seed=0, **kwargs):
-        super().__init__(features, **kwargs)
-        self.rng = np.random.default_rng(seed) # seeded RNG so a run is reproducible
-
-    def choose_next(self):
-        unlabeled = np.where(~self.is_labeled)[0] # indices still in the unlabeled set
-        if unlabeled.size == 0: # nothing left to label
-            return None
-        return int(self.rng.choice(unlabeled)) # pick one uniformly at random
-
-
-# name -> class, so the CLI can select a strategy by string
-SELECTORS = {
-    ProbCoverSelector.name: ProbCoverSelector,
-    RandomSelector.name: RandomSelector,
-}

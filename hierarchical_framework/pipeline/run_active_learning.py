@@ -22,11 +22,11 @@ from pathlib import Path
 
 import numpy as np
 
-from selection_strategies import SELECTORS
+from selectors import SELECTORS
 from evaluators import EVALUATORS
-from coarse_maps import load_coarse_map
-from delta_selection import resolve_delta
-from run_logging import RunLogger
+from shared.superclass_maps import load_coarse_map
+from shared.delta_resolution import resolve_delta
+from shared.wandb_logger import RunLogger
 
 
 def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle=False,

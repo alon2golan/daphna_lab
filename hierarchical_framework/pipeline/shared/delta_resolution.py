@@ -4,8 +4,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-# Add repo root to path so we can import from the core deep_al package
-REPO = Path(__file__).resolve().parents[2]
+# Add repo root to path so we can import from the core deep_al package.
+# pipeline/shared/delta_resolution.py -> parents: [0]=shared [1]=pipeline [2]=hierarchical_framework [3]=repo root
+REPO = Path(__file__).resolve().parents[3]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 

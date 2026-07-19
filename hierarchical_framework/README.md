@@ -24,12 +24,20 @@ wandb config rather than the folder name).
 ```
 pipeline/     the runner and its swappable parts. Logs accuracy to wandb; makes NO figures.
   run_active_learning.py   the runner: each round, a Selector picks and an Evaluator scores -> wandb
-  selection_strategies.py  WHICH points to pick (delta-graph, ProbCover, Random) + SELECTORS registry
-  evaluators.py            HOW to score a labeled set (1nn, mlp) + optional superclass oracle + EVALUATORS registry
-  delta_selection.py       resolves --delta via deep_al's resolve_initial_delta (auto_delta table / knee)
-  coarse_maps.py           fine->coarse (superclass) maps + names, shared with analysis/
-  output_paths.py          run-naming from the embeddings path, shared with analysis/
-  run_logging.py           RunLogger: console line + wandb (accuracy + regular scalars only)
+  compare_hierarchical.py  scores every evaluator across strategies (probcover/random/all) -> figure + CSV
+  selectors/               WHICH points to pick (a package) + SELECTORS registry
+    base.py                Selector / CoverageSelector + the delta-graph builder
+    probcover.py           ProbCoverSelector (coverage-greedy)
+    baselines.py           RandomSelector, AllLabeledSelector
+  evaluators/              HOW to score a labeled set (a package) + EVALUATORS registry
+    base.py                Evaluator base + HierarchicalEvaluator mixin + shared MLP/kNN factories
+    flat.py                1nn, mlp -- the family FLOORS; with --oracle they are the CEILINGS
+    hierarchical.py        two-stage superclass->subclass methods (hknn, hknn_marginal, hmlp_*)
+  shared/                  cross-cutting helpers, shared with analysis/
+    superclass_maps.py     fine->coarse (superclass) maps + names
+    run_naming.py          run/figure naming from the embeddings path
+    delta_resolution.py    resolves --delta via deep_al's resolve_initial_delta (auto_delta table / knee)
+    wandb_logger.py        RunLogger: console line + wandb (accuracy + regular scalars only)
 
 analysis/     on-demand figure tools; each replays a run, imports pipeline/, writes to outputs/
   selection_diagnostics.py picks-per-class + coverage-gain plots (what the strategy chose)
@@ -87,6 +95,29 @@ same-superclass neighbours; the MLP keeps only same-superclass output classes). 
 `--coarse` to also log superclass accuracy (did the prediction land in the right
 superclass?) as a second curve alongside the fine one. Only the accuracy + the regular
 AL scalars go to wandb (project `superclass_analysis`).
+
+## Hierarchical evaluators
+
+`--eval` also accepts the two-stage superclass→subclass methods in `evaluators/hierarchical.py`.
+Each predicts the superclass from features first, then the fine class — the realistic
+(predicted-superclass) cousins of `--oracle` (which uses the true superclass). Two families:
+
+- nearest-neighbour: `hknn` (kNN vote → 1-NN inside the predicted superclass) and
+  `hknn_marginal` (soft: `P(fine)=P(parent|x)·P(fine|parent,x)`). Floor `1nn`, ceiling `1nn --oracle`.
+- MLP: `hmlp_routed` (hard route to a per-superclass head), `hmlp_marginal` (the soft version of
+  the same heads), `hmlp_logits` (one flat head fed `[embedding, superclass softmax]`). Floor
+  `mlp`, ceiling `mlp --oracle`.
+
+`compare_hierarchical.py` scores every evaluator across three strategies (`probcover`, `random`,
+and `all` = full supervision) and writes one figure + a tidy CSV under
+`outputs/figures/hierarchical_comparison/<dataset>/<technique>/<source>_d<delta>/`. The figure is
+a family×strategy grid; each method is drawn against its family floor/ceiling, with the
+full-supervision accuracy as a faint horizontal reference. It makes its own figure and does not
+touch wandb:
+
+```
+python hierarchical_framework/pipeline/compare_hierarchical.py --embeddings_dir <EMB>
+```
 
 The runner never makes figures. When you want plots, run an `analysis/` tool on the
 same knobs — it replays the run and writes figures under `outputs/figures/`:

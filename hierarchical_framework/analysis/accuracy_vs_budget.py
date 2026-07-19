@@ -31,11 +31,11 @@ OUTPUTS = HF_ROOT / "outputs"
 if str(HF_ROOT / "pipeline") not in sys.path:
     sys.path.insert(0, str(HF_ROOT / "pipeline"))
 
-from selection_strategies import SELECTORS
+from selectors import SELECTORS
 from evaluators import OneNearestNeighbourEvaluator
-from coarse_maps import load_coarse_map
-from delta_selection import resolve_delta
-from output_paths import figure_output_base, wandb_run_tag
+from shared.superclass_maps import load_coarse_map
+from shared.delta_resolution import resolve_delta
+from shared.run_naming import figure_output_base, wandb_run_tag
 
 
 def round_metrics(fine_predictions, test_labels, coarse_map, num_classes):

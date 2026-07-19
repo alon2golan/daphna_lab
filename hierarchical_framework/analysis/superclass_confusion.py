@@ -30,11 +30,11 @@ OUTPUTS = HF_ROOT / "outputs"
 if str(HF_ROOT / "pipeline") not in sys.path:
     sys.path.insert(0, str(HF_ROOT / "pipeline"))
 
-from selection_strategies import SELECTORS
+from selectors import SELECTORS
 from evaluators import OneNearestNeighbourEvaluator
-from coarse_maps import CIFAR100_COARSE, CIFAR100_COARSE_NAMES as SUPERCLASS_NAMES, CIFAR100_FINE_NAMES as FINE_NAMES
-from delta_selection import resolve_delta
-from output_paths import figure_output_base, wandb_run_tag
+from shared.superclass_maps import CIFAR100_COARSE, CIFAR100_COARSE_NAMES as SUPERCLASS_NAMES, CIFAR100_FINE_NAMES as FINE_NAMES
+from shared.delta_resolution import resolve_delta
+from shared.run_naming import figure_output_base, wandb_run_tag
 
 NUM_SUPERCLASSES = len(SUPERCLASS_NAMES)     # 20 for CIFAR-100
 

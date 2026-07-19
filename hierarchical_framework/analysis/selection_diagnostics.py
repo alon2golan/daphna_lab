@@ -18,9 +18,9 @@ HF_ROOT = Path(__file__).resolve().parents[1]
 if str(HF_ROOT / "pipeline") not in sys.path:
     sys.path.insert(0, str(HF_ROOT / "pipeline"))
 
-from selection_strategies import SELECTORS
-from delta_selection import resolve_delta
-from output_paths import figure_output_base
+from selectors import SELECTORS
+from shared.delta_resolution import resolve_delta
+from shared.run_naming import figure_output_base
 
 # Where all diagnostic images and tables are written.
 FIGDIR = HF_ROOT / "outputs" / "figures" / "selection_diagnostics"
