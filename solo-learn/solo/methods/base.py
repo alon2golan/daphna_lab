@@ -195,8 +195,11 @@ class BaseMethod(pl.LightningModule):
             self.features_dim: int = self.backbone.inplanes
             # remove fc layer
             self.backbone.fc = nn.Identity()
-            cifar = cfg.data.dataset in ["cifar10", "cifar100"]
-            if cifar:
+            # small-image datasets (cifar 32px, tinyimagenet 64px) swap the
+            # 7x7-stride-2 + maxpool ImageNet stem for a 3x3-stride-1 stem with
+            # no maxpool, so low-res inputs aren't downsampled to nothing.
+            small_stem = cfg.data.dataset in ["cifar10", "cifar100", "tinyimagenet"]
+            if small_stem:
                 self.backbone.conv1 = nn.Conv2d(
                     3, 64, kernel_size=3, stride=1, padding=2, bias=False
                 )
@@ -644,8 +647,9 @@ class BaseMomentumMethod(BaseMethod):
         if self.backbone_name.startswith("resnet"):
             # remove fc layer
             self.momentum_backbone.fc = nn.Identity()
-            cifar = cfg.data.dataset in ["cifar10", "cifar100"]
-            if cifar:
+            # mirror the backbone's small-image stem (see build_backbone above)
+            small_stem = cfg.data.dataset in ["cifar10", "cifar100", "tinyimagenet"]
+            if small_stem:
                 self.momentum_backbone.conv1 = nn.Conv2d(
                     3, 64, kernel_size=3, stride=1, padding=2, bias=False
                 )
