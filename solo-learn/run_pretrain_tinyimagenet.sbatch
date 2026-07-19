@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH -p medium
-#SBATCH --mem=32g
-#SBATCH -c 8
+#SBATCH -p long
+#SBATCH --mem=64g
+#SBATCH -c 16
 #SBATCH --time=48:00:00
-#SBATCH --gres=gpu:l40s:1
+#SBATCH --gres=gpu:l40s:4
 #SBATCH --output=slurm_logs/pretrain_tin_%j.out
 #SBATCH --error=slurm_logs/pretrain_tin_%j.err
 #SBATCH --killable

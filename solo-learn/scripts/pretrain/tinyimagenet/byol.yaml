@@ -31,7 +31,9 @@ data:
   num_workers: 4
 optimizer:
   name: "lars"
-  batch_size: 256
+  # 64 per GPU x 4 GPUs (devices below) = global batch 256, matching the
+  # single-GPU recipe; lr stays 1.0 (solo-learn does not scale lr by GPU count).
+  batch_size: 64
   lr: 1.0
   classifier_lr: 0.1
   weight_decay: 1e-5
@@ -50,7 +52,7 @@ auto_resume:
 
 # overwrite PL stuff
 max_epochs: 1000
-devices: [0]
+devices: [0, 1, 2, 3]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
