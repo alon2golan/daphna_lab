@@ -73,40 +73,6 @@ def round_metrics(fine_predictions, test_labels, coarse_map, num_classes):
     )
 
 
-def compute_slope_stats(per_round_metrics):
-    # Between consecutive budgets: how fast each curve rises (accuracy gained per 100
-    # labels) and how far apart the fine and coarse curves sit. A constant gap plus
-    # slopes that track each other means "same curve shape, just shifted up".
-    segments = []
-    for earlier, later in zip(per_round_metrics[:-1], per_round_metrics[1:]):
-        width_in_hundreds = (later["num_labeled"] - earlier["num_labeled"]) / 100.0
-        fine_slope = (later["fine_acc"] - earlier["fine_acc"]) / width_in_hundreds
-        coarse_slope = (later["coarse_acc"] - earlier["coarse_acc"]) / width_in_hundreds
-        segments.append(dict(
-            num_labeled=later["num_labeled"],          # budget to log this slope at
-            fine_slope=fine_slope,
-            coarse_slope=coarse_slope,
-            slope_diff=coarse_slope - fine_slope,      # 0 => the two rise identically
-        ))
-
-    coarse_minus_fine_gaps = np.array([row["coarse_acc"] - row["fine_acc"] for row in per_round_metrics])
-    fine_slopes = np.array([segment["fine_slope"] for segment in segments])
-    coarse_slopes = np.array([segment["coarse_slope"] for segment in segments])
-    slopes_correlate = (
-        float(np.corrcoef(fine_slopes, coarse_slopes)[0, 1])
-        if len(fine_slopes) > 1 and fine_slopes.std() and coarse_slopes.std() else float("nan")
-    )
-
-    summary = dict(
-        gap_mean=float(coarse_minus_fine_gaps.mean()),
-        gap_std=float(coarse_minus_fine_gaps.std()),
-        slope_corr=slopes_correlate,
-        slope_diff_mean=float((coarse_slopes - fine_slopes).mean()),
-        slope_diff_std=float((coarse_slopes - fine_slopes).std()),
-    )
-    return segments, summary
-
-
 def run_output_dir(output_base):
     # One folder per run under outputs/figures/error_analysis/ (shared with superclass_confusion).
     directory = OUTPUTS / "figures" / "error_analysis" / output_base
@@ -172,9 +138,8 @@ def save_tables(per_round_metrics, num_classes, coarse_map, output_base):
     print(f"saved -> {per_class_csv}", flush=True)
 
 
-def log_wandb_curves(per_round_metrics, segments, summary):
-    # Interactive multi-line charts (not images): the accuracy trio, the error-type
-    # split, and the per-segment slopes; plus the scalar gap/slope summary.
+def log_wandb_curves(per_round_metrics):
+    # Interactive multi-line charts (not images): the accuracy trio and the error-type split.
     x = [row["num_labeled"] for row in per_round_metrics]
 
     wandb.log({"accuracy_curves": wandb.plot.line_series(
@@ -191,15 +156,6 @@ def log_wandb_curves(per_round_metrics, segments, summary):
             [100 * row["far_frac"] for row in per_round_metrics]],
         keys=["near (same superclass)", "far (other superclass)"],
         title="error type share vs budget", xname="num_labeled")})
-
-    slope_x = [segment["num_labeled"] for segment in segments]
-    wandb.log({"slope_curves": wandb.plot.line_series(
-        xs=slope_x,
-        ys=[[segment["fine_slope"] for segment in segments],
-            [segment["coarse_slope"] for segment in segments]],
-        keys=["fine slope", "coarse slope"], title="slope per segment", xname="num_labeled")})
-
-    wandb.summary.update(summary)
 
 
 def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, rounds=10,
@@ -231,7 +187,7 @@ def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, ro
 
     if use_wandb and wandb is not None:
         wandb.init(**(wandb_kwargs or {}))
-        for metric in ("fine_acc", "coarse_acc", "oracle_acc", "gap", "oracle_gain", "near_pct", "far_pct"):
+        for metric in ("fine_acc", "coarse_acc", "oracle_acc", "near_pct", "far_pct"):
             wandb.define_metric(metric, step_metric="num_labeled")   # every curve shares num_labeled as its x-axis
 
     labeled_indices = []
@@ -261,22 +217,15 @@ def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, ro
                 "num_labeled": metrics["num_labeled"], "budget_per_class": metrics["labels_per_class"],
                 "fine_acc": metrics["fine_acc"], "coarse_acc": metrics["coarse_acc"],
                 "oracle_acc": metrics["oracle_acc"],
-                "gap": metrics["coarse_acc"] - metrics["fine_acc"],
-                "oracle_gain": metrics["oracle_acc"] - metrics["fine_acc"],
                 "near_pct": 100 * metrics["near_frac"], "far_pct": 100 * metrics["far_frac"],
             })
-
-    # How fast each curve rises, and how alike the fine/coarse curves are overall.
-    segments, summary = compute_slope_stats(per_round_metrics)
-    print(f"gap_mean={summary['gap_mean']:.2f} gap_std={summary['gap_std']:.2f} "
-          f"slope_corr={summary['slope_corr']:.3f}", flush=True)
 
     output_base = figure_output_base(embeddings_dir, delta)
     save_accuracy_curves(per_round_metrics, output_base)
     save_tables(per_round_metrics, num_classes, coarse_map, output_base)
 
     if use_wandb and wandb is not None:
-        log_wandb_curves(per_round_metrics, segments, summary)
+        log_wandb_curves(per_round_metrics)
         wandb.finish()
 
     return per_round_metrics
@@ -297,8 +246,8 @@ def main():
     parser.add_argument("--rounds", type=int, default=10)
     parser.add_argument("--split", default="train")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--wandb", action="store_true")
-    parser.add_argument("--project", default="applying_priors")
+    parser.add_argument("--wandb", action="store_true", help="log to wandb (off by default)")
+    parser.add_argument("--project", default="superclass_analysis")
     parser.add_argument("--name", default=None)
     parser.add_argument("--group", default="error_analysis")
     args = parser.parse_args()

@@ -201,8 +201,8 @@ def main():
     parser.add_argument("--split", default="train")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--topk", dest="top_k", type=int, default=20, help="how many confused pairs to keep")
-    parser.add_argument("--wandb", action="store_true")
-    parser.add_argument("--project", default="applying_priors")
+    parser.add_argument("--wandb", action="store_true", help="log to wandb (off by default)")
+    parser.add_argument("--project", default="superclass_analysis")
     parser.add_argument("--group", default="confusion")
     args = parser.parse_args()
 
