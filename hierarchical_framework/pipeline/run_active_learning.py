@@ -144,7 +144,7 @@ def main():
 
     # --- budget schedule ---
     parser.add_argument("--budget", type=int, default=100, help="Points labeled per round.")
-    parser.add_argument("--rounds", type=int, default=10, help="Number of active-learning rounds.")
+    parser.add_argument("--rounds", type=int, default=6, help="Number of active-learning rounds.")
     parser.add_argument("--split", default="train", help="Which split to draw the pool from (the features-file prefix).")
     parser.add_argument("--seed", type=int, default=0, help="Random seed (random-strategy tie-breaks; MLP init).")
 
@@ -159,9 +159,13 @@ def main():
 
     args = parser.parse_args()
 
-    # Auto run name / group encode the knobs, so a run is self-describing in wandb.
+    # Auto run name = the pieces that actually distinguish a run. Budget is already
+    # visible in the wandb x-axis (labels-per-class) and delta is usually the default,
+    # so we leave both out of the name; both are still saved in the run config below.
     oracle_tag = "_oracle" if args.superclass_oracle else ""
-    run_name = args.name or f"{args.strategy}_{args.evaluator}{oracle_tag}_d{args.delta}_b{args.budget}"
+    run_name = args.name or f"{args.strategy}_{args.evaluator}{oracle_tag}"
+    if args.delta != "auto_delta":                 # only note delta when it isn't the default
+        run_name += f"_d{args.delta}"
     run_group = args.group or args.strategy
 
     wandb_kwargs = dict(
