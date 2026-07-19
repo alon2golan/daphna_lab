@@ -114,9 +114,10 @@ Each predicts the superclass from features first, then the fine class — the re
 and `all` = full supervision) and writes one figure + a tidy CSV under
 `outputs/figures/hierarchical_comparison/<dataset>/<technique>/<source>_d<delta>/`. The figure is
 a family×strategy grid; each method (solid) is drawn against its OWN matched ceiling (dashed, same
-colour) plus the flat floor and flat family oracle. Add `--wandb` to also send the curves (one
-multi-line chart per family×strategy), a results table, and the figure to wandb (project
-`superclass_analysis`); the sbatch launcher enables it by default.
+colour) plus the flat floor and flat family oracle. With `--wandb` the results go to wandb ONLY
+(no figures/ or CSV on disk): one multi-line chart per family×strategy, a results table, and the
+figure image, in project `superclass_analysis`. Without `--wandb` it falls back to writing the
+figure + CSV under `outputs/figures/`. The sbatch launcher passes `--wandb` by default.
 
 ```
 python hierarchical_framework/pipeline/compare_hierarchical.py --embeddings_dir <EMB> [--wandb]

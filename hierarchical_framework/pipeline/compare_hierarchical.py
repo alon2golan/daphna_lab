@@ -129,8 +129,8 @@ def write_csv(results, output_base):
     print(f"saved -> {csv_path}", flush=True)
 
 
-def save_figure(results, output_base):
-    """Draws a family x strategy grid; each method curve is read against its own matched ceiling."""
+def build_figure(results):
+    """Builds the family x strategy grid (each method vs its own matched ceiling); returns the Figure."""
     families = ["nn", "mlp"]
 
     # One colour per colour_key, assigned in first-seen order. A method and its matched ceiling share
@@ -178,17 +178,21 @@ def save_figure(results, output_base):
                  "matched ceiling (dashed, same colour)\n"
                  "dotted = flat floor, dash-dot = flat family oracle, faint line = method at full supervision")
     fig.tight_layout()
+    return fig
+
+
+def save_figure_png(figure, output_base):
+    """Writes the figure to outputs/figures/... -- only used when NOT logging to wandb."""
     png_path = FIGURE_DIR / output_base / "hierarchical_comparison.png"
     png_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(png_path, dpi=130)
-    plt.close(fig)
+    figure.savefig(png_path, dpi=130)
     print(f"saved -> {png_path}", flush=True)
     return png_path
 
 
 # --- wandb ---
 
-def log_wandb(results, figure_png, wandb_kwargs):
+def log_wandb(results, figure, wandb_kwargs):
     """Logs the comparison to wandb: one multi-line chart per (family, strategy), a results table, and the figure."""
     wandb.init(**(wandb_kwargs or {}))
     families = ["nn", "mlp"]
@@ -218,9 +222,8 @@ def log_wandb(results, figure_png, wandb_kwargs):
                                round(row["labels_per_class"], 3), fine_accuracy, coarse_accuracy)
     wandb.log({"results_table": table})
 
-    # The composite grid figure as an image, so that view lives in wandb too
-    if figure_png is not None:
-        wandb.log({"comparison_figure": wandb.Image(str(figure_png))})
+    # The composite grid figure as an image, logged straight from the Figure (no disk file)
+    wandb.log({"comparison_figure": wandb.Image(figure)})
     wandb.finish()
 
 
@@ -262,14 +265,17 @@ def run(embeddings_dir, delta="auto_delta", budget=100, rounds=6, split="train",
         labeled_sets = replay_labeled_sets(strategy, train_features, delta, seed, budget, rounds)
         results[strategy] = score_strategy(strategy, labeled_sets, scorers, num_classes)
 
-    # Nested output path shared with the other analysis tools: cifar100/simclr/<source>_d<delta>
+    # Build the grid figure once; where it goes depends on --wandb
     output_base = figure_output_base(embeddings_dir, delta)
-    write_csv(results, output_base)
-    figure_png = save_figure(results, output_base)
+    figure = build_figure(results)
 
-    # Send the same curves + a results table + the figure to the wandb project, if requested
+    # With --wandb the plots + table live in the project only; otherwise fall back to disk (figure + CSV)
     if use_wandb and wandb is not None:
-        log_wandb(results, figure_png, wandb_kwargs)
+        log_wandb(results, figure, wandb_kwargs)
+    else:
+        write_csv(results, output_base)
+        save_figure_png(figure, output_base)
+    plt.close(figure)
     return results
 
 
