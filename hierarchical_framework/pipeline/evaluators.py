@@ -55,19 +55,43 @@ class Evaluator:
         # Each subclass implements the restriction in whatever way suits its model.
         raise NotImplementedError
 
-    def accuracy(self, labeled_indices, use_superclass_oracle=False):
-        # Percent of test points classified correctly using only the labeled subset.
+    def _predictions(self, labeled_indices, use_superclass_oracle):
+        # The predictions accuracies are measured from -- plain, or restricted to the
+        # true superclass when the oracle is on.
         if use_superclass_oracle:
             if self.coarse_map is None:
                 raise SystemExit(
                     "--oracle needs a coarse map (coarse_map.npy alongside the embeddings, "
                     "or a built-in dataset like cifar100)"
                 )
-            predictions = self.predict_within_true_superclass(labeled_indices)
-        else:
-            predictions = self.predict(labeled_indices)
+            return self.predict_within_true_superclass(labeled_indices)
+        return self.predict(labeled_indices)
 
+    def accuracy(self, labeled_indices, use_superclass_oracle=False):
+        # Percent of test points whose fine class is predicted correctly.
+        predictions = self._predictions(labeled_indices, use_superclass_oracle)
         return 100.0 * float((predictions == self.test_labels).mean())
+
+    def fine_and_coarse_accuracy(self, labeled_indices, use_superclass_oracle=False):
+        # Fine accuracy AND superclass (coarse) accuracy from a SINGLE prediction pass.
+        # Coarse accuracy = did the prediction land in the RIGHT superclass?
+        if self.coarse_map is None:
+            raise SystemExit(
+                "superclass accuracy needs a coarse map (coarse_map.npy alongside the "
+                "embeddings, or a built-in dataset like cifar100)"
+            )
+        predictions = self._predictions(labeled_indices, use_superclass_oracle)
+        fine_accuracy = 100.0 * float((predictions == self.test_labels).mean())
+
+        # Map predictions and truth up to superclasses. Unresolved oracle predictions (-1)
+        # can never be coarse-correct, so keep them as an impossible superclass id.
+        is_resolved = predictions >= 0
+        predicted_superclasses = np.full(len(predictions), -1, dtype=np.int64)
+        predicted_superclasses[is_resolved] = self.coarse_map[predictions[is_resolved]]
+        true_superclasses = self.coarse_map[self.test_labels]
+        coarse_accuracy = 100.0 * float((predicted_superclasses == true_superclasses).mean())
+
+        return fine_accuracy, coarse_accuracy
 
 
 class OneNearestNeighbourEvaluator(Evaluator):

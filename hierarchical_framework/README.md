@@ -83,8 +83,10 @@ for the baseline.
 `--eval` picks the base classifier used to score the labeled set each round: `1nn`
 (default) or `mlp`. Add `--oracle` to restrict every prediction to the test point's
 true superclass — an upper bound that composes with either base (1-NN searches only
-same-superclass neighbours; the MLP keeps only same-superclass output classes). Only
-the accuracy + the regular AL scalars go to wandb (project `superclass_analysis`).
+same-superclass neighbours; the MLP keeps only same-superclass output classes). Add
+`--coarse` to also log superclass accuracy (did the prediction land in the right
+superclass?) as a second curve alongside the fine one. Only the accuracy + the regular
+AL scalars go to wandb (project `superclass_analysis`).
 
 The runner never makes figures. When you want plots, run an `analysis/` tool on the
 same knobs — it replays the run and writes figures under `outputs/figures/`:

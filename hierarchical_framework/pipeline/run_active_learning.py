@@ -30,7 +30,7 @@ from run_logging import RunLogger
 
 
 def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle=False,
-        delta="auto_delta", budget=100, rounds=10, split="train", seed=0,
+        log_coarse=False, delta="auto_delta", budget=100, rounds=10, split="train", seed=0,
         dataset="cifar100", use_wandb=False, wandb_kwargs=None):
 
     embeddings_path = Path(embeddings_dir)
@@ -69,9 +69,16 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
 
         # Ask the strategy for this round's points; it updates its own internal state.
         labeled_indices.extend(selector.select_round(budget))
+        labeled_array = np.array(labeled_indices)
 
-        # Score the growing labeled set with the chosen evaluator (and the optional superclass oracle).
-        accuracy = scorer.accuracy(np.array(labeled_indices), use_superclass_oracle=superclass_oracle)
+        # Score the growing labeled set. With --coarse we also get superclass accuracy
+        # (did the prediction land in the right superclass?) from the same prediction pass.
+        if log_coarse:
+            accuracy, coarse_accuracy = scorer.fine_and_coarse_accuracy(
+                labeled_array, use_superclass_oracle=superclass_oracle)
+        else:
+            accuracy = scorer.accuracy(labeled_array, use_superclass_oracle=superclass_oracle)
+            coarse_accuracy = None
 
         # Express the budget as average labels per class (the paper's "B") -- the wandb x-axis.
         labels_per_class = len(labeled_indices) / num_classes
@@ -79,7 +86,8 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
         # Coverage only exists for the coverage-family strategies (ProbCover); others return None.
         coverage = selector.coverage() if hasattr(selector, "coverage") else None
 
-        logger.log_round(round_index, len(labeled_indices), labels_per_class, accuracy, coverage=coverage)
+        logger.log_round(round_index, len(labeled_indices), labels_per_class, accuracy,
+                         coverage=coverage, coarse_accuracy=coarse_accuracy)
 
     logger.finish()
     return labeled_indices
@@ -109,6 +117,10 @@ def main():
         "--oracle", dest="superclass_oracle", action="store_true",
         help="Restrict every prediction to the test point's TRUE superclass -- an upper bound on what "
              "knowing the coarse label would buy. Composes with any --eval method.")
+    parser.add_argument(
+        "--coarse", dest="log_coarse", action="store_true",
+        help="Also log superclass (coarse) accuracy -- did the prediction land in the right superclass? "
+             "Gives you a fine-accuracy curve AND a superclass-accuracy curve in wandb.")
 
     # --- ProbCover's coverage radius ---
     parser.add_argument(
@@ -148,6 +160,7 @@ def main():
             "strategy": args.strategy,
             "eval": args.evaluator,
             "oracle": args.superclass_oracle,
+            "coarse": args.log_coarse,
             "delta": args.delta,
             "budget": args.budget,
             "rounds": args.rounds,
@@ -157,9 +170,9 @@ def main():
     )
 
     run(args.embeddings_dir, strategy=args.strategy, evaluator=args.evaluator,
-        superclass_oracle=args.superclass_oracle, delta=args.delta, budget=args.budget,
-        rounds=args.rounds, split=args.split, seed=args.seed, dataset=args.dataset,
-        use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
+        superclass_oracle=args.superclass_oracle, log_coarse=args.log_coarse, delta=args.delta,
+        budget=args.budget, rounds=args.rounds, split=args.split, seed=args.seed,
+        dataset=args.dataset, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
 
 
 if __name__ == "__main__":
