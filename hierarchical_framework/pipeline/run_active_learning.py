@@ -16,7 +16,7 @@ from sklearn.neighbors import KNeighborsClassifier
 
 from selection_strategies import SELECTORS
 from delta_selection import resolve_delta
-from diagnostic_plots import plot_picks_per_class, plot_coverage_gain
+from selection_diagnostics import plot_picks_per_class, plot_coverage_gain
 
 try:
     import wandb
@@ -32,7 +32,7 @@ def eval_1nn(train_feats, train_labels, labeled_idx, test_feats, test_labels):
 
 
 def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, rounds=10,
-        split="train", seed=0, dataset="cifar100", use_wandb=False, wandb_kwargs=None):
+        split="train", seed=0, dataset="cifar100", figures=False, use_wandb=False, wandb_kwargs=None):
     emb = Path(embeddings_dir)
     train_feats = np.load(emb / f"{split}_features_normalized.npy").astype(np.float32) # pool features -- selection happens over these
     train_labels = np.load(emb / f"{split}_labels.npy")
@@ -77,13 +77,15 @@ def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, ro
                 log["coverage"] = coverage
             wandb.log(log)
 
-    # output path mirrors embeddings/<dataset>/<technique>/<old_deep_al|new_solo_learn>;
-    # strategy (probcover) and budget are defaults tracked in wandb, so left out of the name
-    ds, technique, family = emb.parts[-3], emb.parts[-2], emb.parts[-1]
-    out_base = f"{ds}/{technique}/{family}_d{delta}"
-    plot_picks_per_class(picked_classes_by_round, num_classes, out_base, use_wandb=use_wandb) # which classes got picked, when
-    if any(len(g) for g in coverage_gains_by_round): # coverage-gain plot only for strategies that produce gains (skip random)
-        plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_base, use_wandb=use_wandb)
+    # diagnostics are opt-in (--figures): generate them once per seed, not on every run
+    if figures:
+        # output path mirrors embeddings/<dataset>/<technique>/<old_deep_al|new_solo_learn>;
+        # strategy (probcover) and budget are defaults tracked in wandb, so left out of the name
+        ds, technique, family = emb.parts[-3], emb.parts[-2], emb.parts[-1]
+        out_base = f"{ds}/{technique}/{family}_d{delta}"
+        plot_picks_per_class(picked_classes_by_round, num_classes, out_base, use_wandb=use_wandb) # which classes got picked, when
+        if any(len(g) for g in coverage_gains_by_round): # coverage-gain plot only for strategies that produce gains (skip random)
+            plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_base, use_wandb=use_wandb)
 
     if use_wandb:
         wandb.finish()
@@ -104,6 +106,8 @@ def main():
     p.add_argument("--rounds", type=int, default=10)
     p.add_argument("--split", default="train")
     p.add_argument("--seed", type=int, default=0, help="tie-break seed (random strategy)")
+    p.add_argument("--figures", action="store_true",
+                   help="save the selection-diagnostic figures (do this once per seed, not every run)")
     # wandb -- a new project, separate from deep_al's daphna_lab
     p.add_argument("--wandb", action="store_true")
     p.add_argument("--project", default="bayesian")
@@ -120,7 +124,7 @@ def main():
                                 "seed": args.seed, "embeddings_dir": args.embeddings_dir})
     run(args.embeddings_dir, strategy=args.strategy, delta=args.delta,
         budget=args.budget, rounds=args.rounds, split=args.split, seed=args.seed,
-        dataset=args.dataset, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
+        dataset=args.dataset, figures=args.figures, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
 
 
 if __name__ == "__main__":

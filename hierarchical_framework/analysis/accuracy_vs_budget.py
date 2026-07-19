@@ -118,7 +118,7 @@ def curve_figure(rows, out_base):
     ax[1].set_title("error type per budget"); ax[1].legend(); ax[1].grid(alpha=0.3)
     fig.tight_layout()
     figdir = run_dir(out_base)
-    png = figdir / "errorcurve.png"
+    png = figdir / "accuracy_curves.png"
     fig.savefig(png, dpi=130); plt.close(fig)
     print(f"saved -> {png}", flush=True)
     return png
@@ -134,7 +134,7 @@ def run_dir(out_base):
 def write_tables(rows, num_classes, coarse_map, out_base):
     figdir = run_dir(out_base)
     # summary: one row per budget with the aggregate metrics
-    summ = figdir / "summary.csv"
+    summ = figdir / "accuracy_summary.csv"
     with open(summ, "w") as fh:
         fh.write("num_labeled,budget_per_class,fine_acc,coarse_acc,oracle_acc,"
                  "n_errors,near_miss_frac,far_miss_frac\n")
@@ -144,7 +144,7 @@ def write_tables(rows, num_classes, coarse_map, out_base):
                      f"{r['n_err']},{r['near_frac']:.4f},{r['far_frac']:.4f}\n")
     print(f"saved -> {summ}", flush=True)
     # long-format per-class table: (num_labeled, class, coarse, recall) one row each
-    perc = figdir / "perclass.csv"
+    perc = figdir / "accuracy_per_class.csv"
     with open(perc, "w") as fh:
         fh.write("num_labeled,class,coarse,recall\n")
         for r in rows:

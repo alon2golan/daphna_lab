@@ -1,11 +1,11 @@
 # What did the 1-NN classifier actually confuse? Builds superclass confusion
 # heatmaps and lists the concrete (true -> guessed) mistakes, for TWO predictors
 # side by side:
-#   full      = 1-NN fit on ALL train labels  -> the embedding's own ceiling
-#               (how good the representation is, ignoring active learning)
-#   probcover = 1-NN fit only on the ~budget*rounds points ProbCover selected
-#               (what the AL run actually achieves)
-# Outputs go to outputs/figures/error_analysis/<tag>/.
+#   ceiling  = 1-NN fit on ALL train labels  -> the embedding's own ceiling
+#              (how good the representation is, ignoring active learning)
+#   selected = 1-NN fit only on the ~budget*rounds points the strategy selected
+#              (what the AL run actually achieves)
+# Outputs go to outputs/figures/error_analysis/<dataset>/<technique>/<source>_d<delta>/.
 
 import argparse
 import sys
@@ -129,14 +129,14 @@ def log_wandb_confusion(preds_full, preds_pc, test_labels, coarse_map, wandb_kwa
     wandb.init(**wandb_kwargs)
     # map fine truth/preds up to the 20 superclasses for a readable 20x20 matrix
     tc = coarse_map[test_labels]
-    for name, preds in [("full", preds_full), ("probcover", preds_pc)]:
+    for name, preds in [("ceiling", preds_full), ("selected", preds_pc)]:
         pc = coarse_map[preds]
         # wandb's interactive confusion matrix: hover a cell to read the count
         wandb.log({f"coarse_confusion_{name}": wandb.plot.confusion_matrix(
             y_true=tc.tolist(), preds=pc.tolist(), class_names=COARSE_NAMES)})
     # also upload the rendered side-by-side figure as an image panel
     if png is not None:
-        wandb.log({"confusion_coarse": wandb.Image(str(png))})
+        wandb.log({"confusion_matrix": wandb.Image(str(png))})
     wandb.finish()
 
 
@@ -178,18 +178,19 @@ def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, ro
     heatmap(ax[0], M_full, f"embedding ceiling (1-NN on all {len(full_idx)} labels)")
     im = heatmap(ax[1], M_pc, f"probcover (1-NN on {len(pc_idx)} selected labels)")
     fig.colorbar(im, ax=ax, fraction=0.02, label="% of true-superclass row")
-    png = outdir / "confusion_coarse.png"
+    png = outdir / "confusion_matrix.png"
     fig.savefig(png, dpi=140, bbox_inches="tight"); plt.close(fig)
     print(f"saved -> {png}", flush=True)
 
-    # per-predictor: the concrete mistakes + the most confused fine-class pairs
-    for name, preds in [("full", preds_full), ("probcover", preds_pc)]:
-        n_err = mistakes_table(preds, test_labels, coarse_map, outdir / f"mistakes_{name}.csv")
-        top = confused_pairs(preds, test_labels, coarse_map, outdir / f"confusedpairs_{name}.csv", topk)
+    # per-predictor (ceiling = 1-NN on all labels, selected = 1-NN on the AL picks):
+    # the concrete mistakes + the most confused fine-class pairs
+    for name, preds in [("ceiling", preds_full), ("selected", preds_pc)]:
+        n_err = mistakes_table(preds, test_labels, coarse_map, outdir / f"confusion_mistakes_{name}.csv")
+        top = confused_pairs(preds, test_labels, coarse_map, outdir / f"confusion_pairs_{name}.csv", topk)
         fine = 100.0 * float((preds == test_labels).mean())
         print(f"\n[{name}] fine acc={fine:.2f}%  errors={n_err}/{len(test_labels)}", flush=True)
-        print(f"  saved -> {outdir / f'mistakes_{name}.csv'}", flush=True)
-        print(f"  saved -> {outdir / f'confusedpairs_{name}.csv'}", flush=True)
+        print(f"  saved -> {outdir / f'confusion_mistakes_{name}.csv'}", flush=True)
+        print(f"  saved -> {outdir / f'confusion_pairs_{name}.csv'}", flush=True)
         print(f"  top confusions (true -> guessed, count, same-superclass?):", flush=True)
         for (t, p), c, same in top[:12]:
             mark = "same-super" if same else "CROSS-super"

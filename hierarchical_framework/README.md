@@ -77,6 +77,10 @@ dataset (CIFAR-100 -> 0.65) and falls back to the knee if the row is missing. Th
 run prints a `[delta]` line saying which value was chosen. Add `--strategy random`
 for the baseline.
 
+Pass `--figures` to also write the selection-diagnostic figures
+(`outputs/figures/selection_diagnostics/<dataset>/<technique>/<source>_d<delta>_*`).
+Do this once per seed — they don't change run to run, so it's off by default.
+
 ## An embeddings dir must contain
 
 ```
