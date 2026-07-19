@@ -12,13 +12,19 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+from sklearn.neighbors import KNeighborsClassifier
 
 from selection_strategies import SELECTORS
+from delta_selection import resolve_delta
 from diagnostic_plots import plot_picks_per_class, plot_coverage_gain
+
+try:
+    import wandb
+except ImportError:
+    wandb = None # only used for --wandb runs; absent in .venv_clean
 
 
 def eval_1nn(train_feats, train_labels, labeled_idx, test_feats, test_labels):
-    from sklearn.neighbors import KNeighborsClassifier
     clf = KNeighborsClassifier(n_neighbors=1) # deep_al's NN1_normalized scorer, on the already-L2-normalized features
     clf.fit(train_feats[labeled_idx], train_labels[labeled_idx]) # fit on just the labeled subset
     preds = clf.predict(test_feats) # predict every test point
@@ -34,15 +40,13 @@ def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, ro
     test_labels = np.load(emb / "test_labels.npy")
     num_classes = int(train_labels.max()) + 1 # lets us report the budget as labels-per-class (the paper's x-axis "B")
 
-    from delta_selection import resolve_delta
     # resolve --delta the deep_al way (explicit float | knee_delta | auto_delta table);
-    # this prints a [delta] banner saying which value was chosen.
+    # this prints a [delta] banner saying which value was chosen
     delta = resolve_delta(delta, train_feats, num_classes, seed=seed, dataset=dataset)
     selector = SELECTORS[strategy](train_feats, delta=delta, seed=seed) # kwargs a strategy ignores (delta/seed) are harmless
     print(f"strategy={strategy} on {train_feats.shape[0]} points", flush=True)
 
     if use_wandb:
-        import wandb
         wandb.init(**(wandb_kwargs or {}))
         wandb.config.update({"resolved_delta": float(delta)}, allow_val_change=True) # record the delta actually used
         wandb.define_metric("test_accuracy", step_metric="budget_per_class") # x-axis is labels-per-class (1B..10B), not raw count
@@ -67,7 +71,6 @@ def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, ro
             msg += f" coverage={coverage:.3f}"
         print(msg, flush=True)
         if use_wandb:
-            import wandb
             log = {"budget_per_class": labels_per_class, "num_labeled": len(labeled),
                    "test_accuracy": test_acc, "episode": r}
             if coverage is not None:
@@ -81,7 +84,6 @@ def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, ro
         plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_base, use_wandb=use_wandb)
 
     if use_wandb:
-        import wandb
         wandb.finish()
     return labeled
 
