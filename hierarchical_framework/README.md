@@ -22,20 +22,19 @@ wandb config rather than the folder name).
 ## Layout
 
 ```
-pipeline/     the AL loop and its swappable parts
-  run_active_learning.py   the runner: each round, a Selector picks and an Evaluator scores
+pipeline/     the runner and its swappable parts. Logs accuracy to wandb; makes NO figures.
+  run_active_learning.py   the runner: each round, a Selector picks and an Evaluator scores -> wandb
   selection_strategies.py  WHICH points to pick (delta-graph, ProbCover, Random) + SELECTORS registry
   evaluators.py            HOW to score a labeled set (1nn, mlp) + optional superclass oracle + EVALUATORS registry
   delta_selection.py       resolves --delta via deep_al's resolve_initial_delta (auto_delta table / knee)
-  coarse_maps.py           fine->coarse (superclass) maps, shared with analysis/
+  coarse_maps.py           fine->coarse (superclass) maps + names, shared with analysis/
+  output_paths.py          run-naming from the embeddings path, shared with analysis/
   run_logging.py           RunLogger: console line + wandb (accuracy + regular scalars only)
-  selection_diagnostics.py opt-in (--figures) picks-per-class + coverage-gain plots (local files only)
 
-analysis/     post-hoc breakdowns of a run (both import pipeline/)
-  accuracy_vs_budget.py   fine vs coarse vs superclass-oracle accuracy + near/far miss split,
-                          traced as the label budget grows
-  superclass_confusion.py 20x20 superclass confusion heatmap + confused-pair lists at the
-                          full budget, embedding-ceiling vs ProbCover
+analysis/     on-demand figure tools; each replays a run, imports pipeline/, writes to outputs/
+  selection_diagnostics.py picks-per-class + coverage-gain plots (what the strategy chose)
+  accuracy_vs_budget.py    fine vs coarse vs superclass-oracle accuracy + near/far miss split vs budget
+  superclass_confusion.py  20x20 superclass confusion heatmap + confused-pair lists, ceiling vs selected
 
 scripts/      slurm launchers (run from the repo root)
   run_active_learning.sbatch  one AL run on a given embeddings dir
@@ -87,9 +86,14 @@ true superclass — an upper bound that composes with either base (1-NN searches
 same-superclass neighbours; the MLP keeps only same-superclass output classes). Only
 the accuracy + the regular AL scalars go to wandb (project `superclass_analysis`).
 
-Pass `--figures` to also write the selection-diagnostic figures
-(`outputs/figures/selection_diagnostics/<dataset>/<technique>/<source>_d<delta>_*`).
-Do this once per seed — they don't change run to run, so it's off by default.
+The runner never makes figures. When you want plots, run an `analysis/` tool on the
+same knobs — it replays the run and writes figures under `outputs/figures/`:
+
+```
+python hierarchical_framework/analysis/selection_diagnostics.py --embeddings_dir <EMB>
+python hierarchical_framework/analysis/accuracy_vs_budget.py   --embeddings_dir <EMB>
+python hierarchical_framework/analysis/superclass_confusion.py --embeddings_dir <EMB>
+```
 
 ## An embeddings dir must contain
 

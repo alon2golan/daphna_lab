@@ -19,7 +19,7 @@
 #   2) STRATEGY   probcover | random   (default probcover)
 #   3) DELTA      float | knee_delta | auto_delta   (default auto_delta: pinned table -> knee)
 #   4) BUDGET     points per round      (default 100)
-#   5) ROUNDS     number of AL rounds   (default 10)
+#   5) ROUNDS     number of AL rounds   (default 6)
 #   6) PROJECT    wandb project         (default superclass_analysis)
 #
 # Example (new = solo-learn; swap new_solo_learn -> old_deep_al for itai's baseline):
@@ -32,7 +32,7 @@ EMB_DIR=${1:?usage: sbatch run_active_learning.sbatch EMB_DIR [STRATEGY] [DELTA]
 STRATEGY=${2:-probcover}
 DELTA=${3:-auto_delta}
 BUDGET=${4:-100}
-ROUNDS=${5:-10}
+ROUNDS=${5:-6}
 PROJECT=${6:-superclass_analysis}      # wandb project (6th arg)
 
 ROOT=/cs/labs/daphna/$USER/projects/daphna_lab

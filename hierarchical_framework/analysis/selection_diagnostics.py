@@ -1,6 +1,9 @@
-# Post-run diagnostic figures (+ CSVs) written to outputs/figures/selection_diagnostics/.
-# They only visualize what the strategy picked; they never affect the run itself.
+# Selection diagnostics: replay an AL selection and plot WHICH points the strategy
+# picked, as figures (+ CSVs) under outputs/figures/selection_diagnostics/. Separate
+# from the runner -- it makes figures on demand and never touches wandb.
 
+import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -9,8 +12,18 @@ import matplotlib
 matplotlib.use("Agg")  # Render straight to PNG files; no GUI environment or display window needed
 import matplotlib.pyplot as plt
 
-# Resolve the absolute path where all diagnostic output images and tables will be saved
-FIGDIR = Path(__file__).resolve().parents[1] / "outputs" / "figures" / "selection_diagnostics"
+# hierarchical_framework/ root (analysis/ -> up one); put pipeline/ on the path for the
+# shared selector, delta resolution, and output naming.
+HF_ROOT = Path(__file__).resolve().parents[1]
+if str(HF_ROOT / "pipeline") not in sys.path:
+    sys.path.insert(0, str(HF_ROOT / "pipeline"))
+
+from selection_strategies import SELECTORS
+from delta_selection import resolve_delta
+from output_paths import figure_output_base
+
+# Where all diagnostic images and tables are written.
+FIGDIR = HF_ROOT / "outputs" / "figures" / "selection_diagnostics"
 
 
 def plot_picks_per_class(picked_classes_by_round, num_classes, out_base):
@@ -118,3 +131,62 @@ def plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_b
     print(f"saved -> {png}", flush=True)
 
     plt.close(fig)  # Clean up memory allocations
+
+
+def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, rounds=6,
+        split="train", seed=0, dataset="cifar100"):
+
+    embeddings_path = Path(embeddings_dir)
+    train_features = np.load(embeddings_path / f"{split}_features_normalized.npy").astype(np.float32)
+    train_labels = np.load(embeddings_path / f"{split}_labels.npy")
+    num_classes = int(train_labels.max()) + 1
+
+    # Resolve --delta the same way the runner does, so the replayed picks match a real run.
+    delta = resolve_delta(delta, train_features, num_classes, seed=seed, dataset=dataset)
+    selector = SELECTORS[strategy](train_features, delta=delta, seed=seed)
+    print(f"replaying strategy={strategy} for {rounds} rounds of {budget}", flush=True)
+
+    # Replay the selection, recording per round which classes were picked and how much
+    # new ground each pick covered (the two things the diagnostics plot).
+    picked_classes_by_round = []
+    coverage_gains_by_round = []
+    labels_per_class_by_round = []
+    total_labeled = 0
+    coverage_gains_consumed = 0
+    for _ in range(rounds):
+        newly_labeled = selector.select_round(budget)
+        total_labeled += len(newly_labeled)
+        picked_classes_by_round.append(train_labels[np.array(newly_labeled)] if newly_labeled else [])
+        coverage_gains_by_round.append(selector.coverage_gains[coverage_gains_consumed:])
+        coverage_gains_consumed = len(selector.coverage_gains)
+        labels_per_class_by_round.append(total_labeled / num_classes)
+
+    output_base = figure_output_base(embeddings_dir, delta)   # cifar100/simclr/<source>_d<delta>
+    plot_picks_per_class(picked_classes_by_round, num_classes, output_base)
+
+    # The coverage-gain plot only makes sense for strategies that actually report gains (skip random).
+    if any(len(gains) for gains in coverage_gains_by_round):
+        plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, output_base)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Replay a selection and plot picks-per-class + coverage-gain (figures only, no wandb).")
+
+    parser.add_argument("--embeddings_dir", required=True, help="embeddings/<dataset>/<technique>/<source>")
+    parser.add_argument("--strategy", default="probcover", choices=list(SELECTORS), help="selection strategy to replay")
+    parser.add_argument("--delta", default="auto_delta",
+                        help="a float, 'knee_delta', or 'auto_delta' (default: pinned table, knee fallback)")
+    parser.add_argument("--dataset", default="cifar100", help="dataset name for the auto_delta table lookup")
+    parser.add_argument("--budget", type=int, default=100, help="points labeled per round")
+    parser.add_argument("--rounds", type=int, default=6)
+    parser.add_argument("--split", default="train")
+    parser.add_argument("--seed", type=int, default=0)
+    args = parser.parse_args()
+
+    run(args.embeddings_dir, strategy=args.strategy, delta=args.delta, budget=args.budget,
+        rounds=args.rounds, split=args.split, seed=args.seed, dataset=args.dataset)
+
+
+if __name__ == "__main__":
+    main()

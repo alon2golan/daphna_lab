@@ -9,11 +9,13 @@
 #   --oracle    optionally restrict every prediction to the test point's TRUE
 #               superclass (an upper bound; composes with any --eval)
 #
-# The loop below never changes -- only those pieces do.
+# The loop below never changes -- only those pieces do. This runner makes NO figures;
+# it just logs accuracy (+ the regular AL scalars) to wandb. The figure tools in
+# analysis/ replay a run separately when you actually want plots.
 #
 # --embeddings_dir points at embeddings/<dataset>/<technique>/<source>, where source
 # is old_deep_al (itai's SimCLR, the ProbCover-paper baseline) or new_solo_learn
-# (solo-learn, the current work). Output figure/run names mirror that path.
+# (solo-learn, the current work).
 
 import argparse
 from pathlib import Path
@@ -24,14 +26,12 @@ from selection_strategies import SELECTORS
 from evaluators import EVALUATORS
 from coarse_maps import load_coarse_map
 from delta_selection import resolve_delta
-from selection_diagnostics import plot_picks_per_class, plot_coverage_gain
-from output_paths import figure_output_base
 from run_logging import RunLogger
 
 
 def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle=False,
         delta="auto_delta", budget=100, rounds=10, split="train", seed=0,
-        dataset="cifar100", figures=False, use_wandb=False, wandb_kwargs=None):
+        dataset="cifar100", use_wandb=False, wandb_kwargs=None):
 
     embeddings_path = Path(embeddings_dir)
 
@@ -64,47 +64,22 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
     logger = RunLogger(use_wandb=use_wandb, wandb_kwargs=wandb_kwargs)
     logger.set_config(resolved_delta=float(delta))
 
-    # State that grows across rounds.
-    labeled_indices = []                # every point labeled so far, in pick order
-    picked_classes_by_round = []        # the classes chosen each round (diagnostics only)
-    coverage_gains_by_round = []        # per round, each pick's coverage gain (empty for non-coverage strategies)
-    labels_per_class_by_round = []      # per round, the running labels-per-class ("B") -- the diagnostics' x-axis
-    coverage_gains_consumed = 0         # how many of the selector's cumulative gains we've already split off
-
+    labeled_indices = []   # every point labeled so far, in pick order
     for round_index in range(rounds):
 
         # Ask the strategy for this round's points; it updates its own internal state.
-        newly_labeled = selector.select_round(budget)
-        labeled_indices.extend(newly_labeled)
-
-        # Record which classes we picked this round (the diagnostics read this; scoring does not).
-        picked_classes_by_round.append(train_labels[np.array(newly_labeled)] if newly_labeled else [])
-
-        # Slice off just the coverage gains this round appended to the selector's running list.
-        coverage_gains_by_round.append(selector.coverage_gains[coverage_gains_consumed:])
-        coverage_gains_consumed = len(selector.coverage_gains)
+        labeled_indices.extend(selector.select_round(budget))
 
         # Score the growing labeled set with the chosen evaluator (and the optional superclass oracle).
         accuracy = scorer.accuracy(np.array(labeled_indices), use_superclass_oracle=superclass_oracle)
 
-        # Express the budget as average labels per class (the paper's "B").
+        # Express the budget as average labels per class (the paper's "B") -- the wandb x-axis.
         labels_per_class = len(labeled_indices) / num_classes
-        labels_per_class_by_round.append(labels_per_class)
 
         # Coverage only exists for the coverage-family strategies (ProbCover); others return None.
         coverage = selector.coverage() if hasattr(selector, "coverage") else None
 
         logger.log_round(round_index, len(labeled_indices), labels_per_class, accuracy, coverage=coverage)
-
-    # Diagnostics are opt-in (--figures): generate them once per seed, not on every run. Local files only.
-    if figures:
-        output_base = figure_output_base(embeddings_dir, delta)   # cifar100/simclr/<source>_d<delta>
-
-        plot_picks_per_class(picked_classes_by_round, num_classes, output_base)
-
-        # The coverage-gain plot only makes sense for strategies that actually report gains.
-        if any(len(gains) for gains in coverage_gains_by_round):
-            plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, output_base)
 
     logger.finish()
     return labeled_indices
@@ -148,10 +123,7 @@ def main():
     parser.add_argument("--split", default="train", help="Which split to draw the pool from (the features-file prefix).")
     parser.add_argument("--seed", type=int, default=0, help="Random seed (random-strategy tie-breaks; MLP init).")
 
-    # --- outputs ---
-    parser.add_argument(
-        "--figures", action="store_true",
-        help="Also save the selection-diagnostic figures. Do this once per seed -- they don't change run to run.")
+    # --- outputs (this runner only logs to wandb; use analysis/ tools for figures) ---
     parser.add_argument("--wandb", action="store_true", help="Log accuracy + the regular scalars to Weights & Biases.")
     parser.add_argument("--project", default="superclass_analysis", help="wandb project name.")
     parser.add_argument("--name", default=None, help="wandb run name (defaults to an auto name built from the knobs).")
@@ -187,7 +159,7 @@ def main():
     run(args.embeddings_dir, strategy=args.strategy, evaluator=args.evaluator,
         superclass_oracle=args.superclass_oracle, delta=args.delta, budget=args.budget,
         rounds=args.rounds, split=args.split, seed=args.seed, dataset=args.dataset,
-        figures=args.figures, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
+        use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
 
 
 if __name__ == "__main__":
