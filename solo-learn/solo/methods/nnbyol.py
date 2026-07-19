@@ -230,7 +230,7 @@ class NNBYOL(BaseMomentumMethod):
         idx1, nn1_momentum = self.find_nn(z1_momentum)
         _, nn2_momentum = self.find_nn(z2_momentum)
 
-        # ------- negative cosine similarity loss -------
+        # ------- negative cosine figures loss -------
         neg_cos_sim = byol_loss_func(p1, nn2_momentum) + byol_loss_func(p2, nn1_momentum)
 
         # compute nn accuracy

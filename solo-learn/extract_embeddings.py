@@ -32,7 +32,9 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from solo.data.classification_dataloader import prepare_data
+from torch.utils.data import DataLoader
+
+from solo.data.classification_dataloader import prepare_datasets, prepare_transforms
 from solo.methods import METHODS
 
 
@@ -89,30 +91,52 @@ def main():
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
 
-    train_loader, val_loader = prepare_data(
+    # We want a faithful frozen-feature matrix of the ACTUAL images, so both splits
+    # use the deterministic val transform (T_val: ToTensor + Normalize -- no random
+    # crop/flip). prepare_data's default train loader would instead apply T_train
+    # (RandomResizedCrop scale 0.08-1.0 + RandomHorizontalFlip) and use shuffle=True
+    # + drop_last=True, i.e. augmented, reordered, and missing the last partial
+    # batch. We build the loaders ourselves with T_val for both, shuffle off,
+    # drop_last off, so row i is image i and every sample is included.
+    _, T_val = prepare_transforms(args.dataset)
+    train_dataset, val_dataset = prepare_datasets(
         args.dataset,
+        T_val,
+        T_val,
         train_data_path=args.train_data_path,
         val_data_path=args.val_data_path,
         data_format=args.data_format,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        auto_augment=False,
+    )
+    train_loader = DataLoader(
+        train_dataset, batch_size=args.batch_size, shuffle=False,
+        num_workers=args.num_workers, pin_memory=True, drop_last=False,
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=args.batch_size, shuffle=False,
+        num_workers=args.num_workers, pin_memory=True, drop_last=False,
     )
 
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
+    def l2norm(f):
+        return f / (np.linalg.norm(f, axis=1, keepdims=True) + 1e-8)
+
+    def save_split(f, y, prefix):
+        # Save both the raw backbone features and an L2-normalized copy, so
+        # downstream code can use whichever it needs without re-normalizing.
+        np.save(out / f"{prefix}_features.npy", f)
+        np.save(out / f"{prefix}_features_normalized.npy", l2norm(f))
+        np.save(out / f"{prefix}_labels.npy", y)
+        print(f"{prefix}: features {f.shape} (raw + normalized) -> {out}")
+
     if args.split in ("train", "both"):
         f, y = extract(model, train_loader, device)
-        np.save(out / "train_features.npy", f)
-        np.save(out / "train_labels.npy", y)
-        print(f"train: features {f.shape} -> {out / 'train_features.npy'}")
+        save_split(f, y, "train")
 
     if args.split in ("val", "both"):
         f, y = extract(model, val_loader, device)
-        np.save(out / "test_features.npy", f)
-        np.save(out / "test_labels.npy", y)
-        print(f"val:   features {f.shape} -> {out / 'test_features.npy'}")
+        save_split(f, y, "test")
 
 
 if __name__ == "__main__":

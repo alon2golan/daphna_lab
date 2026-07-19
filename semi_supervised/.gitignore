@@ -1,0 +1,6 @@
+slurm_logs/
+results/
+runs/
+wandb/
+__pycache__/
+*.pyc

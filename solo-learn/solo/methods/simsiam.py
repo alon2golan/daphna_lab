@@ -133,7 +133,7 @@ class SimSiam(BaseMethod):
         z1, z2 = out["z"]
         p1, p2 = out["p"]
 
-        # ------- negative cosine similarity loss -------
+        # ------- negative cosine figures loss -------
         neg_cos_sim = simsiam_loss_func(p1, z2) / 2 + simsiam_loss_func(p2, z1) / 2
 
         # calculate std of features

@@ -75,14 +75,14 @@ python3 train_al.py \
 # land in the same W&B collection so the mean+std curves plot on one graph:
 #
 #   typiclust + NN1_non_normalized   (raw-Euclidean baseline)
-#   typiclust + NN1                  (cosine-similarity NN on the unit hypersphere; new default)
+#   typiclust + NN1                  (cosine-figures NN on the unit hypersphere; new default)
 #   random    + NN1_non_normalized   (raw-Euclidean baseline)
-#   random    + NN1                  (cosine-similarity NN on the unit hypersphere; new default)
+#   random    + NN1                  (cosine-figures NN on the unit hypersphere; new default)
 #
 # Why: SimCLR features live on (approximately) the unit hypersphere, so 1-NN
 # under Euclidean distance over UN-normalized features can be dominated by
 # magnitude differences rather than direction. Normalizing puts the lookup in
-# the cosine-similarity regime the embedding was trained for. This script
+# the cosine-figures regime the embedding was trained for. This script
 # checks whether that change actually moves the numbers, and also serves as a
 # smoke test that the post-refactor branch (MODEL.HEAD_TYPE='knn' alias,
 # Fix 1 compatibility check, Fix 2 flag split) still runs both AL methods

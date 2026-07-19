@@ -69,7 +69,7 @@ def get_max_mean_classes_corr(activeset):
 
             if c1 == c2:
                 if len(indices_c1) > 1:
-                    # Exclude diagonal for intra-class similarity
+                    # Exclude diagonal for intra-class figures
                     non_diagonal_mask = ~torch.eye(len(indices_c1), dtype=torch.bool,
                                                    device=sim_submatrix.device)
                     if non_diagonal_mask.any():

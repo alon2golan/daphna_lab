@@ -37,3 +37,16 @@ class RandomSelector:
         rng = np.random.default_rng(seed)
         chosen = rng.choice(n_pool, size=n_labeled, replace=False)
         return sorted(int(i) for i in chosen)
+
+
+def class_counts(indices, targets, num_classes):
+    """How many labeled points landed in each class.
+
+    A random (or AL) selector does not spread evenly over classes, so we record
+    the actual makeup of every labeled set. `targets` are the pool's true labels
+    (index-aligned with the pool); returns a length-`num_classes` numpy array of
+    counts, indexable by class id.
+    """
+    targets = np.asarray(targets)
+    counts = np.bincount(targets[np.asarray(indices)], minlength=num_classes)
+    return counts

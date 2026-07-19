@@ -7,32 +7,39 @@ from the vendored [solo-learn](https://github.com/vturrisi/solo-learn) repo at
 
 ## Layout
 
-- `backends/`   adapters to external training frameworks. `solo_learn.py` is the
-                only module that imports solo-learn: it runs a training phase,
-                warm-starts a backbone across phases, feeds a supervised method a
-                labeled subset, and extracts embeddings. Everything else goes
-                through it, so the backend can be swapped in one place.
-- `algorithms/` research methods. `simclr_supcon.py` iterates between
-                unsupervised SimCLR (full pool) and supervised SupCon (labeled
-                subset) on a shared backbone.
-- `labeling.py` strategies for choosing which pool samples to label. `RandomSelector`
-                picks a random subset now; an active-learning selector (e.g.
-                backed by `deep_al/`) can implement the same interface later.
+- `algorithms/`  the current line of work. `joint_finetune.py` jointly
+                 fine-tunes an existing SimCLR encoder with a supervised SupCon
+                 term (labeled subset) plus an unsupervised SimCLR term (full
+                 pool), sweeping the unsupervised weight, and scores conditions on
+                 `val_acc1/5` + `val_knn_acc1/5`.
+- `backends/`    adapters to external training frameworks. `solo_learn.py` is the
+                 only module that imports solo-learn; `joint.py` backs
+                 `joint_finetune`. Everything reaches solo-learn through here.
+- `scripts/`     SLURM (`.sbatch`) and local (`.sh`) runners. They find the
+                 project root themselves, so the exact cwd does not matter.
+- `labeling.py`  strategies for choosing which pool samples to label
+                 (`RandomSelector`, `class_counts`).
+- `propagation.py` kernel label propagation (gaussian/laplacian/cosine) into hard
+                 pseudo-labels. Used by the archived work below.
+- `evaluation.py` one shared yardstick: offline linear-probe + weighted-kNN
+                 top-1/5.
+- `old/`         archived SimCLR<->SupCon concept work (shelved). See
+                 `old/README.md`. Still runnable via
+                 `python -m semi_supervised.old.<module>`.
 
-## Running the SimCLR<->SupCon iteration
-
-One process, one job (uses the CIFAR copies under `../data`):
+## Running the joint fine-tuning
 
 ```
-python -m semi_supervised.algorithms.simclr_supcon \
-    --dataset cifar100 --n_labeled 1000 \
-    --num_iterations 3 --simclr_epochs 200 --supcon_epochs 100 \
-    --output_dir runs/simclr_supcon_cifar100_l1000
+# local GPU
+./scripts/run_joint_finetune.sh trained_models/simclr/cifar100/1000ep cifar100 10
+
+# SLURM
+sbatch --job-name=joint_simclr_cifar100_L10 \
+    scripts/run_joint_finetune.sbatch trained_models/simclr/cifar100/1000ep cifar100 10
 ```
 
-Outputs, under `--output_dir`: `labeled_indices.npy`, a `backbone_iter*.pt` per
-iteration, `backbone_final.pt`, and `train_/val_features.npy` (+ labels) from the
-final backbone.
-
-Requires the solo-learn dependencies in the project venv (lightning, hydra,
-timm, ...) and a GPU for real runs.
+Positional args: `BASE_CKPT` (relative to `../solo-learn` or absolute),
+`DATASET` (cifar10 | cifar100), `L` (per-class budget; `n_labeled = L *
+num_classes`). Env knobs: `EPOCHS` (50), `UNSUP_WEIGHTS` (1,2,5,10), `SEED` (1),
+`WANDB_OFFLINE=1`, `EXTRA="..."`. Logs to its own wandb project
+`semi-supervised-joint`; results under `results/<dataset>/<embedding>/`.

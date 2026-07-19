@@ -86,7 +86,7 @@ _C.MODEL.USE_1NN = False
 # boolean flags (the old LINEAR_FROM_FEATURES / LINEAR_FROM_IMAGES / USE_1NN
 # combination required a specific check order in build_model to behave).
 _C.MODEL.HEAD_TYPE = 'resnet'
-# Whether to L2-normalize features before 1-NN fit/predict (cosine-similarity behavior).
+# Whether to L2-normalize features before 1-NN fit/predict (cosine-figures behavior).
 # Only consulted when HEAD_TYPE == 'knn'. Original loader arrays are never mutated.
 _C.MODEL.NN1_NORMALIZE = False
 

@@ -192,7 +192,7 @@ class NNSiam(BaseMethod):
         idx1, nn1 = self.find_nn(z1)
         _, nn2 = self.find_nn(z2)
 
-        # ------- negative cosine similarity loss -------
+        # ------- negative cosine figures loss -------
         neg_cos_sim = simsiam_loss_func(p1, nn2) / 2 + simsiam_loss_func(p2, nn1) / 2
 
         # compute nn accuracy
