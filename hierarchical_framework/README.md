@@ -21,7 +21,7 @@ output figure/run is prefixed with which one it used:
 pipeline/     the AL loop and its swappable parts
   run_active_learning.py   strategy-agnostic runner: pick budget points/round, 1-NN eval, wandb
   selection_strategies.py  selection strategies (delta-graph, ProbCover, Random) + SELECTORS registry
-  delta_selection.py       bridge to deep_al's knee-point --delta selector
+  delta_selection.py       resolves --delta via deep_al's resolve_initial_delta (auto_delta table / knee)
 
 analysis/     post-hoc breakdowns of a run (both import pipeline/)
   accuracy_vs_budget.py   fine vs coarse vs superclass-oracle accuracy + near/far miss split,
@@ -66,8 +66,12 @@ sbatch hierarchical_framework/scripts/run_active_learning.sbatch \
     hierarchical_framework/embeddings/old_embeddings/cifar100_simclr probcover 0.65 100 10
 ```
 
-`--delta` accepts a float or the keyword `knee` (runs deep_al's knee algorithm on
-the features). Add `--strategy random` for the baseline.
+`--delta` is resolved by deep_al's `resolve_initial_delta` (the same rule ProbCover
+uses): a float is used as-is, `knee_delta` runs the data-driven knee algorithm, and
+`auto_delta` (the default) looks up the pinned `PROBCOVER_AUTO_DELTAS` table for the
+dataset (CIFAR-100 -> 0.65) and falls back to the knee if the row is missing. The
+run prints a `[delta]` line saying which value was chosen. Add `--strategy random`
+for the baseline.
 
 ## An embeddings dir must contain
 

@@ -140,15 +140,20 @@ def log_wandb_confusion(preds_full, preds_pc, test_labels, coarse_map, wandb_kwa
     wandb.finish()
 
 
-def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
-        split="train", seed=0, topk=20, use_wandb=False, wandb_kwargs=None):
+def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, rounds=10,
+        split="train", seed=0, dataset="cifar100", topk=20, use_wandb=False, wandb_kwargs=None):
     emb = Path(embeddings_dir)
     train_feats = np.load(emb / f"{split}_features_normalized.npy").astype(np.float32)
     train_labels = np.load(emb / f"{split}_labels.npy")
     test_feats = np.load(emb / "test_features_normalized.npy").astype(np.float32)
     test_labels = np.load(emb / "test_labels.npy")
     coarse_map = CIFAR100_COARSE
-    print(f"test set = {len(test_labels)} images, {int(train_labels.max()) + 1} classes", flush=True)
+    num_classes = int(train_labels.max()) + 1
+    print(f"test set = {len(test_labels)} images, {num_classes} classes", flush=True)
+
+    # resolve --delta the same way run_active_learning does, so the replayed picks match
+    from delta_selection import resolve_delta
+    delta = resolve_delta(delta, train_feats, num_classes, seed=seed, dataset=dataset)
 
     # predictor 1: the embedding ceiling -- 1-NN using ALL train labels
     full_idx = np.arange(len(train_labels))
@@ -199,7 +204,9 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--embeddings_dir", required=True)
     p.add_argument("--strategy", default="probcover", choices=list(SELECTORS))
-    p.add_argument("--delta", type=float, default=0.65)
+    p.add_argument("--delta", default="auto_delta",
+                   help="a float, 'knee_delta', or 'auto_delta' (default: pinned table, knee fallback)")
+    p.add_argument("--dataset", default="cifar100", help="dataset name for the auto_delta table lookup")
     p.add_argument("--budget", type=int, default=100)
     p.add_argument("--rounds", type=int, default=10)
     p.add_argument("--split", default="train")
@@ -217,7 +224,8 @@ def main():
                                     delta=args.delta, budget=args.budget, rounds=args.rounds))
     run(args.embeddings_dir, strategy=args.strategy, delta=args.delta,
         budget=args.budget, rounds=args.rounds, split=args.split,
-        seed=args.seed, topk=args.topk, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
+        seed=args.seed, dataset=args.dataset, topk=args.topk,
+        use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@
 # Positional args:
 #   1) EMB_DIR    embeddings dir with <split>_features_normalized.npy + labels + test_*
 #   2) STRATEGY   probcover | random   (default probcover)
-#   3) DELTA      coverage radius       (default 0.65)
+#   3) DELTA      float | knee_delta | auto_delta   (default auto_delta: pinned table -> knee)
 #   4) BUDGET     points per round      (default 100)
 #   5) ROUNDS     number of AL rounds   (default 10)
 #   6) PROJECT    wandb project         (default bayesian)
@@ -30,7 +30,7 @@ set -e
 
 EMB_DIR=${1:?usage: sbatch run_active_learning.sbatch EMB_DIR [STRATEGY] [DELTA] [BUDGET] [ROUNDS] [PROJECT]}
 STRATEGY=${2:-probcover}
-DELTA=${3:-0.65}
+DELTA=${3:-auto_delta}
 BUDGET=${4:-100}
 ROUNDS=${5:-10}
 PROJECT=${6:-bayesian}      # wandb project (6th arg); default keeps old behaviour

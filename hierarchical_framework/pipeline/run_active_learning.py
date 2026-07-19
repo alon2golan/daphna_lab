@@ -25,8 +25,8 @@ def eval_1nn(train_feats, train_labels, labeled_idx, test_feats, test_labels):
     return 100.0 * float((preds == test_labels).mean()) # accuracy in percent
 
 
-def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
-        split="train", seed=0, use_wandb=False, wandb_kwargs=None):
+def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, rounds=10,
+        split="train", seed=0, dataset="cifar100", use_wandb=False, wandb_kwargs=None):
     emb = Path(embeddings_dir)
     train_feats = np.load(emb / f"{split}_features_normalized.npy").astype(np.float32) # pool features -- selection happens over these
     train_labels = np.load(emb / f"{split}_labels.npy")
@@ -35,13 +35,16 @@ def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
     num_classes = int(train_labels.max()) + 1 # lets us report the budget as labels-per-class (the paper's x-axis "B")
 
     from delta_selection import resolve_delta
-    delta = resolve_delta(delta, train_feats, num_classes, seed=seed) # a float, or "knee" -> deep_al's knee-point algorithm
+    # resolve --delta the deep_al way (explicit float | knee_delta | auto_delta table);
+    # this prints a [delta] banner saying which value was chosen.
+    delta = resolve_delta(delta, train_feats, num_classes, seed=seed, dataset=dataset)
     selector = SELECTORS[strategy](train_feats, delta=delta, seed=seed) # kwargs a strategy ignores (delta/seed) are harmless
     print(f"strategy={strategy} on {train_feats.shape[0]} points", flush=True)
 
     if use_wandb:
         import wandb
         wandb.init(**(wandb_kwargs or {}))
+        wandb.config.update({"resolved_delta": float(delta)}, allow_val_change=True) # record the delta actually used
         wandb.define_metric("test_accuracy", step_metric="budget_per_class") # x-axis is labels-per-class (1B..10B), not raw count
 
     labeled = [] # every point labeled so far, across all rounds
@@ -89,7 +92,10 @@ def main():
                    help="dir with <split>_features_normalized.npy + labels + test_*")
     p.add_argument("--strategy", default="probcover", choices=list(SELECTORS),
                    help="which point-selection strategy to run")
-    p.add_argument("--delta", default="0.65", help="a float, or 'knee' for deep_al's knee algorithm")
+    p.add_argument("--delta", default="auto_delta",
+                   help="a float, 'knee_delta' (run the knee algorithm), or 'auto_delta' "
+                        "(default: pinned table for this dataset, knee fallback)")
+    p.add_argument("--dataset", default="cifar100", help="dataset name for the auto_delta table lookup")
     p.add_argument("--budget", type=int, default=100, help="points labeled per round")
     p.add_argument("--rounds", type=int, default=10)
     p.add_argument("--split", default="train")
@@ -110,7 +116,7 @@ def main():
                                 "seed": args.seed, "embeddings_dir": args.embeddings_dir})
     run(args.embeddings_dir, strategy=args.strategy, delta=args.delta,
         budget=args.budget, rounds=args.rounds, split=args.split, seed=args.seed,
-        use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
+        dataset=args.dataset, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
 
 
 if __name__ == "__main__":

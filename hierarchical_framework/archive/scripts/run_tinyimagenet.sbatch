@@ -44,7 +44,7 @@ echo "== step 3: knee delta (deep_al) =="
 DELTA=$(python -c "import sys, numpy as np; sys.path.insert(0, 'hierarchical_framework/pipeline'); \
 from delta_selection import resolve_delta; \
 f=np.load('$EMB/train_features_normalized.npy'); \
-print('DELTA=%.6f' % resolve_delta('knee', f, 200))" | grep '^DELTA=' | cut -d= -f2)
+print('DELTA=%.6f' % resolve_delta('knee_delta', f, 200))" | grep '^DELTA=' | cut -d= -f2)
 echo "resolved knee delta = $DELTA"
 
 echo "== step 4: ProbCover fine-accuracy curve =="

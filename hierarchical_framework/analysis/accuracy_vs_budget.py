@@ -181,7 +181,7 @@ def slope_stats(rows):
     return segs, gaps, summary
 
 
-def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
+def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, rounds=10,
         split="train", seed=0, dataset="cifar100", coarse_map_path=None,
         use_wandb=False, wandb_kwargs=None):
     emb = Path(embeddings_dir)
@@ -200,9 +200,10 @@ def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
     else:
         raise SystemExit(f"no coarse map for dataset={dataset}; pass --coarse_map")
 
-    # resolve delta: a float, or "knee" -> deep_al's knee-point algorithm on these feats
+    # resolve --delta the deep_al way (explicit float | knee_delta | auto_delta table);
+    # dataset keys the auto_delta lookup, so it matches the run_active_learning run
     from delta_selection import resolve_delta
-    delta = resolve_delta(delta, train_feats, num_classes, seed=seed)
+    delta = resolve_delta(delta, train_feats, num_classes, seed=seed, dataset=dataset)
     # same selector construction as run_active_learning.py, so the picks are identical
     selector = SELECTORS[strategy](train_feats, delta=delta, seed=seed)
     print(f"strategy={strategy} on {train_feats.shape[0]} points", flush=True)
@@ -294,7 +295,8 @@ def main():
     p.add_argument("--embeddings_dir", required=True,
                    help="dir with <split>_features_normalized.npy + labels + test_*")
     p.add_argument("--strategy", default="probcover", choices=list(SELECTORS))
-    p.add_argument("--delta", default="0.65", help="a float, or 'knee' for deep_al's knee algorithm")
+    p.add_argument("--delta", default="auto_delta",
+                   help="a float, 'knee_delta', or 'auto_delta' (default: pinned table, knee fallback)")
     p.add_argument("--budget", type=int, default=100, help="points labeled per round")
     p.add_argument("--rounds", type=int, default=10)
     p.add_argument("--split", default="train")
