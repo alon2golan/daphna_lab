@@ -5,7 +5,7 @@
 
 import numpy as np
 
-from .base import Evaluator, make_knn, make_mlp, report_unresolved
+from .evaluator_base import Evaluator, make_knn, make_mlp, report_unresolved
 
 
 class OneNearestNeighbourEvaluator(Evaluator):

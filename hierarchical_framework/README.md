@@ -26,13 +26,13 @@ pipeline/     the runner and its swappable parts. Logs accuracy to wandb; makes 
   run_active_learning.py   the runner: each round, a Selector picks and an Evaluator scores -> wandb
   compare_hierarchical.py  scores every evaluator across strategies (probcover/random/all) -> figure + CSV
   selectors/               WHICH points to pick (a package) + SELECTORS registry
-    base.py                Selector / CoverageSelector + the delta-graph builder
+    selector_base.py       Selector / CoverageSelector + the delta-graph builder
     probcover.py           ProbCoverSelector (coverage-greedy)
     baselines.py           RandomSelector, AllLabeledSelector
   evaluators/              HOW to score a labeled set (a package) + EVALUATORS registry
-    base.py                Evaluator base + HierarchicalEvaluator mixin + shared MLP/kNN factories
-    flat.py                1nn, mlp -- the family FLOORS; with --oracle they are the CEILINGS
-    hierarchical.py        two-stage superclass->subclass methods (hknn, hknn_marginal, hmlp_*)
+    evaluator_base.py      Evaluator base + HierarchicalEvaluator mixin + shared MLP/kNN factories
+    flat_classifiers.py    1nn, mlp -- the family FLOORS; with --oracle they are the CEILINGS
+    hierarchical_classifiers.py  two-stage superclass->subclass methods (hknn, hknn_marginal, hmlp_*)
   shared/                  cross-cutting helpers, shared with analysis/
     superclass_maps.py     fine->coarse (superclass) maps + names
     run_naming.py          run/figure naming from the embeddings path

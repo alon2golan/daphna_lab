@@ -10,8 +10,8 @@
 
 import numpy as np
 
-from .base import (HierarchicalEvaluator, make_knn, make_mlp, full_class_probabilities,
-                   KNN_SUPERCLASS_NEIGHBOURS)
+from .evaluator_base import (HierarchicalEvaluator, make_knn, make_mlp, full_class_probabilities,
+                             KNN_SUPERCLASS_NEIGHBOURS)
 
 
 class HierarchicalKnnEvaluator(HierarchicalEvaluator):

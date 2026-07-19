@@ -1,7 +1,7 @@
 # The selectors package: shared bookkeeping (base.py), ProbCover (probcover.py), and the
 # baseline strategies (baselines.py). SELECTORS maps each --strategy name to its class.
 
-from .base import Selector, CoverageSelector, build_graph
+from .selector_base import Selector, CoverageSelector, build_graph
 from .probcover import ProbCoverSelector
 from .baselines import RandomSelector, AllLabeledSelector
 

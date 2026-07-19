@@ -2,9 +2,9 @@
 # the two-stage hierarchical methods (hierarchical.py). Everything the rest of the pipeline
 # needs is re-exported here, and EVALUATORS maps each --eval name to its class.
 
-from .base import Evaluator, HierarchicalEvaluator
-from .flat import OneNearestNeighbourEvaluator, MLPEvaluator
-from .hierarchical import (
+from .evaluator_base import Evaluator, HierarchicalEvaluator
+from .flat_classifiers import OneNearestNeighbourEvaluator, MLPEvaluator
+from .hierarchical_classifiers import (
     HierarchicalKnnEvaluator,
     HierarchicalKnnMarginalEvaluator,
     HierarchicalMlpRoutedEvaluator,

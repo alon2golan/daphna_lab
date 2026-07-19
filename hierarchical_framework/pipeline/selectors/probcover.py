@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from .base import CoverageSelector
+from .selector_base import CoverageSelector
 
 
 # classic ProbCover: label the point that covers the most still-uncovered points

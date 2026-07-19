@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from .base import Selector
+from .selector_base import Selector
 
 
 # baseline: choose uniformly at random among the unlabeled points
