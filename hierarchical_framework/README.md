@@ -7,13 +7,17 @@ network training.
 
 ## Two embedding families
 
-Runs are pointed (via `--embeddings_dir`) at one of two families, and every
-output figure/run is prefixed with which one it used:
+Embeddings are organized `embeddings/<dataset>/<technique>/<source>`, where
+`<source>` is one of two families the runner reads via `--embeddings_dir`:
 
-- old_embeddings — itai's SimCLR features (the deep_al pipeline; the embeddings
-  used in the ProbCover paper). The baseline to reproduce / compare against.
-- new_embeddings — solo-learn features (extracted by
+- old_deep_al — itai's features via the deep_al pipeline (the embeddings used in
+  the ProbCover paper). The baseline to reproduce / compare against.
+- new_solo_learn — solo-learn features (extracted by
   `solo-learn/extract_embeddings.py`). The current work.
+
+Every output figure/run mirrors the same path, e.g.
+`cifar100/simclr/old_deep_al_d0.65` (strategy and budget are defaults, kept in
+wandb config rather than the folder name).
 
 ## Layout
 
@@ -32,20 +36,20 @@ analysis/     post-hoc breakdowns of a run (both import pipeline/)
 scripts/      slurm launchers (run from the repo root)
   run_active_learning.sbatch  one AL run on a given embeddings dir
 
-embeddings/   (gitignored) the two families the runner reads
-  old_embeddings/   itai's SimCLR features, L2-normalized — cifar100_simclr/, ...
-  new_embeddings/   symlinks into solo-learn/embeddings/ — simclr_cifar100_1000ep, ...
+embeddings/   (gitignored) <dataset>/<technique>/<source>
+  cifar100/simclr/old_deep_al/     itai's SimCLR features, L2-normalized
+  cifar100/simclr/new_solo_learn   symlink into solo-learn/embeddings/simclr/cifar100/1000ep
 
 outputs/      (gitignored) figures/, wandb/, slurm_logs/
-              run folders are named <family>_<dataset>_<strategy>_..., e.g.
-              old_embeddings_cifar100_simclr_probcover_d0.65_b100
+              run folders mirror the embeddings path, e.g.
+              figures/error_analysis/cifar100/simclr/old_deep_al_d0.65/
 
 archive/      retired, incorrect TinyImageNet work on the old embeddings
   data_prep/   prepare_tinyimagenet.py, build_tinyimagenet_coarse.py
   scripts/     run_tinyimagenet.sbatch
 ```
 
-`old_embeddings/cifar100_simclr` is byte-for-byte itai's `cifar100_simclr_train.npy`
+`cifar100/simclr/old_deep_al` is byte-for-byte itai's `cifar100_simclr_train.npy`
 after L2-normalization. The raw source lives at
 `/cs/labs/daphna/itai.david/representations_bank/cifar-100_simclr/`, so the copy is
 regenerable in one line if ever needed.
@@ -59,11 +63,11 @@ and delta resolution stay identical across the whole pipeline.
 ```
 # current work: solo-learn (new) embeddings
 sbatch hierarchical_framework/scripts/run_active_learning.sbatch \
-    hierarchical_framework/embeddings/new_embeddings/simclr_cifar100_1000ep probcover 0.65 100 10
+    hierarchical_framework/embeddings/cifar100/simclr/new_solo_learn
 
 # baseline: itai's (old) embeddings, as in the ProbCover paper
 sbatch hierarchical_framework/scripts/run_active_learning.sbatch \
-    hierarchical_framework/embeddings/old_embeddings/cifar100_simclr probcover 0.65 100 10
+    hierarchical_framework/embeddings/cifar100/simclr/old_deep_al
 ```
 
 `--delta` is resolved by deep_al's `resolve_initial_delta` (the same rule ProbCover

@@ -261,10 +261,10 @@ def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, ro
         print(f"gap_mean={summary['gap_mean']:.2f} gap_std={summary['gap_std']:.2f} "
               f"slope_corr={summary['slope_corr']:.3f}", flush=True)
 
-    # tag = <embedding group>_<dataset>, e.g. old_embeddings_cifar100_simclr or
-    # new_embeddings_simclr_cifar100_1000ep, so old vs new never collide in outputs
-    tag = f"{emb.parent.name}_{emb.name}"
-    out_base = f"{tag}_{strategy}_d{delta}_b{budget}"
+    # output path mirrors embeddings/<dataset>/<technique>/<old_deep_al|new_solo_learn>;
+    # strategy + budget are defaults (tracked in wandb), so left out of the folder name
+    ds, technique, family = emb.parts[-3], emb.parts[-2], emb.parts[-1]
+    out_base = f"{ds}/{technique}/{family}_d{delta}"
     png = curve_figure(rows, out_base)
     write_tables(rows, num_classes, coarse_map, out_base)
     if use_wandb:
@@ -310,9 +310,9 @@ def main():
     p.add_argument("--name", default=None)
     p.add_argument("--group", default="error_analysis")
     args = p.parse_args()
-    # run name = <embedding group>_<dataset>, so overlaying old vs new in wandb is trivial
+    # wandb run name = <dataset>_<technique>_<family>, so overlaying old vs new is trivial
     p = Path(args.embeddings_dir)
-    tag = f"{p.parent.name}_{p.name}"
+    tag = "_".join(p.parts[-3:])
     name = args.name or f"{tag}_{args.strategy}_d{args.delta}"
     wandb_kwargs = dict(project=args.project, name=name, group=args.group,
                         config=dict(embeddings_dir=args.embeddings_dir, strategy=args.strategy,

@@ -16,8 +16,8 @@ from pathlib import Path
 import numpy as np
 
 BANK = "/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext"
-# old_embeddings/ holds itai's SimCLR features, L2-normalized (archive/data_prep/ -> up two)
-OUT = Path(__file__).resolve().parents[2] / "embeddings" / "old_embeddings" / "tinyimagenet_simclr"
+# embeddings/<dataset>/<technique>/old_deep_al holds itai's SimCLR features (archive/data_prep/ -> up two)
+OUT = Path(__file__).resolve().parents[2] / "embeddings" / "tinyimagenet" / "simclr" / "old_deep_al"
 PER_CLASS = 500          # images per class in TinyImageNet train
 N_CLASSES = 200
 HOLDOUT = 50             # images per class held out as the eval set

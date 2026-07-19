@@ -35,8 +35,8 @@ def plot_picks_per_class(picked_classes_by_round, num_classes, out_base, use_wan
     ax[1].set_title(f"picks per class (distinct chosen={n_classes_hit}/{num_classes})")
     fig.tight_layout()
 
-    FIGDIR.mkdir(parents=True, exist_ok=True)
     png = FIGDIR / f"{out_base}_classpicks.png"
+    png.parent.mkdir(parents=True, exist_ok=True) # out_base is a nested <dataset>/<technique>/... path
     fig.savefig(png, dpi=130); print(f"saved -> {png}", flush=True)
 
     csv = FIGDIR / f"{out_base}_classpicks.csv" # companion table: per class, its total and the exact rounds it was chosen in
@@ -77,8 +77,8 @@ def plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_b
     ax.set_title("coverage gain per pick: round mean (bar = min..max)")
     fig.tight_layout()
 
-    FIGDIR.mkdir(parents=True, exist_ok=True)
     png = FIGDIR / f"{out_base}_pickdegree.png"
+    png.parent.mkdir(parents=True, exist_ok=True) # out_base is a nested <dataset>/<technique>/... path
     fig.savefig(png, dpi=130); print(f"saved -> {png}", flush=True)
     if use_wandb:
         wandb.log({"pick_degree": wandb.Image(str(png))}) # push the figure into the run

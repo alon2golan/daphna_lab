@@ -77,8 +77,10 @@ def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, ro
                 log["coverage"] = coverage
             wandb.log(log)
 
-    # out_base = <embedding family>_<dataset> (old_embeddings_* / new_embeddings_*), so runs never collide
-    out_base = f"{emb.parent.name}_{emb.name}_{strategy}_d{delta}_b{budget}"
+    # output path mirrors embeddings/<dataset>/<technique>/<old_deep_al|new_solo_learn>;
+    # strategy (probcover) and budget are defaults tracked in wandb, so left out of the name
+    ds, technique, family = emb.parts[-3], emb.parts[-2], emb.parts[-1]
+    out_base = f"{ds}/{technique}/{family}_d{delta}"
     plot_picks_per_class(picked_classes_by_round, num_classes, out_base, use_wandb=use_wandb) # which classes got picked, when
     if any(len(g) for g in coverage_gains_by_round): # coverage-gain plot only for strategies that produce gains (skip random)
         plot_coverage_gain(coverage_gains_by_round, labels_per_class_by_round, out_base, use_wandb=use_wandb)
