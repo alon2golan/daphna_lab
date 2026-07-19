@@ -85,40 +85,41 @@ def replay_labeled_sets(strategy, train_features, delta, seed, budget, rounds):
     return labeled_sets
 
 
-def score_strategy(strategy, labeled_sets, scorers, num_classes, log_live=False):
-    """Scores every evaluator on each round's labeled set; returns a per-round list of accuracies.
+def score_strategy(strategy, labeled_sets, scorers, num_classes, wandb_base=None):
+    """Scores every evaluator across this strategy's rounds; returns a per-round list of accuracies.
 
-    With log_live, each round's fine accuracies are streamed to wandb the moment they are
-    computed, so the run's curves appear and update online while the job is still running."""
-    per_round = []
-    for labeled_array in labeled_sets:
-        # One record per budget: the size, the labels-per-class x-axis, and an accuracy dict to fill
-        row = {
-            "num_labeled": int(len(labeled_array)),
-            "labels_per_class": len(labeled_array) / num_classes,   # the paper's "B", the x-axis
-            "accuracy": {},
-        }
+    With wandb_base set, EACH evaluator gets its OWN wandb run named
+    <base>_<strategy>_<evaluator>, and its fine_acc + coarse_acc stream in live per round. Every
+    run logs the SAME metric names (fine_acc/coarse_acc), so in wandb you group the runs by
+    config.strategy (one panel per selection method, all evaluators overlaid) or by config.evaluator
+    (one panel per evaluation method, all selection methods overlaid), or ungroup for all-at-once."""
+    # One record per budget/round; the accuracy dict is filled evaluator by evaluator below
+    rows = [{"num_labeled": int(len(labeled_array)),
+             "labels_per_class": len(labeled_array) / num_classes,   # the paper's "B", the x-axis
+             "accuracy": {}} for labeled_array in labeled_sets]
 
-        # Score every evaluator on this same labeled set
-        for label, eval_name, use_oracle, _family, _role, _colour in EVALUATION_SPECS:
+    # Evaluator-outer so each evaluator's whole curve streams into its own run, one active run at a time
+    for spec in EVALUATION_SPECS:
+        label, eval_name, use_oracle, _family, _role, _colour = spec
+        if wandb_base is not None:
+            init_combo_run(wandb_base, strategy, spec)   # this (strategy, evaluator) run
+
+        for row, labeled_array in zip(rows, labeled_sets):
             fine_accuracy, coarse_accuracy = scorers[eval_name].fine_and_coarse_accuracy(
                 labeled_array, use_superclass_oracle=use_oracle)
             row["accuracy"][label] = (fine_accuracy, coarse_accuracy)
-        per_round.append(row)
+            # Stream this round live: same metric names in every run so wandb can overlay across runs
+            if wandb_base is not None:
+                wandb.log({"budget_per_class": row["labels_per_class"],
+                           "fine_acc": fine_accuracy, "coarse_acc": coarse_accuracy})
 
-        # Echo the fine accuracies for this budget to the console/slurm log
-        print(f"  [{strategy}] labeled={row['num_labeled']} "
-              + " ".join(f"{label}={row['accuracy'][label][0]:.1f}" for label, *_ in EVALUATION_SPECS),
+        # One console line per evaluator: its fine-accuracy curve across the budgets
+        print(f"  [{strategy}/{label}] "
+              + " ".join(f"{row['labels_per_class']:.0f}B={row['accuracy'][label][0]:.1f}" for row in rows),
               flush=True)
-
-        # Stream this round to wandb right away so the chart fills in live, one point per round.
-        # This strategy has its own wandb run, so metrics are just the evaluator label vs budget.
-        if log_live:
-            metrics = {"budget_per_class": row["labels_per_class"]}
-            for label, *_ in EVALUATION_SPECS:
-                metrics[label] = row["accuracy"][label][0]
-            wandb.log(metrics)
-    return per_round
+        if wandb_base is not None:
+            wandb.finish()   # close before the next evaluator's run
+    return rows
 
 
 # --- Output: CSV + Figure ---
@@ -212,51 +213,24 @@ def save_figure_png(figure, output_base):
 
 # --- wandb ---
 
-def strategy_run_kwargs(base_kwargs, strategy):
-    """Derives the wandb.init kwargs for ONE strategy's own run: appends the strategy to the run
-    name (so probcover/random/all are told apart in the sidebar) and tags it in the config."""
+def init_combo_run(base_kwargs, strategy, spec):
+    """Opens the wandb run for ONE (selection strategy x evaluator) pair, named
+    <base>_<strategy>_<evaluator> so BOTH show in the sidebar, and tags strategy/evaluator/family/
+    role/oracle in the config so the runs can be grouped either way. Pins budget as the x-axis."""
+    label, _eval_name, use_oracle, family, role, _colour = spec
     kwargs = dict(base_kwargs or {})
-    kwargs["name"] = f"{(kwargs.get('name') or 'run')}_{strategy}"   # strategy visible in the run name
-    kwargs["group"] = kwargs.get("group") or "hierarchical_comparison"  # keep the 3 runs grouped
+    base_name = kwargs.get("name") or "run"
+    kwargs["name"] = f"{base_name}_{strategy}_{label.replace(' ', '_')}"   # selection + evaluation in the name
+    kwargs["group"] = kwargs.get("group") or "hierarchical_comparison"     # keep the whole sweep together
+    kwargs["job_type"] = strategy                                          # quick filter by selection method
     config = dict(kwargs.get("config") or {})
-    config["strategy"] = strategy                                   # also filterable in the config
+    config.update(strategy=strategy, evaluator=label, family=family, role=role, oracle=int(use_oracle))
     kwargs["config"] = config
-    return kwargs
-
-
-def init_strategy_run(base_kwargs, strategy):
-    """Opens this strategy's own wandb run BEFORE scoring so its curves stream in live, and pins
-    the budget as the x-axis for every evaluator curve in the run."""
-    wandb.init(**strategy_run_kwargs(base_kwargs, strategy))
+    wandb.init(**kwargs)
+    # Same metric names in every run so wandb overlays them when grouped; both plot against budget
     wandb.define_metric("budget_per_class")
-    for label, *_ in EVALUATION_SPECS:
-        wandb.define_metric(label, step_metric="budget_per_class")
-
-
-def log_strategy_summary(strategy, per_round):
-    """End-of-run extras on THIS strategy's already-open run: the interactive multi-line charts
-    (one per family) and a per-strategy table. The live per-round scalars come from score_strategy."""
-    budgets = [entry["labels_per_class"] for entry in per_round]
-
-    # One interactive multi-line chart per family: every evaluator's fine-accuracy curve vs budget
-    for family in ["nn", "mlp"]:
-        family_specs = [spec for spec in EVALUATION_SPECS if spec[3] == family]
-        curves = [[entry["accuracy"][label][0] for entry in per_round] for label, *_ in family_specs]
-        keys = [label for label, *_ in family_specs]
-        wandb.log({f"{family}_fine_acc": wandb.plot.line_series(
-            xs=budgets, ys=curves, keys=keys,
-            title=f"{family} family | {strategy}: fine accuracy vs budget",
-            xname="budget (labels per class)")})
-
-    # A tidy table of this strategy's (evaluator, budget) rows
-    table = wandb.Table(columns=["evaluator", "family", "role", "oracle",
-                                 "num_labeled", "budget_per_class", "fine_acc", "coarse_acc"])
-    for row in per_round:
-        for label, eval_name, use_oracle, family, role, _colour in EVALUATION_SPECS:
-            fine_accuracy, coarse_accuracy = row["accuracy"][label]
-            table.add_data(label, family, role, int(use_oracle), row["num_labeled"],
-                           round(row["labels_per_class"], 3), fine_accuracy, coarse_accuracy)
-    wandb.log({"results_table": table})
+    wandb.define_metric("fine_acc", step_metric="budget_per_class")
+    wandb.define_metric("coarse_acc", step_metric="budget_per_class")
 
 
 def log_combined_figure(base_kwargs, figure):
@@ -301,21 +275,17 @@ def run(embeddings_dir, delta="auto_delta", budget=100, rounds=6, split="train",
     }
 
     # Run each strategy (the two growing ones plus full supervision) and collect its per-round scores.
-    # With --wandb, EACH strategy gets its OWN wandb run (named ..._probcover / ..._random / ..._all)
-    # opened before scoring, so its curves stream in live and you can tell the strategies apart by name.
+    # With --wandb, EACH (strategy, evaluator) pair gets its OWN wandb run named
+    # <base>_<strategy>_<evaluator>, streaming fine_acc + coarse_acc live. Group the runs by
+    # config.strategy or config.evaluator in the UI to get the two panel views you want.
     live_wandb = use_wandb and wandb is not None
     all_strategies = CURVE_STRATEGIES + [REFERENCE_STRATEGY]
     results = {}
     for strategy in all_strategies:
         print(f"strategy={strategy}", flush=True)
-        if live_wandb:
-            init_strategy_run(wandb_kwargs, strategy)   # this strategy's own live run
         labeled_sets = replay_labeled_sets(strategy, train_features, delta, seed, budget, rounds)
         results[strategy] = score_strategy(strategy, labeled_sets, scorers, num_classes,
-                                           log_live=live_wandb)
-        if live_wandb:
-            log_strategy_summary(strategy, results[strategy])   # charts + table on this run
-            wandb.finish()                                      # close before the next strategy
+                                           wandb_base=wandb_kwargs if live_wandb else None)
 
     # Build the cross-strategy grid figure once; where it goes depends on --wandb
     output_base = figure_output_base(embeddings_dir, delta)
