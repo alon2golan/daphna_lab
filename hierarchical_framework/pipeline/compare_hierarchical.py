@@ -85,19 +85,24 @@ def replay_labeled_sets(strategy, train_features, delta, seed, budget, rounds):
     return labeled_sets
 
 
-def score_strategy(strategy, labeled_sets, scorers, num_classes, wandb_base=None):
+def score_strategy(strategy, labeled_sets, scorers, num_classes, wandb_base=None, flat_x=None):
     """Scores every evaluator across this strategy's rounds; returns a per-round list of accuracies.
 
+    The wandb x-axis is the TOTAL number of labeled samples (reaches budget*rounds), not per-class.
     With wandb_base set, EACH evaluator gets its OWN wandb run named
-    <base>_<strategy>_<evaluator>, streaming live per round. Besides the plain fine_acc/coarse_acc
-    (all runs overlaid on one panel), each round is ALSO logged under namespaced metric keys --
-    by_selection/<strategy>/... and by_evaluation/<evaluator>/... . wandb makes one panel per
-    distinct key, so a "by_selection" section gives a panel per selection method (evaluators overlaid)
-    and a "by_evaluation" section gives a panel per evaluation method (selection methods overlaid),
-    each showing the individual run lines -- no UI grouping/aggregation needed."""
+    <strategy>_<evaluator>_<base>, streaming live. Besides the plain fine_acc/coarse_acc (all runs
+    overlaid on one panel), each point is ALSO logged under namespaced keys -- by_selection/
+    <strategy>/... and by_evaluation/<evaluator>/... . wandb makes one panel per distinct key, so a
+    "by_selection" section gives a panel per selection method (evaluators overlaid) and a
+    "by_evaluation" section gives a panel per evaluation method (selection methods overlaid), each
+    showing the individual run lines -- no UI grouping/aggregation needed.
+
+    flat_x: for a single-set reference strategy ('all', full supervision) whose accuracy does not
+    change with budget, pass the curve budgets to replicate its one accuracy across, so it draws as
+    a flat horizontal line spanning the same x-range as the growing-budget curves."""
     # One record per budget/round; the accuracy dict is filled evaluator by evaluator below
     rows = [{"num_labeled": int(len(labeled_array)),
-             "labels_per_class": len(labeled_array) / num_classes,   # the paper's "B", the x-axis
+             "labels_per_class": len(labeled_array) / num_classes,   # the paper's "B" (kept for the CSV)
              "accuracy": {}} for labeled_array in labeled_sets]
 
     # Evaluator-outer so each evaluator's whole curve streams into its own run, one active run at a time
@@ -107,28 +112,35 @@ def score_strategy(strategy, labeled_sets, scorers, num_classes, wandb_base=None
         if wandb_base is not None:
             init_combo_run(wandb_base, strategy, spec)   # this (strategy, evaluator) run
 
+        # Score this evaluator on each round's labeled set
         for row, labeled_array in zip(rows, labeled_sets):
             fine_accuracy, coarse_accuracy = scorers[eval_name].fine_and_coarse_accuracy(
                 labeled_array, use_superclass_oracle=use_oracle)
             row["accuracy"][label] = (fine_accuracy, coarse_accuracy)
-            # Stream this round live under three key families: plain (all overlaid), by_selection
-            # (one panel per strategy), by_evaluation (one panel per evaluator). Same keys across the
-            # matching runs so wandb draws each contributing run as its own line in that panel.
-            if wandb_base is not None:
+
+        # One console line per evaluator: its fine-accuracy curve across the budgets
+        print(f"  [{strategy}/{label}] "
+              + " ".join(f"n{row['num_labeled']}={row['accuracy'][label][0]:.1f}" for row in rows),
+              flush=True)
+
+        # Stream to wandb: x = total num_labeled. For the flat reference strategy, replicate the one
+        # accuracy across flat_x so it renders as a flat line; otherwise one point per round.
+        if wandb_base is not None:
+            if flat_x is not None:
+                fine_accuracy, coarse_accuracy = rows[0]["accuracy"][label]
+                points = [(x, fine_accuracy, coarse_accuracy) for x in flat_x]
+            else:
+                points = [(row["num_labeled"], *row["accuracy"][label]) for row in rows]
+            # Same keys across the matching runs so wandb draws each contributing run as its own line
+            for x, fine_accuracy, coarse_accuracy in points:
                 wandb.log({
-                    "budget_per_class": row["labels_per_class"],
+                    "num_labeled": x,
                     "fine_acc": fine_accuracy, "coarse_acc": coarse_accuracy,
                     f"by_selection/{strategy}/fine_acc": fine_accuracy,
                     f"by_selection/{strategy}/coarse_acc": coarse_accuracy,
                     f"by_evaluation/{eval_slug}/fine_acc": fine_accuracy,
                     f"by_evaluation/{eval_slug}/coarse_acc": coarse_accuracy,
                 })
-
-        # One console line per evaluator: its fine-accuracy curve across the budgets
-        print(f"  [{strategy}/{label}] "
-              + " ".join(f"{row['labels_per_class']:.0f}B={row['accuracy'][label][0]:.1f}" for row in rows),
-              flush=True)
-        if wandb_base is not None:
             wandb.finish()   # close before the next evaluator's run
     return rows
 
@@ -175,7 +187,7 @@ def build_figure(results):
     for column_index, strategy in enumerate(CURVE_STRATEGIES):
         ax = axes[column_index]
         per_round = results[strategy]
-        budgets = [entry["labels_per_class"] for entry in per_round]
+        budgets = [entry["num_labeled"] for entry in per_round]   # x-axis = total labeled (reaches budget*rounds)
 
         # Each method: a bold solid line in its own colour -- this is the head-to-head comparison
         for label, _eval, _oracle, _family, _role, colour_key in method_specs:
@@ -200,7 +212,7 @@ def build_figure(results):
             ax.plot(budgets, floor_curve, ":", linewidth=1.2, alpha=0.5, color="grey", label=label)
 
         ax.set_title(f"strategy = {strategy}")
-        ax.set_xlabel("budget (labels per class, B)")
+        ax.set_xlabel("number of labeled samples")
         if column_index == 0:
             ax.set_ylabel("test fine accuracy (%)")
         ax.grid(alpha=0.3)
@@ -226,28 +238,29 @@ def save_figure_png(figure, output_base):
 
 def init_combo_run(base_kwargs, strategy, spec):
     """Opens the wandb run for ONE (selection strategy x evaluator) pair, named
-    <base>_<strategy>_<evaluator> so BOTH show in the sidebar, and tags strategy/evaluator/family/
-    role/oracle in the config so the runs can be grouped either way. Pins budget as the x-axis."""
+    <strategy>_<evaluator>_<base> so the selection+evaluation lead the name and the embeddings tag
+    trails at the end, and tags strategy/evaluator/family/role/oracle in the config. Pins the total
+    labeled count as the x-axis."""
     label, _eval_name, use_oracle, family, role, _colour = spec
     kwargs = dict(base_kwargs or {})
     base_name = kwargs.get("name") or "run"
-    kwargs["name"] = f"{base_name}_{strategy}_{label.replace(' ', '_')}"   # selection + evaluation in the name
+    kwargs["name"] = f"{strategy}_{label.replace(' ', '_')}_{base_name}"   # selection + evaluation first, tag last
     kwargs["group"] = kwargs.get("group") or "hierarchical_comparison"     # keep the whole sweep together
     kwargs["job_type"] = strategy                                          # quick filter by selection method
     config = dict(kwargs.get("config") or {})
     config.update(strategy=strategy, evaluator=label, family=family, role=role, oracle=int(use_oracle))
     kwargs["config"] = config
     wandb.init(**kwargs)
-    # Budget is the x-axis for every metric, including the by_selection/* and by_evaluation/* keys
-    wandb.define_metric("budget_per_class")
-    wandb.define_metric("*", step_metric="budget_per_class")
+    # Total labeled count is the x-axis for every metric, including by_selection/* and by_evaluation/*
+    wandb.define_metric("num_labeled")
+    wandb.define_metric("*", step_metric="num_labeled")
 
 
 def log_combined_figure(base_kwargs, figure):
-    """Opens one small '<name>_summary' run holding just the cross-strategy grid figure (each method
-    vs its matched ceiling, probcover and random side by side) -- the one artifact that spans strategies."""
+    """Opens one small 'summary_<name>' run holding just the cross-strategy grid figure (methods
+    head-to-head, probcover and random side by side) -- the one artifact that spans strategies."""
     kwargs = dict(base_kwargs or {})
-    kwargs["name"] = f"{(kwargs.get('name') or 'run')}_summary"
+    kwargs["name"] = f"summary_{(kwargs.get('name') or 'run')}"
     kwargs["group"] = kwargs.get("group") or "hierarchical_comparison"
     wandb.init(**kwargs)
     wandb.log({"comparison_figure": wandb.Image(figure)})
@@ -294,8 +307,13 @@ def run(embeddings_dir, delta="auto_delta", budget=100, rounds=6, split="train",
     for strategy in all_strategies:
         print(f"strategy={strategy}", flush=True)
         labeled_sets = replay_labeled_sets(strategy, train_features, delta, seed, budget, rounds)
+        # 'all' is full supervision (one labeled set): replicate its accuracy across the curve budgets
+        # so it draws as a flat line spanning the same x-range as probcover/random
+        flat_x = None
+        if strategy == REFERENCE_STRATEGY and CURVE_STRATEGIES[0] in results:
+            flat_x = [row["num_labeled"] for row in results[CURVE_STRATEGIES[0]]]
         results[strategy] = score_strategy(strategy, labeled_sets, scorers, num_classes,
-                                           wandb_base=wandb_kwargs if live_wandb else None)
+                                           wandb_base=wandb_kwargs if live_wandb else None, flat_x=flat_x)
 
     # Build the cross-strategy grid figure once; where it goes depends on --wandb
     output_base = figure_output_base(embeddings_dir, delta)
