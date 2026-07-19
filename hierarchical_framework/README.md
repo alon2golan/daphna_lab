@@ -5,6 +5,10 @@ coarse structure) help ProbCover-style selection. Everything runs over
 pre-extracted, L2-normalized SimCLR embeddings and is scored with 1-NN — no
 network training.
 
+Current work uses the solo-learn embeddings (extracted by
+`solo-learn/extract_embeddings.py`), passed via `--embeddings_dir`. The retired
+deep_al embeddings and their results live under `old/` (see below).
+
 ## Layout
 
 ```
@@ -19,17 +23,21 @@ analysis/     post-hoc breakdowns of a run (both import pipeline/)
   superclass_confusion.py 20x20 superclass confusion heatmap + confused-pair lists at the
                           full budget, embedding-ceiling vs ProbCover
 
-data_prep/    build the embedding banks the pipeline reads
-  prepare_tinyimagenet.py       TinyImageNet embeddings dir from itai.david's bank
-  build_tinyimagenet_coarse.py  WordNet-derived superclass map (coarse_map.npy)
-
 scripts/      slurm launchers (run from the repo root)
-  run_al.sbatch            one AL run on a given embeddings dir
-  run_tinyimagenet.sbatch  full TinyImageNet pipeline (prep -> knee delta -> run_al -> accuracy_vs_budget)
+  run_al.sbatch  one AL run on a given embeddings dir
 
-data/         embeddings_deepal/<dataset>/  (gitignored, ~360MB)
+data/         embedding banks (gitignored)
 outputs/      figures/, wandb/, slurm_logs/  (gitignored)
+
+old/          retired deep_al work, kept for reference (mirrors the layout above)
+  data_prep/   prepare_tinyimagenet.py, build_tinyimagenet_coarse.py
+  scripts/     run_tinyimagenet.sbatch
+  data/        embeddings_deepal/<dataset>/  (gitignored)
+  outputs/     figures/  (gitignored)
 ```
+
+The deep_al TinyImageNet results were found to be incorrect and were removed;
+only the deep_al CIFAR-100 embeddings + figures were archived under `old/`.
 
 ## Running
 
@@ -38,12 +46,9 @@ Scripts are self-contained and expect to be launched from the repo root
 and delta resolution stay identical across the whole pipeline.
 
 ```
-# one ProbCover run
+# one ProbCover run on the solo-learn CIFAR-100 SimCLR embeddings
 sbatch hierarchical_framework/scripts/run_al.sbatch \
-    hierarchical_framework/data/embeddings_deepal/cifar100_simclr probcover 0.65 100 10
-
-# full TinyImageNet pipeline
-sbatch hierarchical_framework/scripts/run_tinyimagenet.sbatch 200 10
+    solo-learn/embeddings/simclr/cifar100/1000ep probcover 0.65 100 10
 ```
 
 `--delta` accepts a float or the keyword `knee` (runs deep_al's knee algorithm on

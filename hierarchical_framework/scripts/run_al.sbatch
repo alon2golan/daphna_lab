@@ -24,7 +24,7 @@
 #
 # Example:
 #   sbatch hierarchical_framework/scripts/run_al.sbatch \
-#       hierarchical_framework/data/embeddings_deepal/cifar100_simclr probcover 0.65 100 10
+#       solo-learn/embeddings/simclr/cifar100/1000ep probcover 0.65 100 10
 
 set -e
 
