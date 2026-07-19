@@ -85,8 +85,11 @@ def replay_labeled_sets(strategy, train_features, delta, seed, budget, rounds):
     return labeled_sets
 
 
-def score_strategy(strategy, labeled_sets, scorers, num_classes):
-    """Scores every evaluator on each round's labeled set; returns a per-round list of accuracies."""
+def score_strategy(strategy, labeled_sets, scorers, num_classes, log_live=False):
+    """Scores every evaluator on each round's labeled set; returns a per-round list of accuracies.
+
+    With log_live, each round's fine accuracies are streamed to wandb the moment they are
+    computed, so the run's curves appear and update online while the job is still running."""
     per_round = []
     for labeled_array in labeled_sets:
         # One record per budget: the size, the labels-per-class x-axis, and an accuracy dict to fill
@@ -107,6 +110,14 @@ def score_strategy(strategy, labeled_sets, scorers, num_classes):
         print(f"  [{strategy}] labeled={row['num_labeled']} "
               + " ".join(f"{label}={row['accuracy'][label][0]:.1f}" for label, *_ in EVALUATION_SPECS),
               flush=True)
+
+        # Stream this round to wandb right away so the chart fills in live, one point per round.
+        # Each metric is namespaced by strategy and plotted against that strategy's own budget step.
+        if log_live:
+            metrics = {f"{strategy}/budget_per_class": row["labels_per_class"]}
+            for label, *_ in EVALUATION_SPECS:
+                metrics[f"{strategy}/{label}"] = row["accuracy"][label][0]
+            wandb.log(metrics)
     return per_round
 
 
@@ -192,9 +203,22 @@ def save_figure_png(figure, output_base):
 
 # --- wandb ---
 
-def log_wandb(results, figure, wandb_kwargs):
-    """Logs the comparison to wandb: one multi-line chart per (family, strategy), a results table, and the figure."""
+def init_wandb(wandb_kwargs):
+    """Starts the wandb run BEFORE scoring so per-round points stream in live, and declares each
+    strategy's own budget as the x-axis for its evaluator curves."""
     wandb.init(**(wandb_kwargs or {}))
+    # One budget step-metric per strategy; every evaluator curve for that strategy plots against it
+    for strategy in CURVE_STRATEGIES + [REFERENCE_STRATEGY]:
+        step = f"{strategy}/budget_per_class"
+        wandb.define_metric(step)
+        for label, *_ in EVALUATION_SPECS:
+            wandb.define_metric(f"{strategy}/{label}", step_metric=step)
+
+
+def log_wandb_summary(results, figure):
+    """End-of-run extras on the ALREADY-OPEN wandb run: the interactive multi-line charts,
+    a full results table, and the composite figure. The live per-round scalars are logged
+    separately in score_strategy; this just adds the polished summary views."""
     families = ["nn", "mlp"]
 
     # One interactive multi-line chart per family x growing-budget strategy. Each line is an
@@ -224,7 +248,6 @@ def log_wandb(results, figure, wandb_kwargs):
 
     # The composite grid figure as an image, logged straight from the Figure (no disk file)
     wandb.log({"comparison_figure": wandb.Image(figure)})
-    wandb.finish()
 
 
 # --- Orchestration ---
@@ -257,21 +280,29 @@ def run(embeddings_dir, delta="auto_delta", budget=100, rounds=6, split="train",
         for _label, eval_name, *_ in EVALUATION_SPECS
     }
 
+    # Open the wandb run BEFORE any scoring so the curves show up online straightaway and update
+    # round by round, instead of appearing all at once when the job finishes.
+    live_wandb = use_wandb and wandb is not None
+    if live_wandb:
+        init_wandb(wandb_kwargs)
+
     # Run each strategy (the two growing ones plus full supervision) and collect its per-round scores
     all_strategies = CURVE_STRATEGIES + [REFERENCE_STRATEGY]
     results = {}
     for strategy in all_strategies:
         print(f"strategy={strategy}", flush=True)
         labeled_sets = replay_labeled_sets(strategy, train_features, delta, seed, budget, rounds)
-        results[strategy] = score_strategy(strategy, labeled_sets, scorers, num_classes)
+        results[strategy] = score_strategy(strategy, labeled_sets, scorers, num_classes,
+                                           log_live=live_wandb)
 
     # Build the grid figure once; where it goes depends on --wandb
     output_base = figure_output_base(embeddings_dir, delta)
     figure = build_figure(results)
 
     # With --wandb the plots + table live in the project only; otherwise fall back to disk (figure + CSV)
-    if use_wandb and wandb is not None:
-        log_wandb(results, figure, wandb_kwargs)
+    if live_wandb:
+        log_wandb_summary(results, figure)   # summary charts/table/figure on the already-open run
+        wandb.finish()
     else:
         write_csv(results, output_base)
         save_figure_png(figure, output_base)
