@@ -157,7 +157,8 @@ def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
     pc_idx = probcover_idx(train_feats, strategy, delta, budget, rounds, seed)
     preds_pc = one_nn(train_feats, train_labels, pc_idx, test_feats)
 
-    tag = "_".join(emb.parts[-3:])
+    # tag = <embedding group>_<dataset> (old_embeddings_* / new_embeddings_*)
+    tag = f"{emb.parent.name}_{emb.name}"
     out_base = f"{tag}_{strategy}_d{delta}_b{budget}"
     outdir = OUTPUTS / "figures" / "error_analysis" / out_base
     outdir.mkdir(parents=True, exist_ok=True)
@@ -208,7 +209,8 @@ def main():
     p.add_argument("--project", default="applying_priors")
     p.add_argument("--group", default="confusion")
     args = p.parse_args()
-    tag = "_".join(Path(args.embeddings_dir).parts[-3:])
+    p = Path(args.embeddings_dir)
+    tag = f"{p.parent.name}_{p.name}"
     wandb_kwargs = dict(project=args.project, group=args.group,
                         name=f"{tag}_{args.strategy}_d{args.delta}",
                         config=dict(embeddings_dir=args.embeddings_dir, strategy=args.strategy,

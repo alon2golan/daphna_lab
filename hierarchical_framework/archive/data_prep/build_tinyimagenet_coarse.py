@@ -70,7 +70,7 @@ def main():
     gid = {g: i for i, g in enumerate(groups)}
     coarse = np.array([gid[n] for n in names_per_label], dtype=np.int64)
 
-    out = Path(__file__).resolve().parents[1] / "data" / "itai_embeddings" / "tinyimagenet_simclr"
+    out = Path(__file__).resolve().parents[2] / "embeddings" / "old_embeddings" / "tinyimagenet_simclr"
     np.save(out / "coarse_map.npy", coarse)                 # (200,) fine-label -> coarse id
     json.dump(groups, open(out / "coarse_names.json", "w")) # coarse id -> name
     json.dump(fine_names, open(out / "fine_names.json", "w"))

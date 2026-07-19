@@ -260,8 +260,9 @@ def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
         print(f"gap_mean={summary['gap_mean']:.2f} gap_std={summary['gap_std']:.2f} "
               f"slope_corr={summary['slope_corr']:.3f}", flush=True)
 
-    # tag from the last (up to) 3 path parts so solo-learn vs deepal never collide
-    tag = "_".join(emb.parts[-3:])
+    # tag = <embedding group>_<dataset>, e.g. old_embeddings_cifar100_simclr or
+    # new_embeddings_simclr_cifar100_1000ep, so old vs new never collide in outputs
+    tag = f"{emb.parent.name}_{emb.name}"
     out_base = f"{tag}_{strategy}_d{delta}_b{budget}"
     png = curve_figure(rows, out_base)
     write_tables(rows, num_classes, coarse_map, out_base)
@@ -307,8 +308,9 @@ def main():
     p.add_argument("--name", default=None)
     p.add_argument("--group", default="error_analysis")
     args = p.parse_args()
-    # run name = the embedding tag, so overlaying both embeddings in wandb is trivial
-    tag = "_".join(Path(args.embeddings_dir).parts[-3:])
+    # run name = <embedding group>_<dataset>, so overlaying old vs new in wandb is trivial
+    p = Path(args.embeddings_dir)
+    tag = f"{p.parent.name}_{p.name}"
     name = args.name or f"{tag}_{args.strategy}_d{args.delta}"
     wandb_kwargs = dict(project=args.project, name=name, group=args.group,
                         config=dict(embeddings_dir=args.embeddings_dir, strategy=args.strategy,

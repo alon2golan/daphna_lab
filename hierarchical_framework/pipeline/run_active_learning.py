@@ -1,6 +1,12 @@
 # Strategy-agnostic active-learning runner: each round asks a Selector for
 # `budget` points, reveals their labels, scores with 1-NN, logs to wandb.
 # Swap --strategy to change WHICH points get picked; this loop stays the same.
+#
+# --embeddings_dir points at one of two embedding families (see embeddings/):
+#   old_embeddings/  itai's SimCLR features (the deep_al pipeline; the embeddings
+#                    used in the ProbCover paper) -> the baseline to reproduce/compare
+#   new_embeddings/  solo-learn features -> the current work
+# Output figure/run names are prefixed with the family (old_embeddings_ / new_embeddings_).
 
 import argparse
 from pathlib import Path
@@ -172,7 +178,9 @@ def run(embeddings_dir, strategy="probcover", delta=0.65, budget=100, rounds=10,
             wandb.log(log)
 
     # class-provenance report: which class was picked when, how often
-    out_base = f"{Path(embeddings_dir).name}_{strategy}_d{delta}_b{budget}"
+    # out_base = <embedding group>_<dataset> (old_embeddings_* / new_embeddings_*)
+    emb = Path(embeddings_dir)
+    out_base = f"{emb.parent.name}_{emb.name}_{strategy}_d{delta}_b{budget}"
     class_pick_report(picks_by_round, num_classes, out_base, use_wandb=use_wandb)
     # per-round coverage gain of the chosen points (skip if no scores, e.g. random)
     if any(len(s) for s in neighbors_by_round):

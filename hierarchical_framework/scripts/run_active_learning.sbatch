@@ -22,9 +22,9 @@
 #   5) ROUNDS     number of AL rounds   (default 10)
 #   6) PROJECT    wandb project         (default bayesian)
 #
-# Example:
+# Example (new = solo-learn embeddings; use embeddings/old_embeddings/... for the baseline):
 #   sbatch hierarchical_framework/scripts/run_active_learning.sbatch \
-#       solo-learn/embeddings/simclr/cifar100/1000ep probcover 0.65 100 10
+#       hierarchical_framework/embeddings/new_embeddings/simclr_cifar100_1000ep probcover 0.65 100 10
 
 set -e
 
