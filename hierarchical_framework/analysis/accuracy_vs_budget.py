@@ -1,317 +1,316 @@
-# Error-structure analysis for an AL run: at every budget, split the 1-NN test
-# accuracy into fine (subclass) vs coarse (superclass) accuracy, and break the
-# errors into "near miss" (right superclass, wrong subclass) vs "far miss"
-# (wrong superclass). Also dumps a per-class-per-budget table. Reuses the exact
-# same selectors as run_active_learning.py so the numbers match the probcover results.
+# Accuracy-structure analysis for one AL run. At every budget it scores the growing
+# labeled set three ways and writes the breakdown as curves + CSV tables:
+#
+#   fine    -- ordinary fine-class (subclass) 1-NN accuracy
+#   coarse  -- accuracy after mapping predictions up to the 20 superclasses
+#   oracle  -- fine accuracy if the true superclass were given for free (an upper bound)
+#
+# and splits every fine error into "near miss" (right superclass, wrong subclass) vs
+# "far miss" (wrong superclass). It reuses the pipeline's selector and 1-NN evaluator,
+# so the numbers line up exactly with run_active_learning.
 
 import argparse
 import sys
 from pathlib import Path
 
 import numpy as np
+import matplotlib
 
-# hierarchical_framework/ root (analysis/ -> up one); make the pipeline package
-# importable so we share the identical selectors + delta resolution, figures->outputs/
+matplotlib.use("Agg")                        # render figures straight to file, no display
+import matplotlib.pyplot as plt
+
+try:
+    import wandb
+except ImportError:
+    wandb = None                             # only used for --wandb runs; absent in .venv_clean
+
+# hierarchical_framework/ root (analysis/ -> up one); put pipeline/ on the path so we
+# share the identical selector, evaluator, delta resolution, coarse map, and naming.
 HF_ROOT = Path(__file__).resolve().parents[1]
 OUTPUTS = HF_ROOT / "outputs"
 if str(HF_ROOT / "pipeline") not in sys.path:
     sys.path.insert(0, str(HF_ROOT / "pipeline"))
 
 from selection_strategies import SELECTORS
-from coarse_maps import CIFAR100_COARSE # canonical CIFAR-100 fine->coarse (20 superclasses)
+from evaluators import OneNearestNeighbourEvaluator
+from coarse_maps import load_coarse_map
+from delta_selection import resolve_delta
+from output_paths import figure_output_base, wandb_run_tag
 
 
-def eval_1nn_preds(train_feats, train_labels, labeled_idx, test_feats):
-    # deep_al's NN1_normalized: 1-NN on the (already L2-normalized) labeled feats.
-    from sklearn.neighbors import KNeighborsClassifier
-    clf = KNeighborsClassifier(n_neighbors=1)
-    # fit on the labeled subset, return raw predictions for the whole test split
-    clf.fit(train_feats[labeled_idx], train_labels[labeled_idx])
-    return clf.predict(test_feats)
+def round_metrics(fine_predictions, test_labels, coarse_map, num_classes):
+    # Turn one budget's fine predictions into the fine/coarse accuracies and the
+    # near/far error split. Returns a dict; oracle accuracy is filled in by the caller.
+    predicted_superclasses = coarse_map[fine_predictions]
+    true_superclasses = coarse_map[test_labels]
+
+    fine_accuracy = 100.0 * float((fine_predictions == test_labels).mean())
+    coarse_accuracy = 100.0 * float((predicted_superclasses == true_superclasses).mean())
+
+    # Of the points the fine classifier got wrong, how many at least landed in the right superclass.
+    is_error = fine_predictions != test_labels
+    error_count = int(is_error.sum())
+    landed_in_right_superclass = predicted_superclasses == true_superclasses
+    near_miss_count = int((is_error & landed_in_right_superclass).sum())   # right superclass, wrong subclass
+    far_miss_count = error_count - near_miss_count                         # wrong superclass entirely
+    near_miss_fraction = (near_miss_count / error_count) if error_count else 0.0
+    far_miss_fraction = (far_miss_count / error_count) if error_count else 0.0
+
+    # Per-fine-class recall: accuracy among the test points whose true class is that class.
+    per_class_recall = np.full(num_classes, np.nan)
+    for fine_class in range(num_classes):
+        is_this_class = test_labels == fine_class
+        if is_this_class.any():
+            per_class_recall[fine_class] = 100.0 * float((fine_predictions[is_this_class] == fine_class).mean())
+
+    return dict(
+        fine_acc=fine_accuracy,
+        coarse_acc=coarse_accuracy,
+        n_err=error_count,
+        near_frac=near_miss_fraction,
+        far_frac=far_miss_fraction,
+        per_class=per_class_recall,
+    )
 
 
-def eval_oracle_preds(train_feats, train_labels, labeled_idx, test_feats,
-                      test_fine, coarse_map):
-    # "superclass known in advance" upper bound: for each test point we're TOLD
-    # its true superclass for free, so 1-NN only searches labeled points inside
-    # that superclass. this can never miss the coarse target, so any remaining
-    # error is a pure within-family (sibling) mistake. the gain over plain 1-NN
-    # is exactly how much a perfect coarse oracle would buy you.
-    from sklearn.neighbors import KNeighborsClassifier
-    lab_feats = train_feats[labeled_idx]
-    lab_fine = train_labels[labeled_idx]
-    lab_coarse = coarse_map[lab_fine]
-    test_coarse = coarse_map[test_fine]
-    preds = np.empty(len(test_fine), dtype=lab_fine.dtype)
-    for s in np.unique(test_coarse):
-        # candidate neighbors = labeled points whose class lives in superclass s
-        cand = lab_coarse == s
-        tmask = test_coarse == s
-        if cand.any():
-            clf = KNeighborsClassifier(n_neighbors=1)
-            clf.fit(lab_feats[cand], lab_fine[cand])
-            preds[tmask] = clf.predict(test_feats[tmask])
-        else:
-            # no labeled point in this superclass yet -> fall back to global 1-NN
-            clf = KNeighborsClassifier(n_neighbors=1)
-            clf.fit(lab_feats, lab_fine)
-            preds[tmask] = clf.predict(test_feats[tmask])
-    return preds
+def compute_slope_stats(per_round_metrics):
+    # Between consecutive budgets: how fast each curve rises (accuracy gained per 100
+    # labels) and how far apart the fine and coarse curves sit. A constant gap plus
+    # slopes that track each other means "same curve shape, just shifted up".
+    segments = []
+    for earlier, later in zip(per_round_metrics[:-1], per_round_metrics[1:]):
+        width_in_hundreds = (later["num_labeled"] - earlier["num_labeled"]) / 100.0
+        fine_slope = (later["fine_acc"] - earlier["fine_acc"]) / width_in_hundreds
+        coarse_slope = (later["coarse_acc"] - earlier["coarse_acc"]) / width_in_hundreds
+        segments.append(dict(
+            num_labeled=later["num_labeled"],          # budget to log this slope at
+            fine_slope=fine_slope,
+            coarse_slope=coarse_slope,
+            slope_diff=coarse_slope - fine_slope,      # 0 => the two rise identically
+        ))
+
+    coarse_minus_fine_gaps = np.array([row["coarse_acc"] - row["fine_acc"] for row in per_round_metrics])
+    fine_slopes = np.array([segment["fine_slope"] for segment in segments])
+    coarse_slopes = np.array([segment["coarse_slope"] for segment in segments])
+    slopes_correlate = (
+        float(np.corrcoef(fine_slopes, coarse_slopes)[0, 1])
+        if len(fine_slopes) > 1 and fine_slopes.std() and coarse_slopes.std() else float("nan")
+    )
+
+    summary = dict(
+        gap_mean=float(coarse_minus_fine_gaps.mean()),
+        gap_std=float(coarse_minus_fine_gaps.std()),
+        slope_corr=slopes_correlate,
+        slope_diff_mean=float((coarse_slopes - fine_slopes).mean()),
+        slope_diff_std=float((coarse_slopes - fine_slopes).std()),
+    )
+    return segments, summary
 
 
-def round_metrics(preds, test_fine, coarse_map, num_classes):
-    # map both prediction and truth up to the superclass level
-    pred_coarse = coarse_map[preds]
-    true_coarse = coarse_map[test_fine]
-    # overall fine (subclass) and coarse (superclass) accuracy, in percent
-    fine_acc = 100.0 * float((preds == test_fine).mean())
-    coarse_acc = 100.0 * float((pred_coarse == true_coarse).mean())
-    # look only at the points the fine classifier got wrong
-    err = preds != test_fine
-    n_err = int(err.sum())
-    # split those errors into two buckets that sum to all errors:
-    #   near = same superclass (right family, wrong member)
-    #   far  = different superclass entirely
-    same = pred_coarse == true_coarse
-    near = int((err & same).sum())
-    far = n_err - near
-    near_frac = (near / n_err) if n_err else 0.0
-    far_frac = (far / n_err) if n_err else 0.0
-    # per-fine-class recall (accuracy among test points whose true class is c)
-    per_class = np.full(num_classes, np.nan)
-    for c in range(num_classes):
-        m = test_fine == c
-        if m.any():
-            per_class[c] = 100.0 * float((preds[m] == c).mean())
-    return dict(fine_acc=fine_acc, coarse_acc=coarse_acc, n_err=n_err,
-                near_frac=near_frac, far_frac=far_frac, per_class=per_class)
+def run_output_dir(output_base):
+    # One folder per run under outputs/figures/error_analysis/ (shared with superclass_confusion).
+    directory = OUTPUTS / "figures" / "error_analysis" / output_base
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
 
 
-def curve_figure(rows, out_base):
-    import matplotlib
-    matplotlib.use("Agg")                       # render to file, no display
-    import matplotlib.pyplot as plt
-    xs = [r["num_labeled"] for r in rows]
+def save_accuracy_curves(per_round_metrics, output_base):
+    x = [row["num_labeled"] for row in per_round_metrics]
     fig, ax = plt.subplots(1, 2, figsize=(14, 5))
-    # left: fine vs coarse vs oracle accuracy as the budget grows. oracle = fine
-    # accuracy if the true superclass were handed to you for free, so the gap
-    # (oracle - fine) is exactly what perfect coarse knowledge would add.
-    ax[0].plot(xs, [r["fine_acc"] for r in rows], "o-", color="steelblue", label="fine (subclass)")
-    ax[0].plot(xs, [r["coarse_acc"] for r in rows], "s-", color="darkorange", label="coarse (superclass)")
-    ax[0].plot(xs, [r.get("oracle_acc", np.nan) for r in rows], "d--", color="purple", label="fine | superclass known")
-    ax[0].set_xlabel("num labeled"); ax[0].set_ylabel("test accuracy (%)")
-    ax[0].set_title("fine vs coarse vs superclass-oracle accuracy"); ax[0].legend(); ax[0].grid(alpha=0.3)
-    # right: the two error buckets, which sum to 100% of the mistakes
-    ax[1].plot(xs, [100 * r["near_frac"] for r in rows], "o-", color="seagreen", label="near (same superclass)")
-    ax[1].plot(xs, [100 * r["far_frac"] for r in rows], "^-", color="firebrick", label="far (other superclass)")
-    ax[1].set_xlabel("num labeled"); ax[1].set_ylabel("share of errors (%)")
-    ax[1].set_title("error type per budget"); ax[1].legend(); ax[1].grid(alpha=0.3)
+
+    # Left: fine vs coarse vs oracle accuracy as the budget grows. The (oracle - fine)
+    # gap is exactly what perfect coarse knowledge would add.
+    ax[0].plot(x, [row["fine_acc"] for row in per_round_metrics], "o-", color="steelblue", label="fine (subclass)")
+    ax[0].plot(x, [row["coarse_acc"] for row in per_round_metrics], "s-", color="darkorange", label="coarse (superclass)")
+    ax[0].plot(x, [row["oracle_acc"] for row in per_round_metrics], "d--", color="purple", label="fine | superclass known")
+    ax[0].set_xlabel("num labeled")
+    ax[0].set_ylabel("test accuracy (%)")
+    ax[0].set_title("fine vs coarse vs superclass-oracle accuracy")
+    ax[0].legend()
+    ax[0].grid(alpha=0.3)
+
+    # Right: the two error buckets, which together are 100% of the mistakes.
+    ax[1].plot(x, [100 * row["near_frac"] for row in per_round_metrics], "o-", color="seagreen", label="near (same superclass)")
+    ax[1].plot(x, [100 * row["far_frac"] for row in per_round_metrics], "^-", color="firebrick", label="far (other superclass)")
+    ax[1].set_xlabel("num labeled")
+    ax[1].set_ylabel("share of errors (%)")
+    ax[1].set_title("error type per budget")
+    ax[1].legend()
+    ax[1].grid(alpha=0.3)
     fig.tight_layout()
-    figdir = run_dir(out_base)
-    png = figdir / "accuracy_curves.png"
-    fig.savefig(png, dpi=130); plt.close(fig)
+
+    png = run_output_dir(output_base) / "accuracy_curves.png"
+    fig.savefig(png, dpi=130)
+    plt.close(fig)
     print(f"saved -> {png}", flush=True)
     return png
 
 
-def run_dir(out_base):
-    # one folder per run under outputs/figures/error_analysis/, so files stay grouped
-    d = OUTPUTS / "figures" / "error_analysis" / out_base
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+def save_tables(per_round_metrics, num_classes, coarse_map, output_base):
+    directory = run_output_dir(output_base)
+
+    # Summary: one row per budget with the aggregate metrics.
+    summary_csv = directory / "accuracy_summary.csv"
+    with open(summary_csv, "w") as handle:
+        handle.write("num_labeled,budget_per_class,fine_acc,coarse_acc,oracle_acc,"
+                     "n_errors,near_miss_frac,far_miss_frac\n")
+        for row in per_round_metrics:
+            handle.write(f"{row['num_labeled']},{row['labels_per_class']:.3f},{row['fine_acc']:.4f},"
+                         f"{row['coarse_acc']:.4f},{row['oracle_acc']:.4f},"
+                         f"{row['n_err']},{row['near_frac']:.4f},{row['far_frac']:.4f}\n")
+    print(f"saved -> {summary_csv}", flush=True)
+
+    # Long-format per-class recall table: one (budget, class) row each.
+    per_class_csv = directory / "accuracy_per_class.csv"
+    with open(per_class_csv, "w") as handle:
+        handle.write("num_labeled,class,coarse,recall\n")
+        for row in per_round_metrics:
+            recall = row["per_class"]
+            for fine_class in range(num_classes):
+                value = "" if np.isnan(recall[fine_class]) else f"{recall[fine_class]:.4f}"
+                handle.write(f"{row['num_labeled']},{fine_class},{int(coarse_map[fine_class])},{value}\n")
+    print(f"saved -> {per_class_csv}", flush=True)
 
 
-def write_tables(rows, num_classes, coarse_map, out_base):
-    figdir = run_dir(out_base)
-    # summary: one row per budget with the aggregate metrics
-    summ = figdir / "accuracy_summary.csv"
-    with open(summ, "w") as fh:
-        fh.write("num_labeled,budget_per_class,fine_acc,coarse_acc,oracle_acc,"
-                 "n_errors,near_miss_frac,far_miss_frac\n")
-        for r in rows:
-            fh.write(f"{r['num_labeled']},{r['bpc']:.3f},{r['fine_acc']:.4f},"
-                     f"{r['coarse_acc']:.4f},{r.get('oracle_acc', float('nan')):.4f},"
-                     f"{r['n_err']},{r['near_frac']:.4f},{r['far_frac']:.4f}\n")
-    print(f"saved -> {summ}", flush=True)
-    # long-format per-class table: (num_labeled, class, coarse, recall) one row each
-    perc = figdir / "accuracy_per_class.csv"
-    with open(perc, "w") as fh:
-        fh.write("num_labeled,class,coarse,recall\n")
-        for r in rows:
-            pc = r["per_class"]
-            for c in range(num_classes):
-                val = "" if np.isnan(pc[c]) else f"{pc[c]:.4f}"
-                fh.write(f"{r['num_labeled']},{c},{int(coarse_map[c])},{val}\n")
-    print(f"saved -> {perc}", flush=True)
+def log_wandb_curves(per_round_metrics, segments, summary):
+    # Interactive multi-line charts (not images): the accuracy trio, the error-type
+    # split, and the per-segment slopes; plus the scalar gap/slope summary.
+    x = [row["num_labeled"] for row in per_round_metrics]
 
+    wandb.log({"accuracy_curves": wandb.plot.line_series(
+        xs=x,
+        ys=[[row["fine_acc"] for row in per_round_metrics],
+            [row["coarse_acc"] for row in per_round_metrics],
+            [row["oracle_acc"] for row in per_round_metrics]],
+        keys=["fine (subclass)", "coarse (superclass)", "fine | superclass known"],
+        title="accuracy vs budget", xname="num_labeled")})
 
-def slope_stats(rows):
-    # per consecutive budget pair, the slope (accuracy gained per 100 labels) of
-    # each curve, plus how far apart the two curves are (the vertical gap).
-    segs = []
-    for a, b in zip(rows[:-1], rows[1:]):
-        dx = (b["num_labeled"] - a["num_labeled"]) / 100.0   # width in 100-label units
-        fine_slope = (b["fine_acc"] - a["fine_acc"]) / dx
-        coarse_slope = (b["coarse_acc"] - a["coarse_acc"]) / dx
-        segs.append(dict(
-            x_mid=(a["num_labeled"] + b["num_labeled"]) / 2,   # segment midpoint for plotting
-            num_labeled=b["num_labeled"],                      # step to log the slope at
-            fine_slope=fine_slope, coarse_slope=coarse_slope,
-            slope_diff=coarse_slope - fine_slope,              # 0 => the two rise identically
-        ))
-    # gap = coarse - fine at every budget (constant gap => "same curve, shifted up")
-    gaps = np.array([r["coarse_acc"] - r["fine_acc"] for r in rows])
-    fs = np.array([s["fine_slope"] for s in segs])
-    cs = np.array([s["coarse_slope"] for s in segs])
-    # correlation of the matching slopes: 1.0 => the two curves bend together
-    corr = float(np.corrcoef(fs, cs)[0, 1]) if len(fs) > 1 and fs.std() and cs.std() else float("nan")
-    summary = dict(gap_mean=float(gaps.mean()), gap_std=float(gaps.std()),
-                   slope_corr=corr, slope_diff_mean=float((cs - fs).mean()),
-                   slope_diff_std=float((cs - fs).std()))
-    return segs, gaps, summary
+    wandb.log({"error_type_curves": wandb.plot.line_series(
+        xs=x,
+        ys=[[100 * row["near_frac"] for row in per_round_metrics],
+            [100 * row["far_frac"] for row in per_round_metrics]],
+        keys=["near (same superclass)", "far (other superclass)"],
+        title="error type share vs budget", xname="num_labeled")})
+
+    slope_x = [segment["num_labeled"] for segment in segments]
+    wandb.log({"slope_curves": wandb.plot.line_series(
+        xs=slope_x,
+        ys=[[segment["fine_slope"] for segment in segments],
+            [segment["coarse_slope"] for segment in segments]],
+        keys=["fine slope", "coarse slope"], title="slope per segment", xname="num_labeled")})
+
+    wandb.summary.update(summary)
 
 
 def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, rounds=10,
         split="train", seed=0, dataset="cifar100", coarse_map_path=None,
         use_wandb=False, wandb_kwargs=None):
-    emb = Path(embeddings_dir)
-    # pool features/labels selection runs over
-    train_feats = np.load(emb / f"{split}_features_normalized.npy").astype(np.float32)
-    train_labels = np.load(emb / f"{split}_labels.npy")
-    # test features/labels used only to score
-    test_feats = np.load(emb / "test_features_normalized.npy").astype(np.float32)
-    test_labels = np.load(emb / "test_labels.npy")
+
+    embeddings_path = Path(embeddings_dir)
+
+    # The pool we select from, and the test split we score on.
+    train_features = np.load(embeddings_path / f"{split}_features_normalized.npy").astype(np.float32)
+    train_labels = np.load(embeddings_path / f"{split}_labels.npy")
+    test_features = np.load(embeddings_path / "test_features_normalized.npy").astype(np.float32)
+    test_labels = np.load(embeddings_path / "test_labels.npy")
     num_classes = int(train_labels.max()) + 1
-    # fine->coarse map: explicit file (any dataset) else the built-in CIFAR-100 one.
-    if coarse_map_path:
-        coarse_map = np.load(coarse_map_path)
-    elif dataset == "cifar100":
-        coarse_map = CIFAR100_COARSE
-    else:
+
+    # Fine -> coarse map: an explicit file wins, otherwise the built-in for the dataset.
+    coarse_map = np.load(coarse_map_path) if coarse_map_path else load_coarse_map(embeddings_dir, dataset)
+    if coarse_map is None:
         raise SystemExit(f"no coarse map for dataset={dataset}; pass --coarse_map")
 
-    # resolve --delta the deep_al way (explicit float | knee_delta | auto_delta table);
-    # dataset keys the auto_delta lookup, so it matches the run_active_learning run
-    from delta_selection import resolve_delta
-    delta = resolve_delta(delta, train_feats, num_classes, seed=seed, dataset=dataset)
-    # same selector construction as run_active_learning.py, so the picks are identical
-    selector = SELECTORS[strategy](train_feats, delta=delta, seed=seed)
-    print(f"strategy={strategy} on {train_feats.shape[0]} points", flush=True)
+    # Resolve --delta exactly as run_active_learning does, so the replayed picks match.
+    delta = resolve_delta(delta, train_features, num_classes, seed=seed, dataset=dataset)
 
-    if use_wandb:
-        import wandb
+    # Same selector + 1-NN evaluator as the runner: identical picks, identical scoring.
+    selector = SELECTORS[strategy](train_features, delta=delta, seed=seed)
+    scorer = OneNearestNeighbourEvaluator(train_features, train_labels, test_features, test_labels,
+                                          coarse_map=coarse_map, seed=seed)
+    print(f"strategy={strategy} on {train_features.shape[0]} points", flush=True)
+
+    if use_wandb and wandb is not None:
         wandb.init(**(wandb_kwargs or {}))
-        # every curve shares num_labeled as its x-axis, so they overlay cleanly
-        for k in ("fine_acc", "coarse_acc", "oracle_acc", "gap", "oracle_gain",
-                  "near_pct", "far_pct"):
-            wandb.define_metric(k, step_metric="num_labeled")
+        for metric in ("fine_acc", "coarse_acc", "oracle_acc", "gap", "oracle_gain", "near_pct", "far_pct"):
+            wandb.define_metric(metric, step_metric="num_labeled")   # every curve shares num_labeled as its x-axis
 
-    labeled, rows = [], []
-    for r in range(rounds):
-        # this round's picks; the selector mutates its own covered/selected state
-        chosen = selector.select_round(budget)
-        labeled.extend(chosen)
-        # 1-NN predictions on the whole test split from the current labeled set
-        lab = np.array(labeled)
-        preds = eval_1nn_preds(train_feats, train_labels, lab, test_feats)
-        m = round_metrics(preds, test_labels, coarse_map, num_classes)
-        # oracle accuracy: same labels, but the true superclass is given for free
-        oracle = eval_oracle_preds(train_feats, train_labels, lab, test_feats,
-                                   test_labels, coarse_map)
-        m["oracle_acc"] = 100.0 * float((oracle == test_labels).mean())
-        m["num_labeled"] = len(labeled)
-        m["bpc"] = len(labeled) / num_classes            # budget per class (paper's "B")
-        rows.append(m)
-        print(f"round {r}: labeled={len(labeled)} fine={m['fine_acc']:.2f} "
-              f"coarse={m['coarse_acc']:.2f} oracle={m['oracle_acc']:.2f} "
-              f"near={100*m['near_frac']:.1f}% far={100*m['far_frac']:.1f}%", flush=True)
-        if use_wandb:
-            import wandb
-            # the accuracy trio + gaps + the three-way error-type split
-            wandb.log({"num_labeled": m["num_labeled"], "budget_per_class": m["bpc"],
-                       "fine_acc": m["fine_acc"], "coarse_acc": m["coarse_acc"],
-                       "oracle_acc": m["oracle_acc"],
-                       "gap": m["coarse_acc"] - m["fine_acc"],
-                       "oracle_gain": m["oracle_acc"] - m["fine_acc"],
-                       "near_pct": 100 * m["near_frac"], "far_pct": 100 * m["far_frac"]})
+    labeled_indices = []
+    per_round_metrics = []
+    for round_index in range(rounds):
 
-    # slope of each curve between consecutive budgets + how alike the two are
-    segs, gaps, summary = slope_stats(rows)
-    if use_wandb:
-        import wandb
-        wandb.define_metric("fine_slope", step_metric="num_labeled")
-        wandb.define_metric("coarse_slope", step_metric="num_labeled")
-        wandb.define_metric("slope_diff", step_metric="num_labeled")
-        # log the per-segment slopes as their own overlaid curves
-        for s in segs:
-            wandb.log({"num_labeled": s["num_labeled"], "fine_slope": s["fine_slope"],
-                       "coarse_slope": s["coarse_slope"], "slope_diff": s["slope_diff"]})
-        # scalars: constant gap + slope_corr~1 == "same shape, just shifted up"
-        wandb.summary.update(summary)
-        print(f"gap_mean={summary['gap_mean']:.2f} gap_std={summary['gap_std']:.2f} "
-              f"slope_corr={summary['slope_corr']:.3f}", flush=True)
+        labeled_indices.extend(selector.select_round(budget))   # this round's picks; selector mutates itself
+        labeled_array = np.array(labeled_indices)
 
-    # output path mirrors embeddings/<dataset>/<technique>/<old_deep_al|new_solo_learn>;
-    # strategy + budget are defaults (tracked in wandb), so left out of the folder name
-    ds, technique, family = emb.parts[-3], emb.parts[-2], emb.parts[-1]
-    out_base = f"{ds}/{technique}/{family}_d{delta}"
-    png = curve_figure(rows, out_base)
-    write_tables(rows, num_classes, coarse_map, out_base)
-    if use_wandb:
-        import wandb
-        xs = [r["num_labeled"] for r in rows]
-        # native interactive multi-line charts (not images): the accuracy trio and
-        # the three-way error split, each rendered as one overlaid line panel.
-        wandb.log({"accuracy_curves": wandb.plot.line_series(
-            xs=xs, ys=[[r["fine_acc"] for r in rows], [r["coarse_acc"] for r in rows],
-                       [r["oracle_acc"] for r in rows]],
-            keys=["fine (subclass)", "coarse (superclass)", "fine | superclass known"],
-            title="accuracy vs budget", xname="num_labeled")})
-        wandb.log({"error_type_curves": wandb.plot.line_series(
-            xs=xs, ys=[[100 * r["near_frac"] for r in rows], [100 * r["far_frac"] for r in rows]],
-            keys=["near (same superclass)", "far (other superclass)"],
-            title="error type share vs budget", xname="num_labeled")})
-        # slopes as their own overlaid chart (fine vs coarse gain per +100 labels)
-        sx = [s["num_labeled"] for s in segs]
-        wandb.log({"slope_curves": wandb.plot.line_series(
-            xs=sx, ys=[[s["fine_slope"] for s in segs], [s["coarse_slope"] for s in segs]],
-            keys=["fine slope", "coarse slope"], title="slope per segment", xname="num_labeled")})
+        # Fine predictions drive fine/coarse/near/far; the oracle predictions give the upper bound.
+        fine_predictions = scorer.predict(labeled_array)
+        oracle_predictions = scorer.predict_within_true_superclass(labeled_array)
+
+        metrics = round_metrics(fine_predictions, test_labels, coarse_map, num_classes)
+        metrics["oracle_acc"] = 100.0 * float((oracle_predictions == test_labels).mean())
+        metrics["num_labeled"] = len(labeled_indices)
+        metrics["labels_per_class"] = len(labeled_indices) / num_classes      # the paper's "B"
+        per_round_metrics.append(metrics)
+
+        print(f"round {round_index}: labeled={metrics['num_labeled']} "
+              f"fine={metrics['fine_acc']:.2f} coarse={metrics['coarse_acc']:.2f} "
+              f"oracle={metrics['oracle_acc']:.2f} "
+              f"near={100 * metrics['near_frac']:.1f}% far={100 * metrics['far_frac']:.1f}%", flush=True)
+
+        if use_wandb and wandb is not None:
+            wandb.log({
+                "num_labeled": metrics["num_labeled"], "budget_per_class": metrics["labels_per_class"],
+                "fine_acc": metrics["fine_acc"], "coarse_acc": metrics["coarse_acc"],
+                "oracle_acc": metrics["oracle_acc"],
+                "gap": metrics["coarse_acc"] - metrics["fine_acc"],
+                "oracle_gain": metrics["oracle_acc"] - metrics["fine_acc"],
+                "near_pct": 100 * metrics["near_frac"], "far_pct": 100 * metrics["far_frac"],
+            })
+
+    # How fast each curve rises, and how alike the fine/coarse curves are overall.
+    segments, summary = compute_slope_stats(per_round_metrics)
+    print(f"gap_mean={summary['gap_mean']:.2f} gap_std={summary['gap_std']:.2f} "
+          f"slope_corr={summary['slope_corr']:.3f}", flush=True)
+
+    output_base = figure_output_base(embeddings_dir, delta)
+    save_accuracy_curves(per_round_metrics, output_base)
+    save_tables(per_round_metrics, num_classes, coarse_map, output_base)
+
+    if use_wandb and wandb is not None:
+        log_wandb_curves(per_round_metrics, segments, summary)
         wandb.finish()
-    return rows
+
+    return per_round_metrics
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--embeddings_dir", required=True,
-                   help="dir with <split>_features_normalized.npy + labels + test_*")
-    p.add_argument("--strategy", default="probcover", choices=list(SELECTORS))
-    p.add_argument("--delta", default="auto_delta",
-                   help="a float, 'knee_delta', or 'auto_delta' (default: pinned table, knee fallback)")
-    p.add_argument("--budget", type=int, default=100, help="points labeled per round")
-    p.add_argument("--rounds", type=int, default=10)
-    p.add_argument("--split", default="train")
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--dataset", default="cifar100", help="chooses the built-in fine->coarse map")
-    p.add_argument("--coarse_map", default=None,
-                   help="path to a (num_classes,) fine->coarse .npy (overrides --dataset)")
-    # wandb: interactive curves; default project for these prior/oracle studies
-    p.add_argument("--wandb", action="store_true")
-    p.add_argument("--project", default="applying_priors")
-    p.add_argument("--name", default=None)
-    p.add_argument("--group", default="error_analysis")
-    args = p.parse_args()
-    # wandb run name = <dataset>_<technique>_<family>, so overlaying old vs new is trivial
-    p = Path(args.embeddings_dir)
-    tag = "_".join(p.parts[-3:])
-    name = args.name or f"{tag}_{args.strategy}_d{args.delta}"
-    wandb_kwargs = dict(project=args.project, name=name, group=args.group,
+    parser = argparse.ArgumentParser(
+        description="Fine vs coarse vs superclass-oracle accuracy and the near/far error split, vs budget.")
+
+    parser.add_argument("--embeddings_dir", required=True, help="embeddings/<dataset>/<technique>/<source>")
+    parser.add_argument("--strategy", default="probcover", choices=list(SELECTORS), help="selection strategy to replay")
+    parser.add_argument("--delta", default="auto_delta",
+                        help="a float, 'knee_delta', or 'auto_delta' (default: pinned table, knee fallback)")
+    parser.add_argument("--dataset", default="cifar100", help="keys the auto_delta table and the built-in coarse map")
+    parser.add_argument("--coarse_map", default=None,
+                        help="path to a (num_classes,) fine->coarse .npy (overrides the built-in --dataset map)")
+    parser.add_argument("--budget", type=int, default=100, help="points labeled per round")
+    parser.add_argument("--rounds", type=int, default=10)
+    parser.add_argument("--split", default="train")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--wandb", action="store_true")
+    parser.add_argument("--project", default="applying_priors")
+    parser.add_argument("--name", default=None)
+    parser.add_argument("--group", default="error_analysis")
+    args = parser.parse_args()
+
+    run_name = args.name or f"{wandb_run_tag(args.embeddings_dir)}_{args.strategy}"
+    wandb_kwargs = dict(project=args.project, name=run_name, group=args.group,
                         config=dict(embeddings_dir=args.embeddings_dir, strategy=args.strategy,
                                     delta=args.delta, budget=args.budget, rounds=args.rounds,
                                     split=args.split, seed=args.seed))
-    run(args.embeddings_dir, strategy=args.strategy, delta=args.delta,
-        budget=args.budget, rounds=args.rounds, split=args.split,
-        seed=args.seed, dataset=args.dataset, coarse_map_path=args.coarse_map,
-        use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
+    run(args.embeddings_dir, strategy=args.strategy, delta=args.delta, budget=args.budget,
+        rounds=args.rounds, split=args.split, seed=args.seed, dataset=args.dataset,
+        coarse_map_path=args.coarse_map, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
 
 
 if __name__ == "__main__":

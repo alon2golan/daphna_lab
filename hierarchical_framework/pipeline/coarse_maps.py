@@ -14,6 +14,33 @@ CIFAR100_COARSE = np.array([
     16, 19, 2, 4, 6, 19, 5, 5, 8, 19, 18, 1, 2, 15, 6, 0, 17, 8, 14, 13,
 ], dtype=np.int64)
 
+# Human-readable names for the 20 CIFAR-100 superclasses, indexed by coarse id.
+CIFAR100_COARSE_NAMES = [
+    "aquatic mammals", "fish", "flowers", "food containers", "fruit/veg",
+    "electrical devices", "furniture", "insects", "large carnivores",
+    "man-made outdoor", "natural outdoor", "large omni/herbiv",
+    "medium mammals", "non-insect inverts", "people", "reptiles",
+    "small mammals", "trees", "vehicles 1", "vehicles 2",
+]
+
+# Names for the 100 CIFAR-100 fine classes, in torchvision (alphabetical) label order.
+CIFAR100_FINE_NAMES = [
+    "apple", "aquarium_fish", "baby", "bear", "beaver", "bed", "bee", "beetle",
+    "bicycle", "bottle", "bowl", "boy", "bridge", "bus", "butterfly", "camel",
+    "can", "castle", "caterpillar", "cattle", "chair", "chimpanzee", "clock",
+    "cloud", "cockroach", "couch", "crab", "crocodile", "cup", "dinosaur",
+    "dolphin", "elephant", "flatfish", "forest", "fox", "girl", "hamster",
+    "house", "kangaroo", "keyboard", "lamp", "lawn_mower", "leopard", "lion",
+    "lizard", "lobster", "man", "maple_tree", "motorcycle", "mountain", "mouse",
+    "mushroom", "oak_tree", "orange", "orchid", "otter", "palm_tree", "pear",
+    "pickup_truck", "pine_tree", "plain", "plate", "poppy", "porcupine",
+    "possum", "rabbit", "raccoon", "ray", "road", "rocket", "rose", "sea",
+    "seal", "shark", "shrew", "skunk", "skyscraper", "snail", "snake", "spider",
+    "squirrel", "streetcar", "sunflower", "sweet_pepper", "table", "tank",
+    "telephone", "television", "tiger", "tractor", "train", "trout", "tulip",
+    "turtle", "wardrobe", "whale", "willow_tree", "wolf", "woman", "worm",
+]
+
 
 def load_coarse_map(embeddings_dir, dataset="cifar100"):
     """Loads custom map from disk, falls back to CIFAR-100 defaults, or returns None."""

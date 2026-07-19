@@ -1,232 +1,218 @@
-# What did the 1-NN classifier actually confuse? Builds superclass confusion
-# heatmaps and lists the concrete (true -> guessed) mistakes, for TWO predictors
-# side by side:
-#   ceiling  = 1-NN fit on ALL train labels  -> the embedding's own ceiling
+# What did the 1-NN classifier actually confuse? Builds superclass confusion heatmaps
+# and lists the concrete (true -> guessed) mistakes, for TWO predictors side by side:
+#
+#   ceiling  = 1-NN fit on ALL train labels           -> the embedding's own ceiling
 #              (how good the representation is, ignoring active learning)
-#   selected = 1-NN fit only on the ~budget*rounds points the strategy selected
-#              (what the AL run actually achieves)
+#   selected = 1-NN fit only on the strategy's picks   -> what the AL run actually achieves
+#
 # Outputs go to outputs/figures/error_analysis/<dataset>/<technique>/<source>_d<delta>/.
+# Reuses the pipeline's selector, 1-NN evaluator, coarse map, and names.
 
 import argparse
 import sys
 from pathlib import Path
 
 import numpy as np
+import matplotlib
 
-# hierarchical_framework/ root (analysis/ -> up one); make the pipeline package
-# importable for the shared selectors, and land figures in outputs/
+matplotlib.use("Agg")                        # render figures straight to file, no display
+import matplotlib.pyplot as plt
+
+try:
+    import wandb
+except ImportError:
+    wandb = None                             # only used for --wandb runs; absent in .venv_clean
+
+# hierarchical_framework/ root (analysis/ -> up one); put pipeline/ on the path for the
+# shared selector, evaluator, coarse map + names, delta resolution, and output naming.
 HF_ROOT = Path(__file__).resolve().parents[1]
 OUTPUTS = HF_ROOT / "outputs"
 if str(HF_ROOT / "pipeline") not in sys.path:
     sys.path.insert(0, str(HF_ROOT / "pipeline"))
 
 from selection_strategies import SELECTORS
-from coarse_maps import CIFAR100_COARSE
+from evaluators import OneNearestNeighbourEvaluator
+from coarse_maps import CIFAR100_COARSE, CIFAR100_COARSE_NAMES as SUPERCLASS_NAMES, CIFAR100_FINE_NAMES as FINE_NAMES
+from delta_selection import resolve_delta
+from output_paths import figure_output_base, wandb_run_tag
+
+NUM_SUPERCLASSES = len(SUPERCLASS_NAMES)     # 20 for CIFAR-100
 
 
-# 20 CIFAR-100 superclass names, indexed by coarse id (matches CIFAR100_COARSE)
-COARSE_NAMES = [
-    "aquatic mammals", "fish", "flowers", "food containers", "fruit/veg",
-    "electrical devices", "furniture", "insects", "large carnivores",
-    "man-made outdoor", "natural outdoor", "large omni/herbiv",
-    "medium mammals", "non-insect inverts", "people", "reptiles",
-    "small mammals", "trees", "vehicles 1", "vehicles 2",
-]
-
-# 100 CIFAR-100 fine class names in torchvision (alphabetical) label order
-FINE_NAMES = [
-    "apple", "aquarium_fish", "baby", "bear", "beaver", "bed", "bee", "beetle",
-    "bicycle", "bottle", "bowl", "boy", "bridge", "bus", "butterfly", "camel",
-    "can", "castle", "caterpillar", "cattle", "chair", "chimpanzee", "clock",
-    "cloud", "cockroach", "couch", "crab", "crocodile", "cup", "dinosaur",
-    "dolphin", "elephant", "flatfish", "forest", "fox", "girl", "hamster",
-    "house", "kangaroo", "keyboard", "lamp", "lawn_mower", "leopard", "lion",
-    "lizard", "lobster", "man", "maple_tree", "motorcycle", "mountain", "mouse",
-    "mushroom", "oak_tree", "orange", "orchid", "otter", "palm_tree", "pear",
-    "pickup_truck", "pine_tree", "plain", "plate", "poppy", "porcupine",
-    "possum", "rabbit", "raccoon", "ray", "road", "rocket", "rose", "sea",
-    "seal", "shark", "shrew", "skunk", "skyscraper", "snail", "snake", "spider",
-    "squirrel", "streetcar", "sunflower", "sweet_pepper", "table", "tank",
-    "telephone", "television", "tiger", "tractor", "train", "trout", "tulip",
-    "turtle", "wardrobe", "whale", "willow_tree", "wolf", "woman", "worm",
-]
+def coarse_confusion_matrix(fine_predictions, fine_truth, coarse_map):
+    # 20x20 count matrix: entry [t, p] = how many points whose TRUE superclass is t were
+    # PREDICTED into superclass p (the diagonal is the correct-superclass count).
+    true_superclasses = coarse_map[fine_truth]
+    predicted_superclasses = coarse_map[fine_predictions]
+    matrix = np.zeros((NUM_SUPERCLASSES, NUM_SUPERCLASSES), dtype=int)
+    np.add.at(matrix, (true_superclasses, predicted_superclasses), 1)
+    return matrix
 
 
-def one_nn(train_feats, train_labels, fit_idx, test_feats):
-    # 1-NN fit on the chosen train subset (fit_idx), predict every test point
-    from sklearn.neighbors import KNeighborsClassifier
-    clf = KNeighborsClassifier(n_neighbors=1)
-    clf.fit(train_feats[fit_idx], train_labels[fit_idx])
-    return clf.predict(test_feats)
+def draw_heatmap(ax, confusion_matrix, title):
+    # Row-normalize to percentages, so every true-superclass row sums to 100.
+    row_totals = confusion_matrix.sum(axis=1, keepdims=True)
+    row_percentages = 100.0 * confusion_matrix / np.clip(row_totals, 1, None)
+
+    image = ax.imshow(row_percentages, cmap="magma", vmin=0, vmax=100)
+    ax.set_xticks(range(NUM_SUPERCLASSES))
+    ax.set_yticks(range(NUM_SUPERCLASSES))
+    ax.set_xticklabels(SUPERCLASS_NAMES, rotation=90, fontsize=6)
+    ax.set_yticklabels(SUPERCLASS_NAMES, fontsize=6)
+    ax.set_xlabel("predicted superclass")
+    ax.set_ylabel("true superclass")
+
+    # Coarse accuracy = trace / total = fraction that landed in the right superclass.
+    coarse_accuracy = 100.0 * np.trace(confusion_matrix) / confusion_matrix.sum()
+    ax.set_title(f"{title}\ncoarse acc = {coarse_accuracy:.1f}%  (bright diagonal = good)")
+    return image
 
 
-def probcover_idx(train_feats, strategy, delta, budget, rounds, seed):
-    # replay the AL run and return the full set of selected point indices
-    sel = SELECTORS[strategy](train_feats, delta=delta, seed=seed)
-    idx = []
-    for _ in range(rounds):
-        idx.extend(sel.select_round(budget))
-    return np.array(idx)
+def write_mistakes_table(fine_predictions, fine_truth, coarse_map, out_csv):
+    # One row per wrong test point: what it was, what it was guessed as, and whether the
+    # guess at least landed in the right superclass.
+    wrong_indices = np.where(fine_predictions != fine_truth)[0]
+    with open(out_csv, "w") as handle:
+        handle.write("test_idx,true_fine,true_name,pred_fine,pred_name,true_super,pred_super,same_superclass\n")
+        for test_index in wrong_indices:
+            true_class = int(fine_truth[test_index])
+            predicted_class = int(fine_predictions[test_index])
+            same_superclass = int(coarse_map[true_class] == coarse_map[predicted_class])
+            handle.write(f"{test_index},{true_class},{FINE_NAMES[true_class]},"
+                         f"{predicted_class},{FINE_NAMES[predicted_class]},"
+                         f"{SUPERCLASS_NAMES[coarse_map[true_class]]},{SUPERCLASS_NAMES[coarse_map[predicted_class]]},"
+                         f"{same_superclass}\n")
+    return len(wrong_indices)
 
 
-def coarse_confusion(preds, truth, coarse_map, n_coarse=20):
-    # 20x20 count matrix M[t, p] = #(true superclass t predicted as p)
-    tc, pc = coarse_map[truth], coarse_map[preds]
-    M = np.zeros((n_coarse, n_coarse), dtype=int)
-    np.add.at(M, (tc, pc), 1)
-    return M
+def write_confused_pairs(fine_predictions, fine_truth, coarse_map, out_csv, top_k=30):
+    # Aggregate the mistakes into (true_fine -> pred_fine) pairs, most frequent first.
+    is_error = fine_predictions != fine_truth
+    pair_counts = {}
+    for true_class, predicted_class in zip(fine_truth[is_error], fine_predictions[is_error]):
+        key = (int(true_class), int(predicted_class))
+        pair_counts[key] = pair_counts.get(key, 0) + 1
+    ranked_pairs = sorted(pair_counts.items(), key=lambda item: item[1], reverse=True)
+
+    with open(out_csv, "w") as handle:
+        handle.write("true_name,pred_name,count,same_superclass\n")
+        for (true_class, predicted_class), count in ranked_pairs:
+            same_superclass = int(coarse_map[true_class] == coarse_map[predicted_class])
+            handle.write(f"{FINE_NAMES[true_class]},{FINE_NAMES[predicted_class]},{count},{same_superclass}\n")
+
+    # Return the top-k as readable tuples for the console.
+    return [
+        ((FINE_NAMES[true_class], FINE_NAMES[predicted_class]), count,
+         int(coarse_map[true_class] == coarse_map[predicted_class]))
+        for (true_class, predicted_class), count in ranked_pairs[:top_k]
+    ]
 
 
-def heatmap(ax, M, title):
-    # row-normalize to percentages so every true-superclass row sums to 100
-    row = M.sum(axis=1, keepdims=True)
-    pct = 100.0 * M / np.clip(row, 1, None)
-    im = ax.imshow(pct, cmap="magma", vmin=0, vmax=100)
-    ax.set_xticks(range(len(COARSE_NAMES))); ax.set_yticks(range(len(COARSE_NAMES)))
-    ax.set_xticklabels(COARSE_NAMES, rotation=90, fontsize=6)
-    ax.set_yticklabels(COARSE_NAMES, fontsize=6)
-    ax.set_xlabel("predicted superclass"); ax.set_ylabel("true superclass")
-    # diagonal accuracy = trace / total, the coarse accuracy
-    acc = 100.0 * np.trace(M) / M.sum()
-    ax.set_title(f"{title}\ncoarse acc = {acc:.1f}%  (bright diagonal = good)")
-    return im
-
-
-def mistakes_table(preds, truth, coarse_map, out_csv):
-    # every wrong test point: what it was vs what it was guessed as, and whether
-    # the guess at least landed in the right superclass
-    err = np.where(preds != truth)[0]
-    with open(out_csv, "w") as fh:
-        fh.write("test_idx,true_fine,true_name,pred_fine,pred_name,"
-                 "true_super,pred_super,same_superclass\n")
-        for i in err:
-            t, p = int(truth[i]), int(preds[i])
-            same = int(coarse_map[t] == coarse_map[p])
-            fh.write(f"{i},{t},{FINE_NAMES[t]},{p},{FINE_NAMES[p]},"
-                     f"{COARSE_NAMES[coarse_map[t]]},{COARSE_NAMES[coarse_map[p]]},{same}\n")
-    return len(err)
-
-
-def confused_pairs(preds, truth, coarse_map, out_csv, topk=30):
-    # aggregate the mistakes into (true_fine -> pred_fine) pairs, most frequent first
-    err = preds != truth
-    pairs = {}
-    for t, p in zip(truth[err], preds[err]):
-        pairs[(int(t), int(p))] = pairs.get((int(t), int(p)), 0) + 1
-    ranked = sorted(pairs.items(), key=lambda kv: kv[1], reverse=True)
-    with open(out_csv, "w") as fh:
-        fh.write("true_name,pred_name,count,same_superclass\n")
-        for (t, p), c in ranked:
-            same = int(coarse_map[t] == coarse_map[p])
-            fh.write(f"{FINE_NAMES[t]},{FINE_NAMES[p]},{c},{same}\n")
-    # return the top-k for printing to the console
-    return [((FINE_NAMES[t], FINE_NAMES[p]), c,
-             int(coarse_map[t] == coarse_map[p])) for (t, p), c in ranked[:topk]]
-
-
-def log_wandb_confusion(preds_full, preds_pc, test_labels, coarse_map, wandb_kwargs, png=None):
-    import wandb
+def log_wandb_confusion(predictions_by_name, test_labels, coarse_map, wandb_kwargs, figure_png=None):
     wandb.init(**wandb_kwargs)
-    # map fine truth/preds up to the 20 superclasses for a readable 20x20 matrix
-    tc = coarse_map[test_labels]
-    for name, preds in [("ceiling", preds_full), ("selected", preds_pc)]:
-        pc = coarse_map[preds]
-        # wandb's interactive confusion matrix: hover a cell to read the count
+    true_superclasses = coarse_map[test_labels]
+    for name, fine_predictions in predictions_by_name.items():
+        predicted_superclasses = coarse_map[fine_predictions]
+        # wandb's interactive confusion matrix: hover a cell to read the count.
         wandb.log({f"coarse_confusion_{name}": wandb.plot.confusion_matrix(
-            y_true=tc.tolist(), preds=pc.tolist(), class_names=COARSE_NAMES)})
-    # also upload the rendered side-by-side figure as an image panel
-    if png is not None:
-        wandb.log({"confusion_matrix": wandb.Image(str(png))})
+            y_true=true_superclasses.tolist(), preds=predicted_superclasses.tolist(),
+            class_names=SUPERCLASS_NAMES)})
+    if figure_png is not None:
+        wandb.log({"confusion_matrix": wandb.Image(str(figure_png))})
     wandb.finish()
 
 
 def run(embeddings_dir, strategy="probcover", delta="auto_delta", budget=100, rounds=10,
-        split="train", seed=0, dataset="cifar100", topk=20, use_wandb=False, wandb_kwargs=None):
-    emb = Path(embeddings_dir)
-    train_feats = np.load(emb / f"{split}_features_normalized.npy").astype(np.float32)
-    train_labels = np.load(emb / f"{split}_labels.npy")
-    test_feats = np.load(emb / "test_features_normalized.npy").astype(np.float32)
-    test_labels = np.load(emb / "test_labels.npy")
+        split="train", seed=0, dataset="cifar100", top_k=20, use_wandb=False, wandb_kwargs=None):
+
+    embeddings_path = Path(embeddings_dir)
+    train_features = np.load(embeddings_path / f"{split}_features_normalized.npy").astype(np.float32)
+    train_labels = np.load(embeddings_path / f"{split}_labels.npy")
+    test_features = np.load(embeddings_path / "test_features_normalized.npy").astype(np.float32)
+    test_labels = np.load(embeddings_path / "test_labels.npy")
     coarse_map = CIFAR100_COARSE
     num_classes = int(train_labels.max()) + 1
     print(f"test set = {len(test_labels)} images, {num_classes} classes", flush=True)
 
-    # resolve --delta the same way run_active_learning does, so the replayed picks match
-    from delta_selection import resolve_delta
-    delta = resolve_delta(delta, train_feats, num_classes, seed=seed, dataset=dataset)
+    # Resolve --delta the same way run_active_learning does, so the replayed picks match.
+    delta = resolve_delta(delta, train_features, num_classes, seed=seed, dataset=dataset)
 
-    # predictor 1: the embedding ceiling -- 1-NN using ALL train labels
-    full_idx = np.arange(len(train_labels))
-    preds_full = one_nn(train_feats, train_labels, full_idx, test_feats)
-    # predictor 2: what ProbCover's selected labels achieve
-    pc_idx = probcover_idx(train_feats, strategy, delta, budget, rounds, seed)
-    preds_pc = one_nn(train_feats, train_labels, pc_idx, test_feats)
+    # Replay the AL run to get the exact set of selected points.
+    selector = SELECTORS[strategy](train_features, delta=delta, seed=seed)
+    selected_indices = []
+    for _ in range(rounds):
+        selected_indices.extend(selector.select_round(budget))
+    selected_indices = np.array(selected_indices)
 
-    # output path mirrors embeddings/<dataset>/<technique>/<old_deep_al|new_solo_learn>
-    ds, technique, family = emb.parts[-3], emb.parts[-2], emb.parts[-1]
-    out_base = f"{ds}/{technique}/{family}_d{delta}"
-    outdir = OUTPUTS / "figures" / "error_analysis" / out_base
-    outdir.mkdir(parents=True, exist_ok=True)
+    # Two 1-NN predictors via the shared evaluator: the embedding ceiling (all labels) vs
+    # what the AL selection achieves.
+    scorer = OneNearestNeighbourEvaluator(train_features, train_labels, test_features, test_labels, seed=seed)
+    ceiling_predictions = scorer.predict(np.arange(len(train_labels)))
+    selected_predictions = scorer.predict(selected_indices)
+    predictions_by_name = {"ceiling": ceiling_predictions, "selected": selected_predictions}
 
-    # side-by-side coarse confusion heatmaps: ceiling vs probcover
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    # One output folder per run, shared with accuracy_vs_budget.
+    output_dir = OUTPUTS / "figures" / "error_analysis" / figure_output_base(embeddings_dir, delta)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Side-by-side coarse confusion heatmaps: ceiling vs selected.
     fig, ax = plt.subplots(1, 2, figsize=(18, 8))
-    M_full = coarse_confusion(preds_full, test_labels, coarse_map)
-    M_pc = coarse_confusion(preds_pc, test_labels, coarse_map)
-    heatmap(ax[0], M_full, f"embedding ceiling (1-NN on all {len(full_idx)} labels)")
-    im = heatmap(ax[1], M_pc, f"probcover (1-NN on {len(pc_idx)} selected labels)")
-    fig.colorbar(im, ax=ax, fraction=0.02, label="% of true-superclass row")
-    png = outdir / "confusion_matrix.png"
-    fig.savefig(png, dpi=140, bbox_inches="tight"); plt.close(fig)
-    print(f"saved -> {png}", flush=True)
+    draw_heatmap(ax[0], coarse_confusion_matrix(ceiling_predictions, test_labels, coarse_map),
+                 f"embedding ceiling (1-NN on all {len(train_labels)} labels)")
+    image = draw_heatmap(ax[1], coarse_confusion_matrix(selected_predictions, test_labels, coarse_map),
+                         f"selected (1-NN on {len(selected_indices)} selected labels)")
+    fig.colorbar(image, ax=ax, fraction=0.02, label="% of true-superclass row")
+    figure_png = output_dir / "confusion_matrix.png"
+    fig.savefig(figure_png, dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    print(f"saved -> {figure_png}", flush=True)
 
-    # per-predictor (ceiling = 1-NN on all labels, selected = 1-NN on the AL picks):
-    # the concrete mistakes + the most confused fine-class pairs
-    for name, preds in [("ceiling", preds_full), ("selected", preds_pc)]:
-        n_err = mistakes_table(preds, test_labels, coarse_map, outdir / f"confusion_mistakes_{name}.csv")
-        top = confused_pairs(preds, test_labels, coarse_map, outdir / f"confusion_pairs_{name}.csv", topk)
-        fine = 100.0 * float((preds == test_labels).mean())
-        print(f"\n[{name}] fine acc={fine:.2f}%  errors={n_err}/{len(test_labels)}", flush=True)
-        print(f"  saved -> {outdir / f'confusion_mistakes_{name}.csv'}", flush=True)
-        print(f"  saved -> {outdir / f'confusion_pairs_{name}.csv'}", flush=True)
-        print(f"  top confusions (true -> guessed, count, same-superclass?):", flush=True)
-        for (t, p), c, same in top[:12]:
-            mark = "same-super" if same else "CROSS-super"
-            print(f"    {t:>16} -> {p:<16} {c:4d}  [{mark}]", flush=True)
+    # Per predictor: the concrete mistakes + the most confused fine-class pairs.
+    for name, fine_predictions in predictions_by_name.items():
+        error_count = write_mistakes_table(fine_predictions, test_labels, coarse_map,
+                                           output_dir / f"confusion_mistakes_{name}.csv")
+        top_pairs = write_confused_pairs(fine_predictions, test_labels, coarse_map,
+                                         output_dir / f"confusion_pairs_{name}.csv", top_k)
+        fine_accuracy = 100.0 * float((fine_predictions == test_labels).mean())
 
-    # optionally push the two coarse confusion matrices + the figure to wandb
-    if use_wandb:
-        log_wandb_confusion(preds_full, preds_pc, test_labels, coarse_map, wandb_kwargs, png=png)
+        print(f"\n[{name}] fine acc={fine_accuracy:.2f}%  errors={error_count}/{len(test_labels)}", flush=True)
+        print(f"  saved -> {output_dir / f'confusion_mistakes_{name}.csv'}", flush=True)
+        print(f"  saved -> {output_dir / f'confusion_pairs_{name}.csv'}", flush=True)
+        print("  top confusions (true -> guessed, count, same-superclass?):", flush=True)
+        for (true_name, predicted_name), count, same_superclass in top_pairs[:12]:
+            mark = "same-super" if same_superclass else "CROSS-super"
+            print(f"    {true_name:>16} -> {predicted_name:<16} {count:4d}  [{mark}]", flush=True)
+
+    if use_wandb and wandb is not None:
+        log_wandb_confusion(predictions_by_name, test_labels, coarse_map, wandb_kwargs, figure_png=figure_png)
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--embeddings_dir", required=True)
-    p.add_argument("--strategy", default="probcover", choices=list(SELECTORS))
-    p.add_argument("--delta", default="auto_delta",
-                   help="a float, 'knee_delta', or 'auto_delta' (default: pinned table, knee fallback)")
-    p.add_argument("--dataset", default="cifar100", help="dataset name for the auto_delta table lookup")
-    p.add_argument("--budget", type=int, default=100)
-    p.add_argument("--rounds", type=int, default=10)
-    p.add_argument("--split", default="train")
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--topk", type=int, default=20, help="how many confused pairs to keep")
-    p.add_argument("--wandb", action="store_true")
-    p.add_argument("--project", default="applying_priors")
-    p.add_argument("--group", default="confusion")
-    args = p.parse_args()
-    p = Path(args.embeddings_dir)
-    tag = "_".join(p.parts[-3:]) # <dataset>_<technique>_<family> for the wandb run name
-    wandb_kwargs = dict(project=args.project, group=args.group,
-                        name=f"{tag}_{args.strategy}_d{args.delta}",
+    parser = argparse.ArgumentParser(
+        description="Superclass confusion heatmaps + confused-pair lists: embedding ceiling vs the AL selection.")
+
+    parser.add_argument("--embeddings_dir", required=True, help="embeddings/<dataset>/<technique>/<source>")
+    parser.add_argument("--strategy", default="probcover", choices=list(SELECTORS), help="selection strategy to replay")
+    parser.add_argument("--delta", default="auto_delta",
+                        help="a float, 'knee_delta', or 'auto_delta' (default: pinned table, knee fallback)")
+    parser.add_argument("--dataset", default="cifar100", help="dataset name for the auto_delta table lookup")
+    parser.add_argument("--budget", type=int, default=100)
+    parser.add_argument("--rounds", type=int, default=10)
+    parser.add_argument("--split", default="train")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--topk", dest="top_k", type=int, default=20, help="how many confused pairs to keep")
+    parser.add_argument("--wandb", action="store_true")
+    parser.add_argument("--project", default="applying_priors")
+    parser.add_argument("--group", default="confusion")
+    args = parser.parse_args()
+
+    run_name = f"{wandb_run_tag(args.embeddings_dir)}_{args.strategy}"
+    wandb_kwargs = dict(project=args.project, group=args.group, name=run_name,
                         config=dict(embeddings_dir=args.embeddings_dir, strategy=args.strategy,
                                     delta=args.delta, budget=args.budget, rounds=args.rounds))
-    run(args.embeddings_dir, strategy=args.strategy, delta=args.delta,
-        budget=args.budget, rounds=args.rounds, split=args.split,
-        seed=args.seed, dataset=args.dataset, topk=args.topk,
-        use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
+    run(args.embeddings_dir, strategy=args.strategy, delta=args.delta, budget=args.budget,
+        rounds=args.rounds, split=args.split, seed=args.seed, dataset=args.dataset,
+        top_k=args.top_k, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
 
 
 if __name__ == "__main__":

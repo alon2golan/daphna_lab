@@ -25,6 +25,7 @@ from evaluators import EVALUATORS
 from coarse_maps import load_coarse_map
 from delta_selection import resolve_delta
 from selection_diagnostics import plot_picks_per_class, plot_coverage_gain
+from output_paths import figure_output_base
 from run_logging import RunLogger
 
 
@@ -97,8 +98,7 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
 
     # Diagnostics are opt-in (--figures): generate them once per seed, not on every run. Local files only.
     if figures:
-        dataset_name, technique_name, source_name = embeddings_path.parts[-3:]
-        output_base = f"{dataset_name}/{technique_name}/{source_name}_d{delta}"
+        output_base = figure_output_base(embeddings_dir, delta)   # cifar100/simclr/<source>_d<delta>
 
         plot_picks_per_class(picked_classes_by_round, num_classes, output_base)
 
