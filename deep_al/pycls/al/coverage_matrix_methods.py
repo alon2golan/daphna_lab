@@ -39,7 +39,7 @@ class   CoverageMatrixMethod:
             cfg.ACTIVE_LEARNING.INITIAL_DELTA = ds_utils.select_delta(
                 features=self.all_features,
                 num_classes=self.cfg.MODEL.NUM_CLASSES,
-                seed=self.seed
+                classifier_on_raw_images=(self.cfg.EVAL_MODEL_TYPE == "from_images")
             )
 
             elapsed = time.time() - start_time
