@@ -32,8 +32,9 @@ from shared.wandb_logger import RunLogger
 
 
 def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle=False,
-        log_coarse=False, label_granularity="fine", delta="auto_delta", budget=100, rounds=10,
-        split="train", seed=0, dataset="cifar100", use_wandb=False, wandb_kwargs=None):
+        log_coarse=False, label_granularity="fine", label_cost_ratio=5.0, delta="auto_delta",
+        budget=100, rounds=10, split="train", seed=0, dataset="cifar100",
+        use_wandb=False, wandb_kwargs=None):
 
     embeddings_path = Path(embeddings_dir)
 
@@ -84,7 +85,13 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
     # coarse-direct curves together on test_coarse_accuracy -- the valid same-task cross comparison.
     acc_metric = "test_coarse_accuracy" if label_granularity == "coarse" else "test_accuracy"
     logger = RunLogger(use_wandb=use_wandb, wandb_kwargs=wandb_kwargs, acc_metric=acc_metric)
-    logger.set_config(resolved_delta=float(delta))
+
+    # Cost per revealed label: a coarse label costs 1 unit, a fine label costs label_cost_ratio units
+    # (a fine annotation is the harder ask). annotation_cost = num_labeled * this, so fine and coarse
+    # runs line up on the wandb x-axis at equal SPEND -- the coarse run gets more points for the same
+    # cost, which is the whole reason coarse labeling might win the coarse task.
+    cost_per_label = label_cost_ratio if label_granularity == "fine" else 1.0
+    logger.set_config(resolved_delta=float(delta), cost_per_label=float(cost_per_label))
 
     labeled_indices = []   # every point labeled so far, in pick order
     for round_index in range(rounds):
@@ -109,14 +116,16 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
             accuracy = scorer.accuracy(labeled_array, use_superclass_oracle=superclass_oracle)
             coarse_accuracy = None
 
-        # Express the budget as average labels per class (the paper's "B") -- the wandb x-axis.
+        # Express the budget as average labels per class (the paper's "B") and as total annotation cost.
         labels_per_class = len(labeled_indices) / num_classes
+        annotation_cost = len(labeled_indices) * cost_per_label
 
         # Coverage only exists for the coverage-family strategies (ProbCover); others return None.
         coverage = selector.coverage() if hasattr(selector, "coverage") else None
 
         logger.log_round(round_index, len(labeled_indices), labels_per_class, accuracy,
-                         coverage=coverage, coarse_accuracy=coarse_accuracy)
+                         coverage=coverage, coarse_accuracy=coarse_accuracy,
+                         annotation_cost=annotation_cost)
 
     logger.finish()
     return labeled_indices
@@ -155,6 +164,11 @@ def main():
         help="What label each picked point reveals: 'fine' (subclass, the default) trains/scores on fine "
              "classes; 'coarse' reveals only the superclass, so the evaluator trains and is scored on "
              "superclasses. Selection stays identical either way. 'coarse' predict-fine is impossible.")
+    parser.add_argument(
+        "--label_cost_ratio", type=float, default=5.0,
+        help="Cost of a fine label relative to a coarse one (coarse = 1). Sets the annotation_cost "
+             "x-axis (num_labeled * per-label cost) so fine and coarse runs are compared at equal spend. "
+             "Default 5 = CIFAR-100's ~5 subclasses per superclass.")
 
     # --- ProbCover's coverage radius ---
     parser.add_argument(
@@ -196,6 +210,7 @@ def main():
             "oracle": args.superclass_oracle,
             "coarse": args.log_coarse,
             "label_granularity": args.label_granularity,
+            "label_cost_ratio": args.label_cost_ratio,
             "delta": args.delta,
             "budget": args.budget,
             "rounds": args.rounds,
@@ -206,8 +221,8 @@ def main():
 
     run(args.embeddings_dir, strategy=args.strategy, evaluator=args.evaluator,
         superclass_oracle=args.superclass_oracle, log_coarse=args.log_coarse,
-        label_granularity=args.label_granularity, delta=args.delta,
-        budget=args.budget, rounds=args.rounds, split=args.split, seed=args.seed,
+        label_granularity=args.label_granularity, label_cost_ratio=args.label_cost_ratio,
+        delta=args.delta, budget=args.budget, rounds=args.rounds, split=args.split, seed=args.seed,
         dataset=args.dataset, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
 
 

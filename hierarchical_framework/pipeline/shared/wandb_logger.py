@@ -16,17 +16,22 @@ class RunLogger:
         self.coarse_metric = "test_coarse_accuracy"     # optional superclass-accuracy field name
         if self.use_wandb:
             wandb.init(**(wandb_kwargs or {}))
-            # both accuracies plot against labels-per-class; the coarse one only appears when logged
-            wandb.define_metric(self.acc_metric, step_metric="budget_per_class")
-            wandb.define_metric(self.coarse_metric, step_metric="budget_per_class")
+            # Default x-axis is annotation_cost (num_labeled weighted by per-label cost) so fine and
+            # coarse runs are compared at equal spend, not equal point count. budget_per_class and
+            # num_labeled are still logged, so a panel can switch its x-axis to either of them.
+            wandb.define_metric(self.acc_metric, step_metric="annotation_cost")
+            wandb.define_metric(self.coarse_metric, step_metric="annotation_cost")
 
     def set_config(self, **values):
         if self.use_wandb:
             wandb.config.update(values, allow_val_change=True) # e.g. the resolved delta
 
-    def log_round(self, r, num_labeled, budget_per_class, accuracy, coverage=None, coarse_accuracy=None):
+    def log_round(self, r, num_labeled, budget_per_class, accuracy, coverage=None, coarse_accuracy=None,
+                  annotation_cost=None):
         # console line for the slurm log
         msg = f"round {r}: labeled={num_labeled} ({budget_per_class:.1f}B) {self.acc_metric}={accuracy:.2f}"
+        if annotation_cost is not None:
+            msg += f" cost={annotation_cost:.0f}"
         if coarse_accuracy is not None:
             msg += f" coarse={coarse_accuracy:.2f}"
         if coverage is not None:
@@ -36,6 +41,8 @@ class RunLogger:
         if self.use_wandb:
             metrics = {"budget_per_class": budget_per_class, "num_labeled": num_labeled,
                        self.acc_metric: accuracy, "episode": r}
+            if annotation_cost is not None:
+                metrics["annotation_cost"] = annotation_cost
             if coarse_accuracy is not None:
                 metrics[self.coarse_metric] = coarse_accuracy
             if coverage is not None:
