@@ -78,8 +78,12 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
     print(f"strategy={strategy} eval={evaluator} oracle={superclass_oracle} "
           f"on {train_features.shape[0]} points", flush=True)
 
-    # All console + wandb logging lives in RunLogger; wandb receives accuracy + the regular scalars only.
-    logger = RunLogger(use_wandb=use_wandb, wandb_kwargs=wandb_kwargs)
+    # Coarse labeling scores the 20-way superclass task, not the 100-way fine task, so its accuracy
+    # belongs on the coarse metric. Routing it there keeps the test_accuracy panel a fine-task-only
+    # comparison (no apples-to-oranges 20-way-vs-100-way overlay) and lands the fine-rolled-up and
+    # coarse-direct curves together on test_coarse_accuracy -- the valid same-task cross comparison.
+    acc_metric = "test_coarse_accuracy" if label_granularity == "coarse" else "test_accuracy"
+    logger = RunLogger(use_wandb=use_wandb, wandb_kwargs=wandb_kwargs, acc_metric=acc_metric)
     logger.set_config(resolved_delta=float(delta))
 
     labeled_indices = []   # every point labeled so far, in pick order
@@ -91,11 +95,11 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
 
         # Score the growing labeled set.
         if label_granularity == "coarse":
-            # The evaluator already predicts superclasses, so its plain accuracy IS the coarse accuracy.
-            # Mirror it onto the coarse key too, so coarse-labeled runs overlay the fine-labeled runs'
-            # rolled-up coarse curve on one wandb panel.
+            # The evaluator predicts superclasses, so its plain accuracy IS the coarse accuracy. It is
+            # logged under the coarse metric via acc_metric above (never on test_accuracy), so leave the
+            # separate coarse slot empty here.
             accuracy = scorer.accuracy(labeled_array)
-            coarse_accuracy = accuracy
+            coarse_accuracy = None
         elif log_coarse:
             # Fine labeling + --coarse: also report superclass accuracy (did the fine prediction land in
             # the right superclass?) from the same prediction pass.
