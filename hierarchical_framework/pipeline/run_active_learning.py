@@ -4,10 +4,12 @@
 # Evaluator scores the test set from the growing labeled set. Three pluggable pieces,
 # set from the command line, decide the experiment:
 #
-#   --strategy  WHICH points get picked   (probcover / random)
-#   --eval      HOW they are scored       (1nn / mlp)
-#   --oracle    optionally restrict every prediction to the test point's TRUE
-#               superclass (an upper bound; composes with any --eval)
+#   --strategy            WHICH points get picked   (probcover / random)
+#   --eval                HOW they are scored       (1nn / mlp)
+#   --label_granularity   WHAT each pick reveals     (fine subclass / coarse superclass); coarse
+#                         trains+scores on superclasses, selection is unchanged either way
+#   --oracle              optionally restrict every prediction to the test point's TRUE
+#                         superclass (an upper bound; composes with any --eval; fine labeling only)
 #
 # The loop below never changes -- only those pieces do. This runner makes NO figures;
 # it just logs accuracy (+ the regular AL scalars) to wandb. The figure tools in
@@ -30,8 +32,8 @@ from shared.wandb_logger import RunLogger
 
 
 def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle=False,
-        log_coarse=False, delta="auto_delta", budget=100, rounds=10, split="train", seed=0,
-        dataset="cifar100", use_wandb=False, wandb_kwargs=None):
+        log_coarse=False, label_granularity="fine", delta="auto_delta", budget=100, rounds=10,
+        split="train", seed=0, dataset="cifar100", use_wandb=False, wandb_kwargs=None):
 
     embeddings_path = Path(embeddings_dir)
 
@@ -52,9 +54,25 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
 
     # Build the pluggable pieces once, up front.
     selector = SELECTORS[strategy](train_features, delta=delta, seed=seed)      # WHICH points to label
-    coarse_map = load_coarse_map(embeddings_dir, dataset)                       # only the --oracle path reads this
-    scorer = EVALUATORS[evaluator](train_features, train_labels,               # HOW to score a labeled set
-                                   test_features, test_labels,
+    coarse_map = load_coarse_map(embeddings_dir, dataset)                       # --oracle and coarse labeling read this
+
+    # Fine labeling (default): the evaluator sees the true fine labels of the picked points.
+    # Coarse labeling: reveal only each picked point's SUPERCLASS, so the evaluator both trains and is
+    # scored on superclasses. Selection + delta above stay on the fine problem, so probcover picks the
+    # SAME points in both regimes -- only the labels handed to the evaluator change.
+    if label_granularity == "coarse":
+        if coarse_map is None:
+            raise SystemExit("--label_granularity coarse needs a coarse map "
+                             "(coarse_map.npy beside the embeddings, or a built-in dataset like cifar100)")
+        if superclass_oracle:
+            raise SystemExit("--oracle is meaningless with --label_granularity coarse (the task is already coarse)")
+        eval_train_labels = coarse_map[train_labels]   # fine id -> superclass id for every pool point
+        eval_test_labels = coarse_map[test_labels]     # and for every test point we score against
+    else:
+        eval_train_labels, eval_test_labels = train_labels, test_labels
+
+    scorer = EVALUATORS[evaluator](train_features, eval_train_labels,          # HOW to score a labeled set
+                                   test_features, eval_test_labels,
                                    coarse_map=coarse_map, seed=seed)
 
     print(f"strategy={strategy} eval={evaluator} oracle={superclass_oracle} "
@@ -71,9 +89,16 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
         labeled_indices.extend(selector.select_round(budget))
         labeled_array = np.array(labeled_indices)
 
-        # Score the growing labeled set. With --coarse we also get superclass accuracy
-        # (did the prediction land in the right superclass?) from the same prediction pass.
-        if log_coarse:
+        # Score the growing labeled set.
+        if label_granularity == "coarse":
+            # The evaluator already predicts superclasses, so its plain accuracy IS the coarse accuracy.
+            # Mirror it onto the coarse key too, so coarse-labeled runs overlay the fine-labeled runs'
+            # rolled-up coarse curve on one wandb panel.
+            accuracy = scorer.accuracy(labeled_array)
+            coarse_accuracy = accuracy
+        elif log_coarse:
+            # Fine labeling + --coarse: also report superclass accuracy (did the fine prediction land in
+            # the right superclass?) from the same prediction pass.
             accuracy, coarse_accuracy = scorer.fine_and_coarse_accuracy(
                 labeled_array, use_superclass_oracle=superclass_oracle)
         else:
@@ -121,6 +146,11 @@ def main():
         "--coarse", dest="log_coarse", action="store_true",
         help="Also log superclass (coarse) accuracy -- did the prediction land in the right superclass? "
              "Gives you a fine-accuracy curve AND a superclass-accuracy curve in wandb.")
+    parser.add_argument(
+        "--label_granularity", default="fine", choices=["fine", "coarse"],
+        help="What label each picked point reveals: 'fine' (subclass, the default) trains/scores on fine "
+             "classes; 'coarse' reveals only the superclass, so the evaluator trains and is scored on "
+             "superclasses. Selection stays identical either way. 'coarse' predict-fine is impossible.")
 
     # --- ProbCover's coverage radius ---
     parser.add_argument(
@@ -147,7 +177,7 @@ def main():
     # visible in the wandb x-axis (labels-per-class) and delta is usually the default,
     # so we leave both out of the name; both are still saved in the run config below.
     oracle_tag = "_oracle" if args.superclass_oracle else ""
-    run_name = args.name or f"{args.strategy}_{args.evaluator}{oracle_tag}"
+    run_name = args.name or f"{args.strategy}_{args.evaluator}_{args.label_granularity}{oracle_tag}"
     if args.delta != "auto_delta":                 # only note delta when it isn't the default
         run_name += f"_d{args.delta}"
     run_group = args.group or args.strategy
@@ -161,6 +191,7 @@ def main():
             "eval": args.evaluator,
             "oracle": args.superclass_oracle,
             "coarse": args.log_coarse,
+            "label_granularity": args.label_granularity,
             "delta": args.delta,
             "budget": args.budget,
             "rounds": args.rounds,
@@ -170,7 +201,8 @@ def main():
     )
 
     run(args.embeddings_dir, strategy=args.strategy, evaluator=args.evaluator,
-        superclass_oracle=args.superclass_oracle, log_coarse=args.log_coarse, delta=args.delta,
+        superclass_oracle=args.superclass_oracle, log_coarse=args.log_coarse,
+        label_granularity=args.label_granularity, delta=args.delta,
         budget=args.budget, rounds=args.rounds, split=args.split, seed=args.seed,
         dataset=args.dataset, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
 
