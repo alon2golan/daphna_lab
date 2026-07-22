@@ -4,7 +4,7 @@
 #SBATCH -c 4
 #SBATCH --time=6:00:00
 #SBATCH --gres=gg:g0:1
-#SBATCH --array=0-4
+#SBATCH --array=0-5
 #SBATCH --output=hierarchical_framework/outputs/slurm_logs/coarse_sweep_%A_%a.out
 #SBATCH --error=hierarchical_framework/outputs/slurm_logs/coarse_sweep_%A_%a.err
 #SBATCH --killable
@@ -39,10 +39,11 @@ mkdir -p hierarchical_framework/outputs/slurm_logs
 # One entry per array index: the budgets that shard computes. Keep in sync with --array above.
 BUDGET_SHARDS=(
   "100 200 300 400 500 600 700 800 900 1000"   # shard 0: all the cheap budgets, one fast task
-  "5000"                                        # shard 1
-  "10000"                                       # shard 2
-  "25000"                                       # shard 3
-  "50000"                                       # shard 4: the long pole (full train set)
+  "2000 3000 4000"                              # shard 1
+  "5000 6000 7000"                              # shard 2
+  "8000 9000 10000"                             # shard 3
+  "25000"                                       # shard 4
+  "50000"                                       # shard 5: the long pole (full train set)
 )
 
 SHARD_BUDGETS=${BUDGET_SHARDS[$SLURM_ARRAY_TASK_ID]}

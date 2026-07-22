@@ -53,14 +53,17 @@ DEFAULT_CHECKPOINT = DAPHNA_ROOT / "solo-learn/trained_models/simclr/cifar100/10
 DEFAULT_DATA_DIR = DAPHNA_ROOT / "data"       # holds cifar-100-python
 RESULTS_DIR = HF_ROOT / "outputs" / "finetune"
 
-# The x-axis: total training points treated as coarse-labeled. Fine 100s, then coarse jumps.
-DEFAULT_BUDGETS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 5000, 10000, 25000, 50000]
+# The x-axis: total training points treated as coarse-labeled. Fine 100s, then 1000-step jumps
+# through 10k, then the big coarse budgets.
+DEFAULT_BUDGETS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
+                   2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 25000, 50000]
 
 # The pluggable selection strategies (extend this dict to add coreset / typiclust / margin).
 SELECTORS = {"random": random_selector}
 
-# The wandb group the user asked for -- all runs of this experiment land here.
-DEFAULT_WANDB_GROUP = "coarse_budget_finetune"
+# The wandb group -- all runs of this experiment land here. Frozen and finetuned are logged as
+# SEPARATE runs (config.curve) so the sidebar shows them apart and each is its own line.
+DEFAULT_WANDB_GROUP = "superclass_frozen_vs_finetuned"
 
 
 # --- Labeled subset for one budget ---
@@ -79,7 +82,7 @@ def labeled_set_for_budget(train_fine, budget, selector, seed):
 
 def scores_for_budget(budget, checkpoint_dir, dataset, data_dir, coarse_map, selector, seed,
                       frozen_train, frozen_test, train_fine, test_fine, test_coarse,
-                      train_aug, train_eval, test_eval, device, multi_gpu):
+                      train_aug, train_eval, test_eval, device, multi_gpu, epochs, lr_backbone):
     """Computes (frozen_acc, finetuned_acc, num_labeled) for a single budget."""
     labeled = labeled_set_for_budget(train_fine, budget, selector, seed)
     indices = labeled.coarse_indices                                # the labeled points (coarse-only)
@@ -95,7 +98,8 @@ def scores_for_budget(budget, checkpoint_dir, dataset, data_dir, coarse_map, sel
     num_fine = int(coarse_map.shape[0])                             # 100
     num_coarse = int(coarse_map.max()) + 1                          # 20
     backbone = finetune_two_heads(backbone, feature_dim, train_aug, labeled,
-                                  coarse_map, num_fine, num_coarse, device, seed)
+                                  coarse_map, num_fine, num_coarse, device, seed,
+                                  epochs=epochs, lr_backbone=lr_backbone)
     tuned_train, _ = extract_features(backbone, train_eval, device)
     tuned_test, _ = extract_features(backbone, test_eval, device)
     finetuned_acc = coarse_mlp_accuracy(tuned_train[indices], labeled_coarse,
@@ -150,48 +154,41 @@ def save_figure(results, selector, seed):
 
 # --- wandb ---
 
-def init_wandb_run(project, group, selector, seed, embeddings_tag, num_coarse, shard=None):
-    """Opens this worker's OWN run in the shared group -- both curves stream live into it as two
-    metrics vs num_labeled. Parallel shards each open their own run (name suffixed with the shard),
-    but they share the group AND the metric keys, so overlaying the group's runs on one panel draws
-    the combined curves live. Config carries every knob so the UI can filter/group by any of them."""
-    shard_suffix = f"_shard{shard}" if shard is not None else ""   # unique name per parallel worker
-    wandb.init(
+def init_curve_run(project, group, curve, selector, seed, embeddings_tag, num_coarse, shard,
+                   epochs, lr_backbone):
+    """Opens ONE wandb run for a single curve ('frozen' or 'finetuned'). Both curves use the SAME
+    metric key 'coarse_acc', and differ only by config.curve + the run name, so the sidebar shows
+    them as separate runs and overlaying/grouping-by-curve draws exactly two lines. Returns the run
+    object so the caller can log to it directly (needed to keep two runs open at once)."""
+    shard_suffix = f"_shard{shard}" if shard is not None else ""   # unique per parallel worker
+    run = wandb.init(
         project=project,
         group=group,                                               # the shared experiment group
-        name=f"coarse_sweep_{selector}_seed{seed}{shard_suffix}",  # selector + seed (+ shard) identify it
-        job_type=selector,                                         # quick filter by selection method
+        name=f"{curve}_{selector}_seed{seed}{shard_suffix}",       # curve is first -> frozen/finetuned split
+        job_type=curve,                                            # one-click filter: frozen vs finetuned
+        reinit=True,                                               # allow a second run open in this process
         config=dict(
-            experiment="coarse_budget_sweep", embeddings_tag=embeddings_tag,
-            selector=selector, seed=seed, shard=(shard if shard is not None else "all"),
-            num_superclasses=num_coarse,
-            # finetune knobs (curve 2)
-            lr_backbone=LR_BACKBONE, lr_heads=LR_HEADS, weight_decay=WEIGHT_DECAY,
-            finetune_epochs=FINETUNE_EPOCHS, coarse_weight=COARSE_LOSS_WEIGHT,
+            experiment="coarse_budget_sweep", curve=curve,         # group/colour by this to get 2 lines
+            embeddings_tag=embeddings_tag, selector=selector, seed=seed,
+            shard=(shard if shard is not None else "all"), num_superclasses=num_coarse,
+            # finetune knobs (only meaningful for the finetuned curve)
+            lr_backbone=lr_backbone, lr_heads=LR_HEADS, weight_decay=WEIGHT_DECAY,
+            finetune_epochs=epochs, coarse_weight=COARSE_LOSS_WEIGHT,
             fine_weight=FINE_LOSS_WEIGHT, freeze_backbone=int(FREEZE_BACKBONE),
             train_batch_size=TRAIN_BATCH_SIZE,
             # probe knobs (both curves)
             probe_mlp_hidden=str(MLP_HIDDEN_LAYER_SIZES), probe_mlp_iters=MLP_MAX_ITERATIONS,
         ),
     )
-    wandb.define_metric("num_labeled")                             # the x-axis for every metric
-    wandb.define_metric("*", step_metric="num_labeled")
-
-
-def log_budget_point(num_labeled, frozen_acc, finetuned_acc):
-    """Logs both curves (and their gap) at one budget, keyed to num_labeled on the x-axis."""
-    wandb.log({
-        "num_labeled": num_labeled,
-        "coarse_acc/frozen": frozen_acc,                           # curve 1
-        "coarse_acc/finetuned": finetuned_acc,                     # curve 2
-        "coarse_acc/gain": finetuned_acc - frozen_acc,             # curve 2 minus curve 1
-    })
+    run.define_metric("num_labeled")                               # the x-axis
+    run.define_metric("coarse_acc", step_metric="num_labeled")     # y vs num_labeled
+    return run
 
 
 # --- Orchestration ---
 
 def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
-        use_wandb, project, group, multi_gpu, shard=None):
+        use_wandb, project, group, multi_gpu, epochs, lr_backbone, shard=None):
     """Extracts the frozen embeddings once, then sweeps this worker's budgets through both curves.
     With `shard` set (one parallel worker over a slice of budgets), outputs are suffixed by the
     shard so parallel workers never collide; each worker is its own LIVE wandb run in the shared
@@ -220,9 +217,15 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
     print(f"frozen embeddings ready on {device}: train {frozen_train.shape}, test {frozen_test.shape}",
           flush=True)
 
+    # Frozen and finetuned are SEPARATE wandb runs (same key 'coarse_acc'); both stay open so each
+    # budget streams live into its own run. Group/colour by config.curve to get the two lines.
     live_wandb = use_wandb and wandb is not None
+    frozen_run = finetuned_run = None
     if live_wandb:
-        init_wandb_run(project, group, selector_name, seed, embeddings_tag, num_coarse, shard=shard)
+        frozen_run = init_curve_run(project, group, "frozen", selector_name, seed,
+                                    embeddings_tag, num_coarse, shard, epochs, lr_backbone)
+        finetuned_run = init_curve_run(project, group, "finetuned", selector_name, seed,
+                                       embeddings_tag, num_coarse, shard, epochs, lr_backbone)
 
     # Sweep budgets; each budget reloads a fresh backbone for curve 2 inside scores_for_budget
     results = []                                                    # collected for the end-of-run plot
@@ -230,7 +233,7 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
         frozen_acc, finetuned_acc, num_labeled = scores_for_budget(
             budget, checkpoint_dir, dataset, data_dir, coarse_map, selector, seed,
             frozen_train, frozen_test, train_fine, test_fine, test_coarse,
-            train_aug, train_eval, test_eval, device, use_multi)
+            train_aug, train_eval, test_eval, device, use_multi, epochs, lr_backbone)
         gain = finetuned_acc - frozen_acc
         print(f"[budget={num_labeled}] frozen={frozen_acc:.2f} finetuned={finetuned_acc:.2f} "
               f"gain={gain:+.2f}", flush=True)
@@ -239,20 +242,20 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
 
         avg_per_super = num_labeled // num_coarse                  # ~points per superclass on average
         append_csv([selector_name, seed, num_labeled, avg_per_super,      # this worker's own csv
-                    COARSE_LOSS_WEIGHT, FINE_LOSS_WEIGHT, LR_BACKBONE,
-                    FINETUNE_EPOCHS, int(FREEZE_BACKBONE),
+                    COARSE_LOSS_WEIGHT, FINE_LOSS_WEIGHT, lr_backbone,
+                    epochs, int(FREEZE_BACKBONE),
                     f"{frozen_acc:.4f}", f"{finetuned_acc:.4f}", f"{gain:.4f}"], csv_path)
         if live_wandb:
-            log_budget_point(num_labeled, frozen_acc, finetuned_acc)    # streams live as each budget finishes
+            # Same metric key in both runs -> two lines when grouped/overlaid by curve
+            frozen_run.log({"num_labeled": num_labeled, "coarse_acc": frozen_acc})
+            finetuned_run.log({"num_labeled": num_labeled, "coarse_acc": finetuned_acc})
 
-    # A single (unsharded) run plots the full curve here; parallel shards leave the combined PNG to
-    # the merge step (the live view is the overlaid wandb group, not this PNG)
+    # A single (unsharded) run plots the combined PNG; parallel shards leave that to the merge step
     if shard is None:
-        png_path = save_figure(results, selector_name, seed)
-        if live_wandb:
-            wandb.log({"comparison_figure": wandb.Image(str(png_path))})  # attach the plot to the run
+        save_figure(results, selector_name, seed)
     if live_wandb:
-        wandb.finish()
+        frozen_run.finish()
+        finetuned_run.finish()
     print(f"saved -> {csv_path}", flush=True)
 
 
@@ -275,15 +278,19 @@ def main():
     parser.add_argument("--group", default=DEFAULT_WANDB_GROUP, help="wandb group for this experiment")
     parser.add_argument("--no_multi_gpu", action="store_true",
                         help="disable DataParallel even if several GPUs are visible")
+    parser.add_argument("--finetune_epochs", type=int, default=FINETUNE_EPOCHS,
+                        help="epochs for the coarse-head finetune (curve 2 only)")
+    parser.add_argument("--lr_backbone", type=float, default=LR_BACKBONE,
+                        help="backbone learning rate for the finetune (curve 2 only)")
     parser.add_argument("--shard", default=None,
                         help="label for one parallel worker over a slice of --budgets; suffixes the "
-                             "csv + wandb run name so parallel workers never collide (they share the "
-                             "group and stream live)")
+                             "csv + wandb run names so parallel workers never collide")
     args = parser.parse_args()
 
     run(args.checkpoint_dir, args.data_dir, args.dataset, args.budgets, args.selector,
         args.seed, args.wandb, args.project, args.group,
-        multi_gpu=not args.no_multi_gpu, shard=args.shard)
+        multi_gpu=not args.no_multi_gpu, epochs=args.finetune_epochs,
+        lr_backbone=args.lr_backbone, shard=args.shard)
 
 
 if __name__ == "__main__":

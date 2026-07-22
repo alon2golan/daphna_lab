@@ -62,11 +62,13 @@ class GranularityDataset(Dataset):
 # --- Joint Finetune Loop ---
 
 def finetune_two_heads(backbone, feature_dim, train_aug_dataset, labeled_set,
-                       coarse_map, num_fine, num_coarse, device, seed=0):
+                       coarse_map, num_fine, num_coarse, device, seed=0,
+                       epochs=FINETUNE_EPOCHS, lr_backbone=LR_BACKBONE):
     """Finetunes `backbone` in place on the labeled set with a coarse head and a fine head.
     Each head trains ONLY on its own group: the fine head on fine-labeled points, the coarse
     head on coarse-labeled points. A point shared between the groups is forwarded once per
-    group, so it feeds each head at most once. Returns the finetuned backbone (heads dropped)."""
+    group, so it feeds each head at most once. `epochs` and `lr_backbone` default to the module
+    constants but can be overridden per run (e.g. from the CLI). Returns the finetuned backbone."""
     torch.manual_seed(seed)  # reproducible head init + minibatch shuffling
 
     # Two heads on top of the shared trunk: 20-way coarse and 100-way fine
@@ -81,7 +83,7 @@ def finetune_two_heads(backbone, feature_dim, train_aug_dataset, labeled_set,
     optimizer = torch.optim.Adam(
         [
             {"params": list(coarse_head.parameters()) + list(fine_head.parameters()), "lr": LR_HEADS},
-            {"params": [p for p in backbone.parameters()] if not FREEZE_BACKBONE else [], "lr": LR_BACKBONE},
+            {"params": [p for p in backbone.parameters()] if not FREEZE_BACKBONE else [], "lr": lr_backbone},
         ],
         weight_decay=WEIGHT_DECAY,
     )
@@ -108,7 +110,7 @@ def finetune_two_heads(backbone, feature_dim, train_aug_dataset, labeled_set,
     coarse_head.train()
     fine_head.train()
 
-    for epoch in range(FINETUNE_EPOCHS):
+    for epoch in range(epochs):
         epoch_loss = 0.0  # accumulate for a per-epoch console line
         for images, fine_targets, is_fine in loader:
             images = images.to(device, non_blocking=True)          # the labeled minibatch
@@ -141,7 +143,7 @@ def finetune_two_heads(backbone, feature_dim, train_aug_dataset, labeled_set,
             epoch_loss += float(loss.item())
 
         # One line per epoch: mean minibatch loss, so a run's progress is visible in logs
-        print(f"  [finetune] epoch {epoch + 1}/{FINETUNE_EPOCHS} loss={epoch_loss / len(loader):.4f}",
+        print(f"  [finetune] epoch {epoch + 1}/{epochs} loss={epoch_loss / len(loader):.4f}",
               flush=True)
 
     return backbone  # finetuned trunk; caller re-extracts features and discards the heads

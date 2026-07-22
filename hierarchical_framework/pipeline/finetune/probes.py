@@ -10,7 +10,7 @@ from sklearn.neural_network import MLPClassifier
 # --- Probe Configuration Constants ---
 
 MLP_HIDDEN_LAYER_SIZES = (256,)  # one hidden layer of 256, matching the old MLP evaluator
-MLP_MAX_ITERATIONS = 300         # epoch cap for the sklearn MLP
+MLP_MAX_ITERATIONS = 500         # epoch cap for the sklearn MLP (300 was under-converging)
 
 
 # --- Probe ---

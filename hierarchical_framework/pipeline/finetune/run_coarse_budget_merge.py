@@ -16,8 +16,9 @@ if str(PIPELINE_DIR) not in sys.path:
 
 # Reuse the runner's disk/plot/wandb helpers so the merged artifact is identical in style
 from shared.superclass_maps import CIFAR100_COARSE
+from two_head_finetune import FINETUNE_EPOCHS, LR_BACKBONE
 from run_coarse_budget_sweep import (
-    RESULTS_DIR, CSV_HEADER, save_figure, init_wandb_run, log_budget_point,
+    RESULTS_DIR, CSV_HEADER, save_figure, init_curve_run,
     DEFAULT_WANDB_GROUP, wandb,
 )
 
@@ -81,15 +82,18 @@ def main():
     results = to_results(rows)
     png_path = save_figure(results, args.selector, args.seed)          # the single combined curve PNG
 
-    # Optional: one clean consolidated run with the whole curve (separate from the live shard runs)
+    # Optional: two clean consolidated runs (frozen + finetuned) each holding the WHOLE curve,
+    # separate from the live per-shard runs. Same metric key -> two lines when grouped by curve.
     if args.wandb and wandb is not None:
         num_coarse = int(CIFAR100_COARSE.max()) + 1                    # 20 superclasses
-        init_wandb_run(args.project, args.group, args.selector, args.seed,
-                       embeddings_tag="merged", num_coarse=num_coarse, shard="merged")
-        for entry in results:
-            log_budget_point(entry["num_labeled"], entry["frozen_acc"], entry["finetuned_acc"])
-        wandb.log({"comparison_figure": wandb.Image(str(png_path))})
-        wandb.finish()
+        for curve, key in (("frozen", "frozen_acc"), ("finetuned", "finetuned_acc")):
+            run = init_curve_run(args.project, args.group, curve, args.selector, args.seed,
+                                 embeddings_tag="merged", num_coarse=num_coarse, shard="merged",
+                                 epochs=FINETUNE_EPOCHS, lr_backbone=LR_BACKBONE)
+            for entry in results:
+                run.log({"num_labeled": entry["num_labeled"], "coarse_acc": entry[key]})
+            run.log({"comparison_figure": wandb.Image(str(png_path))})
+            run.finish()
 
 
 if __name__ == "__main__":
