@@ -25,10 +25,12 @@ from run_coarse_budget_sweep import (
 
 # --- Read the shard CSVs ---
 
-def load_shards(selector, seed):
-    """Reads every per-shard CSV for this (selector, seed) and returns rows sorted by num_labeled.
-    De-duplicates by num_labeled (last one wins) in case a shard was re-run."""
-    pattern = f"coarse_budget_sweep_{selector}_seed{seed}_shard*.csv"    # only the shard files
+def load_shards(selector, seed, tag=""):
+    """Reads every per-shard CSV for this (selector, seed, tag) and returns rows sorted by
+    num_labeled. De-duplicates by num_labeled (last one wins) in case a shard was re-run.
+    `tag` selects one finetune variant so variants don't get mixed together."""
+    tag_suffix = f"_{tag}" if tag else ""                               # match this variant only
+    pattern = f"coarse_budget_sweep_{selector}_seed{seed}{tag_suffix}_shard*.csv"   # its shard files
     by_budget = {}                                                       # num_labeled -> parsed row
     for csv_file in sorted(RESULTS_DIR.glob(pattern)):
         with open(csv_file) as handle:
@@ -40,10 +42,11 @@ def load_shards(selector, seed):
 
 # --- Write the combined artifacts ---
 
-def write_combined_csv(rows, selector, seed):
+def write_combined_csv(rows, selector, seed, tag=""):
     """Writes the merged rows (already the runner's column order) into one clean CSV."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    csv_path = RESULTS_DIR / f"coarse_budget_sweep_{selector}_seed{seed}.csv"
+    tag_suffix = f"_{tag}" if tag else ""
+    csv_path = RESULTS_DIR / f"coarse_budget_sweep_{selector}_seed{seed}{tag_suffix}.csv"
     with open(csv_path, "w") as handle:
         handle.write(CSV_HEADER + "\n")
         for row in rows:
@@ -70,17 +73,20 @@ def main():
                         help="also log one consolidated 'merged' run holding the full curves")
     parser.add_argument("--project", default="superclass_analysis")
     parser.add_argument("--group", default=DEFAULT_WANDB_GROUP)
+    parser.add_argument("--tag", default="", help="which finetune variant to merge (matches --tag "
+                        "from the sweep); omit for an untagged run")
     args = parser.parse_args()
 
-    rows = load_shards(args.selector, args.seed)
+    rows = load_shards(args.selector, args.seed, tag=args.tag)
     if not rows:
         raise SystemExit(f"no shard CSVs found for selector={args.selector} seed={args.seed} "
-                         f"in {RESULTS_DIR}")
-    print(f"merging {len(rows)} budgets for selector={args.selector} seed={args.seed}", flush=True)
+                         f"tag={args.tag or '(none)'} in {RESULTS_DIR}")
+    print(f"merging {len(rows)} budgets for selector={args.selector} seed={args.seed} "
+          f"tag={args.tag or '(none)'}", flush=True)
 
-    write_combined_csv(rows, args.selector, args.seed)
+    write_combined_csv(rows, args.selector, args.seed, tag=args.tag)
     results = to_results(rows)
-    png_path = save_figure(results, args.selector, args.seed)          # the single combined curve PNG
+    png_path = save_figure(results, args.selector, args.seed, tag=args.tag)   # combined curve PNG
 
     # Optional: two clean consolidated runs (frozen + finetuned) each holding the WHOLE curve,
     # separate from the live per-shard runs. Same metric key -> two lines when grouped by curve.
@@ -89,7 +95,7 @@ def main():
         for curve, key in (("frozen", "frozen_acc"), ("finetuned", "finetuned_acc")):
             run = init_curve_run(args.project, args.group, curve, args.selector, args.seed,
                                  embeddings_tag="merged", num_coarse=num_coarse, shard="merged",
-                                 epochs=FINETUNE_EPOCHS, lr_backbone=LR_BACKBONE)
+                                 epochs=FINETUNE_EPOCHS, lr_backbone=LR_BACKBONE, tag=args.tag)
             for entry in results:
                 run.log({"num_labeled": entry["num_labeled"], "coarse_acc": entry[key]})
             run.log({"comparison_figure": wandb.Image(str(png_path))})
