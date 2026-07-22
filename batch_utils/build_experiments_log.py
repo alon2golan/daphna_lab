@@ -127,6 +127,27 @@ def bakeoff_panel(ntag, nz_label, pid):
                  traces, ytitle="estimated noise rate")
 
 
+def delta_replay_panel_unlabeled():
+    """Posterior-argmax as a classifier over the UNLABELED pool, per δ.
+    Uncovered points sit at the flat prior (argmax ≈ 1%), so the all-points
+    curve is ≈ coverage × covered-accuracy — volume dominates it."""
+    rows = [r for r in csv_rows("results/cifar100/delta_replay/delta_replay.csv")
+            if int(r["budget"]) == 1000]
+    deltas = [0.5, 0.6, 0.75, 0.9, 1.1]
+    traces = []
+    for nz, hue in [("0.0", "blue"), ("0.8", "red")]:
+        sub = [r for r in rows if r["noise"] == nz]
+        cov = mean_by(sub, lambda r: float(r["delta"]), lambda r: 100 * float(r["cov_acc"]))
+        allu = mean_by(sub, lambda r: float(r["delta"]), lambda r: 100 * float(r["all_acc_u"]))
+        traces.append(tr(f"covered points only @ noise {nz}", hue, deltas,
+                         [round(cov[d], 1) for d in deltas]))
+        traces.append(tr(f"ALL unlabeled points @ noise {nz}", hue, deltas,
+                         [round(allu[d], 1) for d in deltas], dash="dash", tint=True))
+    return panel("e15_replay_u",
+                 "stage 1 replay @ B=1000 — posterior-argmax accuracy on the unlabeled pool vs δ",
+                 traces, ytitle="accuracy (%)", xtitle="ball radius δ", xticks=deltas)
+
+
 def delta_replay_panel():
     rows = [r for r in csv_rows("results/cifar100/delta_replay/delta_replay.csv")
             if int(r["budget"]) == 1000]
@@ -376,10 +397,11 @@ EXPERIMENTS = [
         date="2026-07-22", verdict=V_POS, sweeps="offline eval_delta_replay.py (60 cells, gate 10/10 ×12) + 31108061 (24/24); commits 94a4a78 + 355faa2",
         title="The ball radius δ, properly: replay + paired training sweep (§9.2)",
         tested="δ=0.75 was inherited, never re-examined, and the 07-15 entry showed it inflates the 1-NN cell. Stage 1: replay the recorded runs at δ ∈ {0.5, 0.6, 0.75, 0.9, 1.1} (posterior quality only). Stage 2: re-run the champion arm end-to-end at δ {0.6, 0.9}, where δ shapes selection too.",
-        explain="Replay: purity and calibration are monotone in −δ (clean covered-accuracy 83.9% @0.5 vs 66.7% @0.75), but denoising and noise-ID AUC peak at 0.75 for noise ≥ .5 (tiny balls can't cross-vote), and coverage collapses below it (5%/17%/50% of the pool at δ .5/.6/.75). The open bet — δ=0.6's purity on clean data — went to training.",
+        explain="Replay: purity and calibration are monotone in −δ (clean covered-accuracy 83.9% @0.5 vs 66.7% @0.75), but denoising and noise-ID AUC peak at 0.75 for noise ≥ .5 (tiny balls can't cross-vote), and coverage collapses below it (5%/17%/50% of the pool at δ .5/.6/.75). The second panel classifies the whole unlabeled pool with the posterior argmax: uncovered points sit at the flat prior (≈1%), so the all-points curve ≈ coverage × covered-accuracy — it peaks at δ=0.9 (41.2% clean), yet training rejects 0.9, because a wrong pseudo-label costs training more than a missing one (counting correct labels ≠ training value). The open bet — δ=0.6's purity on clean data — went to training.",
         conclusion="<b>δ=0.75 confirmed at every noise level and every budget</b> (@1000 clean 48.4 vs 47.9 (δ.6) / 40.3 (δ.9); noise .8: 29.2 vs 24.4/24.8). Volume beats purity while coverage is scarce; impurity poisons cheap coverage — 0.75 sits at the crossing. No retune for CIFAR-100/SimCLR; new datasets/embeddings should re-run the cheap replay first.",
         panels=lambda: [
             delta_replay_panel(),
+            delta_replay_panel_unlabeled(),
             panel("e15_n0", "stage 2 training — champion arm per δ, noise 0 (clean)", [
                 arm_tr("δ = 0.75 (baseline)", "red", "bayes_product", "linear head", "pseudo (all)", "31048960", "0.0", width=3),
                 arm_tr("δ = 0.6", "red", "bayes_product", "linear head", "pseudo (all)", "31108061", "0.0", dash="dash", tint=True, delta="0.6"),
