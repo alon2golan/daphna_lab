@@ -74,10 +74,10 @@ def color(hue, tint=False):
 # ---------------------------------------------------------------------------
 def arm(aid, group, sampling, model, labels, sweep, short, hue, dash="solid",
         width=2, tint=False, markers=False, on=False,
-        d_sampling=None, d_model=None, d_labels=None):
+        d_sampling=None, d_model=None, d_labels=None, delta="0.75"):
     return dict(id=aid, group=group, sampling=sampling, model=model, labels=labels,
                 sweep=sweep, short=short, color=color(hue, tint), dash=dash,
-                width=width, markers=markers, on=on,
+                width=width, markers=markers, on=on, delta=delta,
                 d_sampling=d_sampling or sampling, d_model=d_model or model,
                 d_labels=d_labels or labels)
 
@@ -90,6 +90,8 @@ GROUPS = [
     ("postcls", "Posterior as classifier (no trained model)"),
     ("netta",  "Netta NPC / AUM"),
     ("misp",   "BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; sweeps 31084429 + 31085802 + 31078514; MLP row = cold start + best-val selection)"),
+    ("heads",  "Classifier heads on the champion diet (§9.7/§9.8; sweeps 31085867 + 31088628 + 31085854) — MLP is cold + best-val, its own best protocol"),
+    ("delta",  "δ ablation (§9.2, sweep 31108061) — champion arm re-run with the ball radius at 0.6 / 0.9 vs the study's 0.75"),
     ("norm",   "Normalized classifier inputs (sweep 31048960) — same arms, scale-preserving L2"),
     ("tfree",  "Training-free evaluator study (offline replay)"),
 ]
@@ -154,6 +156,38 @@ ARMS = [
         "additive (MLP, seed 1)", "cyan", dash="dot", markers=True,
         d_model="MLP head (seed 1)"),
 
+    # -- classifier heads (§9.7 stack test + §9.8 loss test) -------------------
+    # sklearn MLP (cold+best-val) on observed labels — the best observed-label head
+    arm("h_pc_mlp", "heads", "probcover", "MLP head", "observed", "31085867",
+        "probcover + MLP", "blue", dash="longdash", markers=True,
+        d_model="MLP head (cold+best-val)"),
+    arm("h_rand_mlp", "heads", "random", "MLP head", "observed", "31085867",
+        "random + MLP", "gray", dash="longdash", markers=True,
+        d_model="MLP head (cold+best-val)"),
+    # torch twin parity gate (wd-fix 31088628; the 31085854 torch rows were invalid)
+    arm("h_pc_mlpt", "heads", "probcover", "MLP head (torch)", "observed", "31088628",
+        "probcover + MLP torch (parity)", "blue", dash="dot", markers=True,
+        d_model="MLP head torch (parity gate)"),
+    # §9.7: the stack test — pseudo-all posterior targets through the MLP
+    arm("h_ps_mlpt", "heads", "bayes_product", "MLP head (torch)", "pseudo (all)", "31088628",
+        "pseudo all + MLP torch", "orange", dash="longdash", markers=True, on=True,
+        d_model="MLP head torch"),
+    # §9.8: reverse-KL loss on both heads (soft-CE ≡ forward KL for fixed targets)
+    arm("h_ps_rkl", "heads", "bayes_product", "linear head", "pseudo (all), rkl", "31085854",
+        "pseudo all (norm), rKL", "red", dash="dash", markers=True,
+        d_model="linear head (norm)", d_labels="pseudo (all), reverse-KL"),
+    arm("h_ps_mlpt_rkl", "heads", "bayes_product", "MLP head (torch)", "pseudo (all), rkl", "31088628",
+        "pseudo all + MLP torch, rKL", "orange", dash="dot", markers=True,
+        d_model="MLP head torch", d_labels="pseudo (all), reverse-KL"),
+
+    # -- §9.2 δ ablation (champion arm, delta shapes selection AND posterior) --
+    arm("d_06", "delta", "bayes_product", "linear head", "pseudo (all)", "31108061",
+        "pseudo all (norm), δ=0.6", "red", dash="dash", tint=True, markers=True,
+        delta="0.6", d_model="linear head (norm)", d_labels="pseudo (all), δ=0.6"),
+    arm("d_09", "delta", "bayes_product", "linear head", "pseudo (all)", "31108061",
+        "pseudo all (norm), δ=0.9", "red", dash="dot", tint=True, markers=True,
+        delta="0.9", d_model="linear head (norm)", d_labels="pseudo (all), δ=0.9"),
+
     # -- normalized-input reruns (paired seeds vs the raw originals) ----------
     arm("n_rand", "norm", "random", "linear head", "observed", "31048960",
         "random (norm)", "gray", tint=True, markers=True, d_model="linear head (norm)"),
@@ -193,16 +227,19 @@ def load_series():
     acc = defaultdict(list)
     with open(CSV) as fh:
         for r in csv.DictReader(fh):
+            # delta column added 2026-07-22 (§9.2); normalize "0.6"/"0.60" etc.
+            dlt = f'{float(r.get("delta") or 0.75):g}'
             key = (r["sampling"], r["model"], r["train_labels"], r["sweep_id"],
-                   r["noise"], int(r["budget"]))
+                   dlt, r["noise"], int(r["budget"]))
             acc[key].append(float(r["test_acc"]))
     out, missing = [], []
     for a in ARMS:
+        a_delta = f'{float(a["delta"]):g}'
         series = {}
         for nz in NOISES:
-            pts = sorted((b, v) for (s, m, l, w, n, b), v in
+            pts = sorted((b, v) for (s, m, l, w, d, n, b), v in
                          ((k, acc[k]) for k in acc)
-                         if (s, m, l, w, n) == (a["sampling"], a["model"], a["labels"], a["sweep"], nz))
+                         if (s, m, l, w, d, n) == (a["sampling"], a["model"], a["labels"], a["sweep"], a_delta, nz))
             if not pts:
                 continue
             series[nz] = {
@@ -346,9 +383,12 @@ table.prov th{color:var(--muted)}
   <li><a href="#s5">The classification plane: five ways to train on the posterior</a></li>
   <li><a href="#s6">Pseudo-labeling: train on <i>all</i> the points</a></li>
   <li><a href="#s7">Normalized features: the final +1</a></li>
-  <li><a href="#s8">Results explorer — all arms, all noise levels (interactive)</a></li>
-  <li><a href="#s9">Next steps</a></li>
-  <li><a href="#s10">Provenance &amp; how to regenerate</a></li>
+  <li><a href="#s8">Which classifier head? linear vs 1-NN vs MLP (cold/warm, early stopping)</a></li>
+  <li><a href="#s9">The ball radius δ: replay + paired training sweep — 0.75 confirmed</a></li>
+  <li><a href="#s10">The loss: soft-CE ≡ forward KL; reverse KL tested</a></li>
+  <li><a href="#s11">Results explorer — all arms, all noise levels (interactive)</a></li>
+  <li><a href="#s12">Next steps</a></li>
+  <li><a href="#s13">Provenance &amp; how to regenerate</a></li>
 </ol></div>
 
 <h2 id="s1">1 · The idea: make ProbCover noise-aware</h2>
@@ -421,7 +461,8 @@ accuracy, with no extra knob.</p>
 (§2 above), and an <b>additive</b> rule accumulates evidence as pseudo-counts instead. Both live
 behind the same <code>COMBINE</code> switch, so the comparison is like-for-like
 (same kernel, same in-loop annotation). (Itai's <code>BAYES_MISP</code> is also additive in
-spirit — his actual method is ported and compared separately in §8's BAYES_MISP group.)</p>
+spirit — his actual method is ported and compared separately in the explorer's BAYES_MISP
+group, and the head it introduced gets §8.)</p>
 <div class="math"><b>product:</b>&nbsp;
 <em>C</em>[<em>u</em>] = log&nbsp;π + Σ<sub>ℓ</sub> log <em>q</em><sub>ℓ</sub>(<em>u</em>,·),&nbsp;
 <em>P</em> = softmax(<em>C</em>[<em>u</em>])</div>
@@ -516,7 +557,73 @@ labels, so part of what posterior-training fixed on raw features was feature-nor
 label noise — the mid-budget noise-robustness margins shrink (but don't vanish) under
 normalization.</p>
 
-<h2 id="s8">8 · Results explorer — all arms, all noise levels</h2>
+<h2 id="s8">8 · Which classifier head? linear vs 1-NN vs MLP (cold/warm, early stopping)</h2>
+<p>Porting Itai's <code>bayes_al_2025</code> revealed his numbers came from a different
+<i>evaluator</i>, not a better selector: a one-hidden-layer <b>MLP head</b> (sklearn
+MLPClassifier, hidden 256) instead of our linear probe. Reproducing it surfaced a protocol
+lesson that matters more than the architecture: <b>each head has its own best protocol, and
+mixing them fabricates effects.</b> The linear probe <i>wants warm-starting</i> across episodes
+(<code>FINE_TUNE=True</code>, +2.2 @1000 — log-verified) — the MLP is <i>hurt</i> by it
+(−4.3 @1000, plasticity loss) and wants a <b>cold start every episode</b>. And the MLP needs
+<b>early stopping</b> (best-val epoch selection on the clean valSet): with the final iterate
+instead, it looked like it "memorizes noise" and inverted under noise — that reading was
+retracted once best-val selection recovered +5..+10 under noise. A protocol artifact, not
+memorization (RESULTS §4.7).</p>
+<p>Under matched-best protocols (sweep 31085867; explorer group "Classifier heads"), the story
+by budget is the familiar low-budget pattern with a third player: <b>1-NN wins the low-budget regime</b>
+(38.1 @100 on probcover, clean), <b>the MLP wins once converged</b> (46.8 vs linear 46.5 @1000
+clean; 17.2 vs 13.6 @noise .8 — it leads the warm linear at <i>every</i> noise level on
+observed labels), and the linear probe is never best on observed labels alone.</p>
+<p><b>The stack test (§9.7) failed, and that is the interesting result:</b> MLP + the champion
+<code>pseudo all</code> diet does <i>not</i> add up. A torch twin (<code>from_mlp_torch</code>)
+was built so soft targets could reach the MLP (sklearn's <code>.fit</code> can't take soft rows);
+after fixing a 200× too-strong weight-decay mapping (sklearn's α is divided by batch size —
+parity gate now passes, 34.5→44.9 vs sklearn 34.9→46.8, sweep 31088628), MLP+pseudo-all trails
+the warm-norm linear+pseudo-all at every noise and budget — clean −0.9..−1.4, noise .2 ≈ −3,
+noise .5/.8 ≈ −5, the deficit <i>growing</i> with noise. Reading: the posterior's pseudo-targets
+are built from the feature-space ball structure, so they already <i>linearize</i> the problem —
+the MLP's extra capacity has nothing left to model and only adds variance under noise.
+<b>Recommended config unchanged</b>: warm-norm linear + pseudo all (48.4 @1000 clean); the MLP
+(cold + best-val) is the best <i>observed-label</i> head. Full per-head tables:
+<code>docs/classifier_model_comparison.html</code>.</p>
+
+<h2 id="s9">9 · The ball radius δ: replay + paired training sweep — 0.75 confirmed</h2>
+<p>Everything above runs δ=0.75 — a value inherited from ProbCover's CIFAR-10 setting and never
+re-examined, even though the repo's own purity criterion says ~0.50 for CIFAR-100 (balls are
+only 39% pure at 0.75) and the two mechanisms that dominate our results pull in opposite
+directions: ball <i>impurity</i> drives relabel damage, coverage <i>volume</i> feeds
+<code>pseudo all</code>. §9.2 tested it in two stages. <b>Stage 1 (offline replay,</b>
+<code>eval_delta_replay.py</code><b>)</b> rebuilt the recorded posteriors at
+δ ∈ {0.5, 0.6, 0.75, 0.9, 1.1}: purity metrics are monotone in −δ (covered-point accuracy on
+clean: 83.9% @0.5 → 66.7% @0.75 → 26.2% @1.1, calibration likewise), but <b>denoising and
+noise-ID peak at 0.75</b> once noise ≥ .5 (tiny balls can't cross-vote — at δ=0.5 the posterior
+just parrots the noisy label, 24.5% vs 61.6% relabel accuracy at noise .8) and coverage
+collapses below it (5%/17%/50% of the pool @δ .5/.6/.75, B=1000). <b>Stage 2 (paired training
+sweep, job 31108061)</b> re-ran the champion arm end-to-end at δ {0.6, 0.9} — where δ shapes
+<i>selection</i> too: <b>δ=0.75 wins at every noise level and every budget</b> (@1000 clean:
+48.4 vs 47.9/40.3; noise .8: 29.2 vs 24.4/24.8). δ=0.6's purity never overcomes its 3× coverage
+loss; δ=0.9's extra covered mass is impurity-poisoned. Volume beats purity while coverage is
+scarce, impurity wins once coverage is cheap — 0.75 sits at the crossing at every noise level.
+The inherited default survives a proper examination; no retune for CIFAR-100/SimCLR (new
+datasets should re-run the cheap replay first — the crossing is geometry-dependent). Toggle the
+"δ ablation" group in the explorer to see both curves against the red champion.</p>
+
+<h2 id="s10">10 · The loss: soft-CE ≡ forward KL; reverse KL tested</h2>
+<p>The soft-target arms train with soft cross-entropy. One candidate "improvement" needs no
+experiment: with <i>fixed</i> targets t, <b>forward KL(t‖model) = soft-CE − H(t)</b>, and the
+entropy term is a constant of the optimization — identical gradients, identical optima,
+identical best-val checkpoints. <b>Soft-CE <i>is</i> forward KL</b>; running it separately would
+reproduce the same numbers. The only direction with new content is <b>reverse KL(model‖target)</b>
+(<code>--soft_loss rkl</code>): mode-seeking, it lets the classifier commit to one class inside a
+spread-out posterior instead of averaging over it — plausibly better inside impure balls at high
+noise. Tested on both heads at every noise level (sweeps 31085854 + 31088628; explorer group
+"Classifier heads"): <b>no win anywhere</b> — on the linear head it ties soft-CE under noise
+(+0.2 at noise .8, within seed noise) and loses −0.7..−1.7 on clean (committing early wastes the
+calibrated spread), on the MLP it is uniformly slightly worse. Soft-CE stands for all
+soft-target arms. (The equivalence breaks only if targets stop being fixed — e.g. the §12
+classifier-feedback loop, where the posterior would move during training.)</p>
+
+<h2 id="s11">11 · Results explorer — all arms, all noise levels</h2>
 <p class="hint">Click a row to add/remove its curve. Hover a row to spotlight its curve; hover the
 chart for exact mean±std of every visible arm. Values are test accuracy (%), mean±std over seeds;
 <b>bold = column best</b>. The Netta arms have no noise-0 runs (never swept).
@@ -533,26 +640,21 @@ RESULTS §4.7 / DELTA_ROOTCAUSE pitfall 3 before reading across heads.</p>
 <div class="explorer">
   <div class="tblwrap"><table class="res" id="resTable"></table>
     <p class="hint">Row order and sweep pinning mirror the generated R2–R5 tables in
-    <code>docs/bayesian_coverage_RESULTS.md</code>. The last two groups (normalized-input reruns,
-    training-free evaluators) are extras beyond R2–R5 — off by default.</p></div>
+    <code>docs/bayesian_coverage_RESULTS.md</code>. The last four groups (classifier heads,
+    δ ablation, normalized-input reruns, training-free evaluators) are extras beyond
+    R2–R5 — off by default.</p></div>
   <div class="chartwrap"><div class="chart" style="margin:0">
     <div class="chart-title" id="expTitle"></div>
     <div class="chart-sub">test accuracy (%) vs annotation budget</div>
     <div id="expChart" style="height:620px"></div></div></div>
 </div>
 
-<h2 id="s9">9 · Next steps</h2>
+<h2 id="s12">12 · Next steps</h2>
+<p class="small">Three former entries are now <i>answered</i> and moved into the tale above:
+the MLP head + pseudo-stack (§8 — does not stack, config unchanged), the δ calibration
+(§9 — 0.75 confirmed end-to-end), and the KL loss (§10 — soft-CE ≡ forward KL; reverse KL
+never wins). What remains:</p>
 <ol class="next">
-  <li><b>MLP classifier head — head done, the pseudo-stack is the open play.</b> Itai's MLP
-      probe is ported with best-val selection and now leads the linear head at every noise
-      level on observed labels (§8's BAYES_MISP group; 35.0 vs 31.2 @noise .5 @1000). The
-      remaining bet: stack it with pseudo-all's target volume via the torch twin
-      (<code>from_mlp_torch</code>) — if the gains are even partially additive this sets new
-      bests at every noise level.</li>
-  <li><b>Calibrate δ.</b> Everything here runs δ=0.75 — the CIFAR-10 radius. On CIFAR-100 the
-      purity-correct value is ~0.50 (balls only 39% pure at 0.75), and the 38.1 probcover+1-NN
-      cell is δ-inflated (large δ picks typical, TypiClust-like points). A δ sweep decides
-      whether to re-baseline the study or footnote it.</li>
   <li><b>Different kernels for covering vs training.</b> The tophat gate is right for
       <i>selection</i>, but the training targets could use a smooth in-ball kernel: RBF-weighted
       product exponents already replay to 87→96.7 labeled-set denoising @100 clean —
@@ -574,18 +676,13 @@ RESULTS §4.7 / DELTA_ROOTCAUSE pitfall 3 before reading across heads.</p>
       the open work is the <i>theoretical</i> side-by-side: map his pseudo-count accumulation +
       diff-max acquisition onto our posterior/uncertainty language, state exactly when the two
       selection rules pick different points, and see whether either formalism predicts the
-      high-budget product-vs-additive gap.</li>
-  <li><b>KL loss instead of CE.</b> The soft-target arms (<code>soft_posterior</code>, pseudo)
-      train with soft cross-entropy. With <i>fixed</i> targets, forward KL(target‖model) equals
-      soft-CE up to the targets' entropy — same gradients — so the interesting variant is
-      <b>reverse</b> KL(model‖target): mode-seeking, it lets the classifier commit to one class
-      inside a spread-out posterior instead of averaging over it; possibly a better fit for
-      impure balls at high noise.</li>
+      high-budget product-vs-additive gap. (A first written pass exists:
+      <code>docs/probabilistic_kernel_AL_section2_comparison.md</code>.)</li>
   <li class="small"><b>Also on deck:</b> β-temper sweep for correlated-neighbor
       overconfidence; per-ball caps (guard b) to make <code>pseudo all</code> safe at noise 0.8.</li>
 </ol>
 
-<h2 id="s10">10 · Provenance &amp; how to regenerate</h2>
+<h2 id="s13">13 · Provenance &amp; how to regenerate</h2>
 <table class="prov">
 <tr><th>Sweep</th><th>SLURM job</th><th>Grid</th><th>Status</th></tr>
 <tr><td>Bayes comparison</td><td>30978366</td><td>{random, probcover, bayes_additive, bayes_product} × noise × 3 seeds</td><td>48/48 ✔</td></tr>
@@ -596,6 +693,9 @@ RESULTS §4.7 / DELTA_ROOTCAUSE pitfall 3 before reading across heads.</p>
 <tr><td>ProbCover + 1-NN eval</td><td>31048649</td><td>probcover × NN1 evaluator × noise × 3 seeds</td><td>12/12 ✔</td></tr>
 <tr><td>Netta NPC repro / AUM ablation</td><td>30811243 / 30863746</td><td>{npc, probcover, random} × clean-train × noise ≥ .2 × 3 seeds</td><td>27/27, 54/54 ✔</td></tr>
 <tr><td>Posterior-as-classifier / training-free study</td><td colspan="2">offline replays: <code>test_posterior_acc.py</code>, <code>eval_1nn_all_arms.py</code></td><td>✔</td></tr>
+<tr><td>BAYES_MISP port (parity + noise sweep + best-val MLP)</td><td>31078514 / 31084429 / 31085802</td><td>bayes_misp × {linear, MLP} heads × noise × 3 seeds</td><td>3/3, 24/24, 12/12 ✔</td></tr>
+<tr><td>Classifier-head comparison (§8)</td><td>31085867 / 31085854 / 31088628</td><td>{random, probcover, pseudo-all} × {MLP sklearn, MLP torch, rKL} × noise × 3 seeds</td><td>24/24, 24/24, 27/27 ✔</td></tr>
+<tr><td>δ ablation stage 2 (§9)</td><td>31108061</td><td>champion arm × δ {0.6, 0.9} × noise × 3 seeds (stage 1 offline: <code>eval_delta_replay.py</code>)</td><td>24/24 ✔</td></tr>
 </table>
 <p class="small" style="margin-top:12px">
 Single source of truth: <code>results/cifar100/results_master.csv</code> (one row per per-seed cell,
@@ -605,7 +705,9 @@ the R2–R5 markdown/HTML tables come from <code>batch_utils/render_results_tabl
 the same CSV. Theory: <code>docs/bayesian_coverage_THEORY.md</code> · results prose:
 <code>docs/bayesian_coverage_RESULTS.md</code> · open work: <code>docs/bayesian_coverage_NEXT_STEPS.md</code>.
 Regime: CIFAR-100, SimCLR ResNet-18 features (512-d), linear probe, tophat δ=0.75, budget 100/episode,
-symmetric annotator noise, seeds {1,2,3}. Generated 2026-07-15.</p>
+symmetric annotator noise, seeds {1,2,3}. Generated 2026-07-22. Chronological experiment log
+(what ran when, sweep by sweep, with per-experiment graphs and conclusions):
+<code>docs/bayes_experiments_log.html</code>.</p>
 
 </div>
 
