@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --array=0-23%6
+#SBATCH --array=0-23
 #SBATCH --mem=32g
 #SBATCH --cpus-per-task=4
 #SBATCH --time=8:00:00
