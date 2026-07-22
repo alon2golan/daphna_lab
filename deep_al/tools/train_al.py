@@ -101,6 +101,13 @@ def argparser():
                         help="Free-form run tag, repeatable. Recorded under result.json['tags'] and "
                              "surfaced in the dashboard as a groupable/filterable facet. "
                              "E.g. --tag nu_tag=sgd_b100 --tag owner=arik")
+    parser.add_argument('--soft_loss', default=None, choices=['softce', 'rkl'],
+                        help="Loss for SOFT training targets (2-D [B,C] label rows — the "
+                             "soft_posterior/reweighted/pseudo arms; hard-label training is "
+                             "unaffected). softce=-sum(y*logsoftmax(x)) (default; == forward KL "
+                             "up to the targets' entropy); rkl=reverse KL(model||target), "
+                             "mode-seeking (§9.8): the classifier may commit to one class inside "
+                             "a spread-out posterior. Sets cfg.TRAIN.SOFT_LOSS.")
     parser.add_argument('--train_label_mode', default=None,
                         choices=['observed', 'map_posterior', 'filtered',
                                  'soft_posterior', 'reweighted', 'pseudo'],
@@ -951,19 +958,45 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
 
     if cfg.EVAL_MODEL_TYPE == 'from_mlp_sklearn':
         # sklearn MLPClassifier on frozen features (Itai's eval model). Fits on
-        # the RAW (un-normalized) features the dataset serves — matches his
-        # train_al.py, which feeds loader output straight into model.fit().
+        # the RAW (un-normalized) features the dataset serves, but with BEST-VAL
+        # epoch selection added (2026-07-16): a plain .fit() returns the FINAL
+        # iterate, and the cold MLP peaks at ~30-60 adam epochs then decays
+        # (memorization under label noise; −1.8 @1000 even clean). We train
+        # epoch-by-epoch via partial_fit and keep the model state with the best
+        # accuracy on the same clean valSet the linear probe checkpoints against,
+        # making the two heads' selection protocols consistent. NOTE this
+        # intentionally departs from Itai's final-iterate protocol (§4.7).
         train_data, train_labels = _collect_full(train_loader)
-        print(f"sklearn MLP fit: train_data={train_data.shape} labels={train_labels.shape}")
-        model.fit(train_data, train_labels)
-
         val_data, val_labels = _collect_full(val_loader)
-        preds = model.predict(val_data)
-        val_acc = 100. * (preds == np.array(val_labels)).mean()
+        print(f"sklearn MLP fit: train_data={train_data.shape} labels={train_labels.shape} (best-val selection)")
 
-        # No checkpoint for sklearn models; train_acc reported on the fit set
+        # COLD start each episode. The main loop keeps the same model object when
+        # FINE_TUNE=True; the old .fit() path was immune (sklearn's fit
+        # re-initializes), but partial_fit CONTINUES from existing weights —
+        # warm-starting degrades the MLP (42.4 vs 46.7 @1000 clean, plasticity
+        # loss). clone() returns an unfitted estimator with identical hyperparams.
+        from sklearn.base import clone
+        model = clone(model)
+
+        classes = np.arange(cfg.MODEL.NUM_CLASSES)
+        rng = np.random.default_rng(cfg.RNG_SEED)
+        n_epochs = 300  # sklearn's max_iter in the original .fit() config
+        eval_period = max(1, int(cfg.TRAIN.EVAL_PERIOD))
+        best_val_acc, best_val_epoch, best_model = -1.0, 0, None
+        for ep in range(n_epochs):
+            perm = rng.permutation(len(train_data))  # .fit() shuffles per epoch; partial_fit doesn't
+            model.partial_fit(train_data[perm], train_labels[perm], classes=classes)
+            if (ep + 1) % eval_period == 0 or ep == n_epochs - 1:
+                val_acc_ep = 100. * (model.predict(val_data) == np.array(val_labels)).mean()
+                if val_acc_ep > best_val_acc:
+                    best_val_acc, best_val_epoch = val_acc_ep, ep + 1
+                    best_model = deepcopy(model)
+        model = best_model if best_model is not None else model
+        print(f"sklearn MLP best-val epoch {best_val_epoch}/{n_epochs}: val {best_val_acc:.2f}")
+
+        # No checkpoint file for sklearn models; train_acc reported on the fit set
         train_acc = 100. * (model.predict(train_data) == train_labels).mean()
-        return val_acc, 0, train_acc, None, model, []
+        return best_val_acc, best_val_epoch, train_acc, None, model, []
 
     if cfg.MODEL.USE_1NN:  # TODO move to train_model function
         # Fit 1-NN on the full labeled set (not just the first batch)
@@ -1133,7 +1166,20 @@ def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch
         # row sum, so this same path applies it. Integer labels keep the normal
         # (hard) cross-entropy untouched for every other method.
         if labels.dim() == 2:
-            loss = -(labels * torch.nn.functional.log_softmax(preds, dim=-1)).sum(dim=1).mean()
+            if cfg.TRAIN.SOFT_LOSS == 'rkl':
+                # Reverse KL(model||target) (§9.8), mode-seeking. The per-sample
+                # weight lives in the row sum (reweighted / OOB_WEIGHT arms), so
+                # normalize the row to a distribution q and re-apply the weight
+                # as a factor — same semantics as the soft-CE path. eps guards
+                # q's zeros: p-mass on a zero-target class pays log(1/eps).
+                eps = 1e-8
+                row_w = labels.sum(dim=1)
+                q = labels / row_w.clamp_min(eps).unsqueeze(1)
+                logp = torch.nn.functional.log_softmax(preds, dim=-1)
+                kl = (logp.exp() * (logp - (q + eps).log())).sum(dim=1)
+                loss = (row_w * kl).mean()
+            else:
+                loss = -(labels * torch.nn.functional.log_softmax(preds, dim=-1)).sum(dim=1).mean()
             hard_labels = labels.argmax(dim=1)
         else:
             loss = loss_fun(preds, labels)

@@ -128,6 +128,11 @@ class ResultWriter:
         # historical unnormalized runs instead of collapsing into one seed-group.
         if bool(getattr(args, "normalize_features", False)):
             params["normalize_features"] = True
+        # Soft-target loss (§9.8) — recorded ONLY when non-default ('rkl'), same
+        # config_key-stability rule: existing soft-CE runs keep their hashes.
+        _sl = getattr(getattr(cfg, "TRAIN", None), "SOFT_LOSS", "softce")
+        if _sl and _sl != "softce":
+            params["soft_loss"] = _sl
 
         sweep_name = getattr(args, "sweep_name", None) or sweep_id
 

@@ -89,7 +89,7 @@ GROUPS = [
     ("pseudo", "Bayesian coverage + pseudo-labeling"),
     ("postcls", "Posterior as classifier (no trained model)"),
     ("netta",  "Netta NPC / AUM"),
-    ("misp",   "BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; sweeps 31084429 + 31078514)"),
+    ("misp",   "BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; sweeps 31084429 + 31085802 + 31078514; MLP row = cold start + best-val selection)"),
     ("norm",   "Normalized classifier inputs (sweep 31048960) — same arms, scale-preserving L2"),
     ("tfree",  "Training-free evaluator study (offline replay)"),
 ]
@@ -142,9 +142,11 @@ ARMS = [
     arm("misp_lin", "misp", "bayes_misp", "linear head", "observed", "31084429",
         "bayes_misp (linear)", "yellow", dash="dashdot", width=3, on=True,
         d_sampling="bayes_misp (Itai)"),
-    arm("misp_mlp", "misp", "bayes_misp", "MLP head", "observed", "31084429",
-        "bayes_misp (MLP)", "yellow", width=3, markers=True,
-        d_sampling="bayes_misp (Itai)"),
+    # pinned to the best-val rerun 31085802 (from_mlp_sklearn now checkpoints on
+    # the clean valSet); the final-iterate 31084429 MLP rows stay in the CSV only.
+    arm("misp_mlp", "misp", "bayes_misp", "MLP head", "observed", "31085802",
+        "bayes_misp (MLP, best-val)", "yellow", width=3, markers=True,
+        d_sampling="bayes_misp (Itai)", d_model="MLP head (best-val)"),
     arm("pc_mlp", "misp", "probcover", "MLP head", "observed", "31078514",
         "probcover (MLP, seed 1)", "blue", dash="dashdot", markers=True,
         d_model="MLP head (seed 1)"),
@@ -517,7 +519,10 @@ normalization.</p>
 <h2 id="s8">8 · Results explorer — all arms, all noise levels</h2>
 <p class="hint">Click a row to add/remove its curve. Hover a row to spotlight its curve; hover the
 chart for exact mean±std of every visible arm. Values are test accuracy (%), mean±std over seeds;
-<b>bold = column best</b>. The Netta arms have no noise-0 runs (never swept).</p>
+<b>bold = column best</b>. The Netta arms have no noise-0 runs (never swept).
+Head protocols differ by design: linear-head rows warm-start across episodes
+(<code>FINE_TUNE=True</code>), MLP-head rows are cold with best-val epoch selection — see
+RESULTS §4.7 / DELTA_ROOTCAUSE pitfall 3 before reading across heads.</p>
 <div class="controls">
   <span class="seg" id="noiseSeg"></span>
   <label class="ctl"><input type="checkbox" id="bandsCk"> ±std bands</label>
@@ -538,9 +543,12 @@ chart for exact mean±std of every visible arm. Values are test accuracy (%), me
 
 <h2 id="s9">9 · Next steps</h2>
 <ol class="next">
-  <li><b>MLP classifier head.</b> Itai reached 1-NN-competitive results with an MLP probe;
-      swapping our linear head for an MLP could stack with pseudo-all's target volume —
-      the cheapest possibly-large win on the board.</li>
+  <li><b>MLP classifier head — head done, the pseudo-stack is the open play.</b> Itai's MLP
+      probe is ported with best-val selection and now leads the linear head at every noise
+      level on observed labels (§8's BAYES_MISP group; 35.0 vs 31.2 @noise .5 @1000). The
+      remaining bet: stack it with pseudo-all's target volume via the torch twin
+      (<code>from_mlp_torch</code>) — if the gains are even partially additive this sets new
+      bests at every noise level.</li>
   <li><b>Calibrate δ.</b> Everything here runs δ=0.75 — the CIFAR-10 radius. On CIFAR-100 the
       purity-correct value is ~0.50 (balls only 39% pure at 0.75), and the 38.1 probcover+1-NN
       cell is δ-inflated (large δ picks typical, TypiClust-like points). A δ sweep decides

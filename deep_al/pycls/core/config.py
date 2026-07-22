@@ -156,6 +156,13 @@ _C.TRAIN.AUTO_RESUME = False
 # Weights to start training from
 _C.TRAIN.WEIGHTS = ''
 _C.TRAIN.TRANSFER_EXP = False
+# Loss used when the training targets are SOFT rows (2-D [B, C] label batches,
+# i.e. the BayesianCoverage soft_posterior/reweighted/pseudo arms). Hard-label
+# training is unaffected. 'softce' = -sum(y*logsoftmax(x)) (== forward KL up to
+# the targets' entropy, gradients identical); 'rkl' = reverse KL(model||target),
+# mode-seeking: lets the classifier commit to one class inside a spread-out
+# posterior instead of averaging over it (NEXT_STEPS §9.8). CLI: --soft_loss.
+_C.TRAIN.SOFT_LOSS = 'softce'
 
 # ---------------------------------------------------------------------------- #
 # Testing options
@@ -478,6 +485,30 @@ def get_config_aliases():
                 'MODEL.LINEAR_FROM_FEATURES': True,
                 'MODEL.LINEAR_FROM_IMAGES': False,
             },
+            # Torch twin of from_mlp_sklearn (same one-hidden-layer arch) so the
+            # MLP evaluator can train on SOFT targets and non-CE losses, which
+            # sklearn's .fit() cannot. The alias pins the MLP's own best
+            # protocol (DELTA_ROOTCAUSE pitfall 3): COLD start each episode
+            # (FINE_TUNE=False; warm-start costs the MLP −4.3 @1000) + best-val
+            # checkpointing (the torch train loop already does that), with the
+            # sklearn head's adam hyperparams. The linear head keeps its own
+            # best protocol (warm start) — the heads intentionally differ.
+            'from_mlp_torch': {
+                'MODEL.USE_1NN': False,
+                'MODEL.LINEAR_FROM_FEATURES': True,
+                'MODEL.LINEAR_FROM_IMAGES': False,
+                'ACTIVE_LEARNING.FINE_TUNE': False,
+                'OPTIM.TYPE': 'adam',
+                'OPTIM.BASE_LR': 1e-3,       # sklearn MLPClassifier default
+                # sklearn's alpha=3e-2 penalty is DIVIDED by the batch size when
+                # added to the loss (grad ≈ alpha*W/batch), so the torch-Adam
+                # equivalent is 3e-2/200 = 1.5e-4 — a naive wd=3e-2 is ~200×
+                # too strong: the head underfits and DEGRADES with budget
+                # (26.5→10.6 across episodes; parity gate failure, 2026-07-16).
+                'OPTIM.WEIGHT_DECAY': 1.5e-4,
+                'OPTIM.MAX_EPOCH': 300,      # sklearn head's max_iter
+                'TRAIN.BATCH_SIZE': 200,     # sklearn default batch_size
+            },
             'from_images': {
                 'MODEL.USE_1NN': False,
                 'MODEL.LINEAR_FROM_FEATURES': False,
@@ -584,6 +615,7 @@ def build_args_dict(args):
         'MATRIX_DTYPE': args.matrix_dtype,
         'DATASET.FEATURES_TAG': args.features_tag,
         'DATASET.NORMALIZE_FEATURES': args.normalize_features,
+        'TRAIN.SOFT_LOSS': args.soft_loss,
     }
     
     # Add max_epoch if provided

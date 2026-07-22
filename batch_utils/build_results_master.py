@@ -45,6 +45,18 @@ STUDY_SWEEPS = {
     "30863746",  # AUM clean-train ablation (Netta rows)
     "31078514",  # BAYES_MISP port parity check: probcover / bayes_misp / bayes_additive under the MLP head (clean, seed 1)
     "31084429",  # bayes_misp noise sweep: noise {0,.2,.5,.8} x seeds {1,2,3} x heads {MLP, linear}
+    "31085570",  # bayes_misp MLP best-val rerun v1 — INVALID for display: partial_fit accidentally warm-started across episodes
+    "31085802",  # bayes_misp MLP best-val rerun v2 (cold clone per episode) — the ROW_SPEC pin
+    "31085867",  # classifier comparison: random + probcover under the MLP head (cold + best-val)
+    "31085854",  # classifier comparison: pseudo-all x {LH-norm x rkl, torch-MLP x {softce, rkl}} + torch-MLP parity gate. LH rows VALID; torch-MLP rows INVALID for display (Adam wd 200x too strong — sklearn alpha semantics; parity gate failed 26.5->10.6)
+    "31088628",  # wd-fix rerun of the torch-MLP arms (WEIGHT_DECAY 3e-2 -> 1.5e-4) — the display pin for MLP-torch rows
+    "31086759",  # rerun of 31085867 tasks 5+7 (hung at training start) — normalized below
+}
+
+# A rerun of individual hung/failed array tasks gets its own SLURM job id, but the
+# rows belong to the original sweep: normalize so downstream sweep pins stay single-id.
+RERUN_OF = {
+    "31086759": "31085867",
 }
 
 FIELDS = ["sampling", "model", "train_labels", "norm", "noise", "budget", "seed", "test_acc", "sweep_id", "source"]
@@ -56,11 +68,21 @@ PSEUDO_K_AGG50 = "1,2,3,5,8,13,20,30,40,50"
 
 def model_of(p):
     return {"from_features": "linear head", "NN1": "1-NN",
-            "from_mlp_sklearn": "MLP head"}.get(p.get("eval_model_type"), p.get("eval_model_type"))
+            "from_mlp_sklearn": "MLP head",
+            "from_mlp_torch": "MLP head (torch)"}.get(p.get("eval_model_type"), p.get("eval_model_type"))
 
 
 def train_labels_of(p):
-    """Map a run's params to a canonical Train-labels value (see the doc's §4.1 key)."""
+    """Map a run's params to a canonical Train-labels value (see the doc's §4.1 key).
+    A non-default soft loss (--soft_loss rkl, §9.8) is suffixed onto the label so
+    the two loss arms never collapse into one seed-group."""
+    labels = _train_labels_of(p)
+    if p.get("soft_loss") and p.get("soft_loss") != "softce":
+        return f"{labels}, {p['soft_loss']}"
+    return labels
+
+
+def _train_labels_of(p):
     if p.get("eval_model_type") == "NN1":
         return "observed"  # the 1-NN evaluator is fitted on observed labels
     tlm = p.get("train_label_mode")
@@ -91,6 +113,7 @@ def rows_from_result_json():
         sid = d.get("sweep_id")
         if sid not in STUDY_SWEEPS:
             continue
+        sid = RERUN_OF.get(sid, sid)
         p = d.get("params", {})
         base = dict(
             sampling=p.get("al_method"),
@@ -165,6 +188,33 @@ def rows_from_eval_1nn_fill():
     return out
 
 
+def rows_from_eval_heads_fill():
+    """Classifier-comparison 1-NN fills (eval_heads_fill.py, gate-checked):
+    bayes_misp 1-NN on observed labels (lSets of the 31084429 linear runs) +
+    the pseudo-all TRAINING-SET 1-NN (lSet posterior-argmax + covered pool
+    posterior-argmax — §8.3 Q2 variant (c))."""
+    path = os.path.join(REPO, "results", "cifar100", "eval_heads_fill", "per_episode.csv")
+    if not os.path.exists(path):
+        return []
+    ARM_MAP = {  # arm -> (sampling, model, train_labels)
+        "bayes_misp": ("bayes_misp", "1-NN", "observed"),
+        "bayes_product_pseudoall": ("bayes_product", "1-NN", "pseudo (all) targets"),
+    }
+    out = []
+    for r in csv.DictReader(open(path)):
+        mapped = ARM_MAP.get(r["arm"])
+        if mapped is None:
+            continue
+        sampling, model, labels = mapped
+        out.append(dict(
+            sampling=sampling, model=model, train_labels=labels, norm=1,
+            noise=float(r["noise"]), budget=int(r["budget"]), seed=int(r["seed"]),
+            test_acc=round(float(r["test_acc"]), 3),
+            sweep_id=r["src_sweep"], source="eval_heads_fill.csv",
+        ))
+    return out
+
+
 def rows_from_posterior_alone():
     """Graph posterior alone: acc_all (fraction) -> percent; no trained model."""
     path = os.path.join(REPO, "results", "cifar100", "posterior_eval", "test_posterior_acc.json")
@@ -186,7 +236,8 @@ def rows_from_posterior_alone():
 
 def main():
     rows = (rows_from_result_json() + rows_from_eval_1nn()
-            + rows_from_eval_1nn_fill() + rows_from_posterior_alone())
+            + rows_from_eval_1nn_fill() + rows_from_eval_heads_fill()
+            + rows_from_posterior_alone())
     rows.sort(key=lambda r: (str(r["sampling"]), str(r["model"]), str(r["train_labels"]),
                              r["norm"], r["noise"], r["budget"], str(r["seed"])))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

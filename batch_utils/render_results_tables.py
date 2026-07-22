@@ -71,7 +71,12 @@ ROW_SPEC = [
     row("npc", "linear head", "AUM clean-train", "30863746"),
     (SEP, "BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)"),
     row("bayes_misp", "linear head", "observed", "31084429", disp_sampling="bayes_misp (Itai)"),
-    row("bayes_misp", "MLP head", "observed", "31084429", disp_sampling="bayes_misp (Itai)"),
+    # MLP row pinned to the best-val rerun 31085802 (train_al from_mlp_sklearn now
+    # checkpoints on the clean valSet, matching the linear head's selection
+    # protocol); the superseded final-iterate MLP rows stay in the CSV under
+    # sweep 31084429 for provenance but are not displayed.
+    row("bayes_misp", "MLP head", "observed", "31085802", disp_sampling="bayes_misp (Itai)",
+        disp_model="MLP head (best-val)"),
     row("probcover", "MLP head", "observed", "31078514", disp_model="MLP head (seed 1)"),
     row("bayes_additive", "MLP head", "observed", "31078514", disp_model="MLP head (seed 1)"),
 ]

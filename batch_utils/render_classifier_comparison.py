@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
-"""Generate docs/classifier_model_comparison.md — linear head vs 1-NN, per sampling.
+"""Generate docs/classifier_model_comparison.md — the classifier-model comparison:
+linear head vs 1-NN vs MLP per sampling method, + the §9.8 soft-loss comparison
+(soft-CE vs reverse KL) on the pseudo-all arm.
 
-A focused view that does NOT belong in the (already dense) RESULTS doc: for each
-sampling method it pairs the trained **linear head** (on observed labels) against
-the training-free **1-NN** (on observed labels), across every noise × budget, and
-shows the gap. Pulls entirely from results_master.csv — the same single source of
-truth as RESULTS §4.1 — so it never drifts from the main tables.
+Protocols (DELTA_ROOTCAUSE pitfall 3 — each head runs ITS best protocol):
+  linear head  warm-started across episodes (FINE_TUNE=True), best-val checkpoint
+  MLP head     COLD per episode + best-val epoch selection (sklearn partial_fit
+               path / the from_mlp_torch alias); raw (un-normalized) features
+  1-NN         training-free, unit-L2 features, observed labels (or the stated
+               target set)
+
+Pulls entirely from results_master.csv — the same single source of truth as
+RESULTS §4.1 — so it never drifts from the main tables.
 
 Run:  python3 batch_utils/render_classifier_comparison.py
-      (after build_results_master.py; the npc rows need eval_1nn_npc.py first)
+      (after build_results_master.py; needs sweeps 31085802/31085854/31085867 +
+       eval_heads_fill.py collected)
 """
 import os
 
-from render_results_tables import BUDGETS, NOISE_LABEL, NOISES, cell, load, mean_of
+from render_results_tables import BUDGETS, NOISES, cell, load, mean_of
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, "docs", "classifier_model_comparison.md")
@@ -20,74 +27,86 @@ OUT = os.path.join(REPO, "docs", "classifier_model_comparison.md")
 HEADER = ["Classifier model"] + [str(b) for b in BUDGETS]
 
 
-def spec(sampling, model, labels, sweep):
-    return dict(sampling=sampling, model=model, labels=labels, sweep=sweep)
+def spec(label, sampling, model, labels, sweep, ref=False):
+    """One display row. ref=True rows (Δ baselines) are marked with † in the doc."""
+    return dict(label=label, sampling=sampling, model=model, labels=labels,
+                sweep=sweep, ref=ref)
 
 
-# (display sampling name, linear-head spec, 1-NN spec) — 1-NN fit on observed labels.
-# Each pair holds the SAMPLING fixed and swaps only the classifier.
-PAIRS = [
-    ("random",
-     spec("random", "linear head", "observed", "30978366"),
-     spec("random", "1-NN", "observed", "eval_1nn_all_arms")),
-    ("probcover",
-     spec("probcover", "linear head", "observed", "30978366"),
-     spec("probcover", "1-NN", "observed", "31048649")),
-    ("bayes_additive",
-     spec("bayes_additive", "linear head", "observed", "31066809"),
-     spec("bayes_additive", "1-NN", "observed", "31066809")),  # fixed sweep, not buggy study
-    ("bayes_product",
-     spec("bayes_product", "linear head", "observed", "30978366"),
-     spec("bayes_product", "1-NN", "observed", "eval_1nn_all_arms")),
-    ("npc (sel. only)",
-     spec("npc", "linear head", "observed (sel. only)", "30863746"),
-     spec("npc", "1-NN", "observed (sel. only)", "eval_1nn_npc")),
-    ("npc (AUM clean-train)",
-     spec("npc", "linear head", "AUM clean-train", "30863746"),
-     spec("npc", "1-NN", "AUM clean-train", "eval_1nn_npc")),
+# (display sampling name, [row specs]) — the sampled point set is held fixed
+# inside each block (selection never depends on the eval head), only the
+# classifier / loss is swapped.
+BLOCKS = [
+    ("random", [
+        spec("linear head (warm)", "random", "linear head", "observed", "30978366", ref=True),
+        spec("1-NN", "random", "1-NN", "observed", "eval_1nn_all_arms"),
+        spec("MLP head (cold+best-val)", "random", "MLP head", "observed", "31085867"),
+    ]),
+    ("probcover", [
+        spec("linear head (warm)", "probcover", "linear head", "observed", "30978366", ref=True),
+        spec("1-NN", "probcover", "1-NN", "observed", "31048649"),
+        spec("MLP head (cold+best-val)", "probcover", "MLP head", "observed", "31085867"),
+    ]),
+    ("bayes_misp (Itai)", [
+        spec("linear head (warm)", "bayes_misp", "linear head", "observed", "31084429", ref=True),
+        spec("1-NN", "bayes_misp", "1-NN", "observed", "31084429"),
+        spec("MLP head (cold+best-val)", "bayes_misp", "MLP head", "observed", "31085802"),
+    ]),
+    ("pseudo all (bayes_product + pseudo-labeling)", [
+        spec("linear head (warm, norm), soft-CE", "bayes_product", "linear head", "pseudo (all)", "31048960", ref=True),
+        spec("linear head (warm, norm), rKL", "bayes_product", "linear head", "pseudo (all), rkl", "31085854"),
+        spec("MLP head torch (cold+best-val, raw), soft-CE", "bayes_product", "MLP head (torch)", "pseudo (all)", "31088628"),
+        spec("MLP head torch (cold+best-val, raw), rKL", "bayes_product", "MLP head (torch)", "pseudo (all), rkl", "31088628"),
+        spec("1-NN on the pseudo-all target set", "bayes_product", "1-NN", "pseudo (all) targets", "30978366"),
+    ]),
+]
+
+# torch-vs-sklearn MLP architecture parity (probcover, clean, observed labels)
+PARITY = [
+    spec("MLP head sklearn (cold+best-val)", "probcover", "MLP head", "observed", "31085867"),
+    spec("MLP head torch (cold+best-val)", "probcover", "MLP head (torch)", "observed", "31088628"),
 ]
 
 
 def series(acc, s, noise):
-    return [cell(acc.get((s["sampling"], s["model"], s["labels"], s["sweep"], noise, b))) for b in BUDGETS]
+    return [cell(acc.get((s["sampling"], s["model"], s["labels"], s["sweep"], noise, b)))
+            for b in BUDGETS]
 
 
-def fmt_delta(a, b):
-    """1-NN minus linear, signed. a=linear text, b=1nn text."""
-    ma, mb = mean_of(a), mean_of(b)
-    if ma is None or mb is None:
-        return "—"
-    d = mb - ma
-    return f"{d:+.1f}"
-
-
-def block(acc, noise):
+def block_table(acc, rows_spec, noise, deltas_vs_ref=True):
     lines = ["| " + " | ".join(HEADER) + " |",
              "|" + "|".join(["---"] * len(HEADER)) + "|"]
-    for name, lin_s, nn_s in PAIRS:
-        lin = series(acc, lin_s, noise)
-        nn = series(acc, nn_s, noise)
-        deltas = [fmt_delta(a, b) for a, b in zip(lin, nn)]
-        # bold the winner (linear vs 1nn) per budget
-        lin_disp, nn_disp = list(lin), list(nn)
-        for j in range(len(BUDGETS)):
-            ma, mb = mean_of(lin[j]), mean_of(nn[j])
-            if ma is None or mb is None:
-                continue
-            if mb > ma:
-                nn_disp[j] = f"**{nn[j]}**"
-            elif ma > mb:
-                lin_disp[j] = f"**{lin[j]}**"
-        cells = lambda xs: " | ".join(x if x is not None else "—" for x in xs)
-        lines.append(f"| *{name}* |" + " |" * len(BUDGETS))
-        lines.append("| linear head | " + cells(lin_disp) + " |")
-        lines.append("| 1-NN | " + cells(nn_disp) + " |")
-        lines.append("| Δ (1-NN − linear) | " + " | ".join(deltas) + " |")
+    ser = [(s, series(acc, s, noise)) for s in rows_spec]
+    ref_row = next((vals for s, vals in ser if s["ref"]), None)
+    # bold the column winner among present rows
+    best = []
+    for j in range(len(BUDGETS)):
+        ms = [mean_of(vals[j]) for _, vals in ser]
+        present = [m for m in ms if m is not None]
+        best.append(max(present) if present else None)
+    for s, vals in ser:
+        disp = []
+        for j, v in enumerate(vals):
+            m = mean_of(v)
+            if v is None:
+                disp.append("—")
+            elif best[j] is not None and m == best[j]:
+                disp.append(f"**{v}**")
+            else:
+                disp.append(v)
+        mark = "†" if s["ref"] else ""
+        lines.append(f"| {s['label']}{mark} | " + " | ".join(disp) + " |")
+        if deltas_vs_ref and not s["ref"] and ref_row is not None:
+            ds = []
+            for a, b in zip(ref_row, vals):
+                ma, mb = mean_of(a), mean_of(b)
+                ds.append("—" if ma is None or mb is None else f"{mb - ma:+.1f}")
+            lines.append("| &nbsp;&nbsp;Δ vs linear† | " + " | ".join(ds) + " |")
     return "\n".join(lines)
 
 
 DOC_HEAD = """---
-title: "Classifier model comparison — linear head vs 1-NN (CIFAR100)"
+title: "Classifier model comparison — linear head vs 1-NN vs MLP (CIFAR100)"
 ---
 
 <!-- GENERATED by batch_utils/render_classifier_comparison.py from
@@ -95,25 +114,34 @@ title: "Classifier model comparison — linear head vs 1-NN (CIFAR100)"
 
 **Companion to `bayesian_coverage_RESULTS.md`** (kept separate so the main results
 file stays readable). Same data source (`results_master.csv`), same regime: CIFAR100
-SimCLR features, tophat δ = 0.75, mean±std over seeds {1,2,3}.
+SimCLR features, tophat δ = 0.75, budgets 100–1000, mean±std over seeds {1,2,3}.
+Interactive twin: `docs/classifier_model_comparison.html`.
 
-**What this compares.** For each **sampling** method, the classifier is swapped while the
-selected point set is held fixed: **linear head** = a linear probe trained on the sampled
-set (on observed labels); **1-NN** = `KNeighborsClassifier(1)` fitted on the same sampled
-set's L2-normalized features (on observed labels), no training. `Δ (1-NN − linear)` is the
-signed gap; the column-winner between the two is **bold**.
+**What this compares.** For each **sampling** method the selected point set is held
+fixed (selection never depends on the eval head) and the classifier is swapped:
 
-- `npc` selection depends on the AUM feedback, so clean-train on/off give different point
-  sets — hence two `npc` blocks. Each 1-NN is fitted on that lineage's own sampled set.
-- `npc` has no noise-0 arm (never run) → dashes at noise 0.0.
-- The 1-NN columns for {random, probcover, bayes_additive, bayes_product} come from the
-  §8.3 evaluator study; the `npc` 1-NN columns were filled by `batch_utils/eval_1nn_npc.py`
-  (gate-checked to reproduce the study's numbers through the same code path).
+- **linear head** — `FeaturesNet(512→100)` probe, **warm-started** across episodes
+  (`FINE_TUNE=True`), best-val checkpoint. Its established study protocol.
+- **1-NN** — `KNeighborsClassifier(1)` on unit-L2 features, no training.
+- **MLP head** — one hidden layer (256, ReLU), **cold per episode + best-val epoch
+  selection** on the clean valSet, raw features. sklearn `partial_fit` path for the
+  observed-label arms; the torch twin (`from_mlp_torch`) for soft-target/loss arms
+  (arch parity checked below).
 
-**Reading.** The recurring pattern (see NEXT_STEPS §8.3): 1-NN **wins at low budget** — no
-network to under-train on ~1 label/class — and **loses once the linear head converges**
-(mid budget on clean data, later under noise). The crossover budget is the useful takeaway
-per sampling method.
+Per DELTA_ROOTCAUSE pitfall 3 each head runs **its own best protocol** — warm-start
+helps the linear probe (+2–4 pts) and *hurts* the MLP (plasticity loss), so a shared
+protocol would handicap one of them. The old final-iterate MLP rows (31084429) are
+superseded; with best-val selection **the MLP no longer "inverts" under noise** —
+most of that was protocol, not memorization.
+
+**Loss comparison (§9.8).** The pseudo-all block also compares **soft-CE** against
+**reverse KL(model‖target)** (`--soft_loss rkl`, mode-seeking) on both heads. KL is
+skipped for `bayes_misp`: it trains on hard observed labels, where soft-CE ≡ CE and
+reverse KL is degenerate.
+
+**Reading.** † marks the Δ baseline row. **Bold** = column best within the block.
+The recurring §8.3 pattern — 1-NN wins at low budget, the trained heads win once
+converged — now has a third player: the cold+best-val MLP.
 """
 
 
@@ -123,7 +151,14 @@ def main():
     for noise in NOISES:
         tag = "clean" if noise == 0.0 else f"{int(noise * 100)}% label noise"
         parts.append(f"\n## Noise {noise} ({tag})\n")
-        parts.append(block(acc, noise))
+        for name, rows_spec in BLOCKS:
+            parts.append(f"\n### {name}\n")
+            parts.append(block_table(acc, rows_spec, noise))
+    parts.append("\n## Torch-vs-sklearn MLP architecture parity (probcover, clean, observed labels)\n")
+    parts.append("Same widths (512→256→100), same cold+best-val protocol, adam ≈ same "
+                 "hyperparams — the torch twin exists so soft targets / rKL can reach the "
+                 "MLP. The two rows should track within noise:\n")
+    parts.append(block_table(acc, PARITY, 0.0, deltas_vs_ref=False))
     open(OUT, "w").write("\n".join(parts) + "\n")
     print(f"wrote {os.path.relpath(OUT, REPO)}")
 

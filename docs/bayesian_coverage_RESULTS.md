@@ -64,6 +64,15 @@ classifier inputs (`docs/bayesian_coverage_NORMALIZATION.md`, takeaway 9) — th
 conclusions survive; normalization is a small consistent extra win for `pseudo all`
 (+~1 pt at every budget/noise) and is convergence-gated for everything else.
 
+**BAYES_MISP port + evaluator-head findings (2026-07-16, §4.7 + takeaway 11):** Itai's
+actual method (`bayes_misp`) is ported and verified (≈ probcover at every noise level under
+the linear head — his clean-data signature holds under noise). His **MLP evaluator**
+(`from_mlp_sklearn`) explains the earlier "his numbers are far above ours" gap (+10 @100 vs
+the linear probe — real learned nonlinearity), and with **best-val epoch selection** added
+(sweep 31085802) it now *leads the linear head at every noise level* (35.0 vs 31.2 @noise .5
+@1000) — the earlier "MLP collapses under noise" reading was a final-iterate protocol
+artifact. Full pitfall write-up: `bayesian_coverage_DELTA_ROOTCAUSE.md` pitfall 3.
+
 ### Recommended configuration — normalized `pseudo all`, covered-only
 
 The single best-performing setup across the whole study (best arm at *every* noise
@@ -93,7 +102,8 @@ beats every pseudo arm (§4.6).
 ## 4. Results — CIFAR100, test accuracy (%), mean±std over seeds {1,2,3}
 
 Like-for-like regime: CIFAR100 SimCLR features, budget 100/episode, tophat $\delta=0.75$,
-`from_features` eval. Sources (all complete, per-run `result.json` on disk):
+`from_features` eval (exceptions: the 1-NN rows and the §4.7 `from_mlp_sklearn`
+MLP-head rows). Sources (all complete, per-run `result.json` on disk):
 
 **Table R1 — Data sources / sweeps.**
 
@@ -108,6 +118,7 @@ Like-for-like regime: CIFAR100 SimCLR features, budget 100/episode, tophat $\del
 | ProbCover + 1-NN eval | 31048649 | probcover × `--eval_model_type NN1` × noise {0, .2, .5, .8} × 3 seeds | 12/12 ✔ |
 | BAYES_MISP parity | 31078514 | {probcover, bayes_misp, bayes_additive} × MLP head, clean, seed 1 (port verification vs Itai's repo) | 3/3 ✔ |
 | BAYES_MISP noise | 31084429 | bayes_misp × noise {0, .2, .5, .8} × 3 seeds × head {MLP, linear} | 24/24 ✔ |
+| BAYES_MISP MLP best-val | 31085802 | bayes_misp × noise {0, .2, .5, .8} × 3 seeds × MLP head with best-val selection — supersedes the 31084429 MLP rows (31085570 = invalid first attempt, warm-contaminated) | 12/12 ✔ |
 
 All `bayes_*` selection rows train on **raw observed labels** unless a train-mode is
 named. Netta's sweeps have **no noise-0 arm** (never run) — hence the dashes.
@@ -258,8 +269,8 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | npc | linear head | AUM clean-train | — | — | — | — | — |
 | *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
 | bayes_misp (Itai) | linear head | observed | 24.5±2.0 | 39.7±0.8 | 43.4±0.1 | 44.5±0.3 | 46.7±0.4 |
-| bayes_misp (Itai) | MLP head | observed | 34.9±1.1 | **40.3±0.7** | **42.5±0.4** | **43.7±0.3** | 45.4±0.5 |
-| probcover | MLP head (seed 1) | observed | **35.4±0.0** | 39.8±0.0 | 42.3±0.0 | 43.5±0.0 | **45.7±0.0** |
+| bayes_misp (Itai) | MLP head (best-val) | observed | 34.8±1.0 | **40.9±0.7** | **43.5±0.1** | **44.6±0.1** | **46.8±0.1** |
+| probcover | MLP head (seed 1) | observed | **35.4±0.0** | 39.8±0.0 | 42.3±0.0 | 43.5±0.0 | 45.7±0.0 |
 | bayes_additive | MLP head (seed 1) | observed | 35.0±0.0 | 32.8±0.0 | 33.5±0.0 | 33.6±0.0 | 37.6±0.0 |
 <!-- END:R2 -->
 
@@ -294,7 +305,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | npc | linear head | AUM clean-train | 20.2±0.7 | 32.0±0.6 | 36.5±0.6 | 40.4±0.8 | 43.3±0.6 |
 | *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
 | bayes_misp (Itai) | linear head | observed | 20.6±0.8 | 33.9±1.3 | 37.6±0.3 | 39.7±0.5 | 41.8±0.4 |
-| bayes_misp (Itai) | MLP head | observed | **28.3±1.3** | **32.1±0.9** | **34.1±0.7** | **35.1±0.1** | **37.1±0.2** |
+| bayes_misp (Itai) | MLP head (best-val) | observed | **28.4±1.1** | **33.4±1.2** | **37.3±1.1** | **39.8±1.2** | **42.5±0.9** |
 | probcover | MLP head (seed 1) | observed | — | — | — | — | — |
 | bayes_additive | MLP head (seed 1) | observed | — | — | — | — | — |
 <!-- END:R3 -->
@@ -330,7 +341,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | npc | linear head | AUM clean-train | 13.3±1.5 | 20.7±1.0 | 26.6±1.3 | 30.4±1.7 | 35.6±1.0 |
 | *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
 | bayes_misp (Itai) | linear head | observed | 13.7±0.8 | 21.5±0.9 | 25.8±1.2 | 28.7±0.9 | 31.2±1.1 |
-| bayes_misp (Itai) | MLP head | observed | **17.4±1.4** | **20.0±0.9** | **21.7±1.4** | **22.6±1.2** | **24.6±0.8** |
+| bayes_misp (Itai) | MLP head (best-val) | observed | **17.1±1.5** | **21.4±1.2** | **26.8±0.6** | **30.7±0.2** | **35.0±0.8** |
 | probcover | MLP head (seed 1) | observed | — | — | — | — | — |
 | bayes_additive | MLP head (seed 1) | observed | — | — | — | — | — |
 <!-- END:R4 -->
@@ -366,7 +377,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | npc | linear head | AUM clean-train | 5.7±1.6 | 7.4±0.6 | 10.3±0.7 | 11.7±1.0 | 15.0±0.8 |
 | *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
 | bayes_misp (Itai) | linear head | observed | 5.9±0.6 | 8.6±0.9 | 11.0±1.3 | 12.1±0.5 | 13.6±0.7 |
-| bayes_misp (Itai) | MLP head | observed | **7.0±0.9** | **7.5±0.9** | **8.5±0.8** | **9.4±0.8** | **9.9±0.4** |
+| bayes_misp (Itai) | MLP head (best-val) | observed | **7.0±0.9** | **9.0±0.7** | **12.0±0.9** | **14.3±0.5** | **17.2±0.9** |
 | probcover | MLP head (seed 1) | observed | — | — | — | — | — |
 | bayes_additive | MLP head (seed 1) | observed | — | — | — | — | — |
 <!-- END:R5 -->
@@ -549,29 +560,66 @@ Two evaluator heads are reported in the R2–R5 tables:
   comparable. Expect `bayes_misp ≈ probcover` here too.
 - **MLP head** (`--eval_model_type from_mlp_sklearn`, new in this repo) — Itai's
   evaluator: sklearn `MLPClassifier(hidden=(256,), relu, adam, α=3e-2,
-  max_iter=300)` fit on **raw** (un-normalized) features. It sits ~10 pts above
-  the linear protocol at low budget — this is an *evaluator* difference, not a
-  selection difference, so MLP rows must only be compared against other MLP rows
-  (the tables bold the two head classes separately). The seed-1 `probcover` /
-  `bayes_additive` MLP rows (parity sweep 31078514, clean only) provide that
-  in-head reference: additive is −7.4 @1000 vs misp under the identical MLP
-  evaluator, its known intrinsic deficit (§4 additive gate, takeaway 1) — under
-  the MLP head the gap opens from 300 labels already.
+  max_iter=300)` fit on **raw** (un-normalized) features, **plus best-val epoch
+  selection** (added 2026-07-16, sweep 31085802; per-epoch `partial_fit`, cold
+  clone per episode, checkpointed on the same clean valSet as the linear probe —
+  a deliberate departure from Itai's final-iterate `.fit()`, which under-reports
+  the MLP because it peaks at ~30-60 adam epochs and then overfits). It sits ~10
+  pts above the linear protocol at low budget — an *evaluator* difference, not a
+  selection difference, so MLP rows are bolded separately from the rest. The
+  seed-1 `probcover` / `bayes_additive` MLP rows (parity sweep 31078514, clean
+  only, final-iterate) provide an in-head reference: additive is −7.4 @1000 vs
+  misp under the identical MLP evaluator, its known intrinsic deficit (§4
+  additive gate, takeaway 1) — under the MLP head the gap opens from 300 labels
+  already.
 
 Reading (sweep 31084429, 24/24): **under the linear head, `bayes_misp` ≈
 `probcover` at every noise level**, with a small consistent edge at 1000 labels
 (46.7 vs 46.5 clean; 41.8 vs 41.2 @.2; 31.2 vs 30.3 @.5; 13.6 vs 12.7 @.8) —
-Itai's clean-data signature carries over to noise unchanged. The more surprising
-result is the **evaluator × noise interaction: the MLP head's low-budget
-advantage inverts under label noise**. Clean, it leads the linear head by +10 @100
-and stays ahead through ~700; at noise ≥ .2 it *loses* to the linear head from
-~300 labels on, and by 1000 the deficit is large (37.1 vs 41.8 @.2; 24.6 vs 31.2
-@.5; 9.9 vs 13.6 @.8). The 256-unit adam-trained MLP (300 iterations, weak 3e-2
-L2) has the capacity to memorize noisy labels that the underparameterized linear
-probe cannot — so **the MLP evaluator is the flattering choice only on clean
-data**; under noise it understates every method. Any comparison against Itai's
-reported numbers must therefore hold the head fixed, and noise conclusions drawn
-on his MLP protocol do not transfer to ours.
+Itai's clean-data signature carries over to noise unchanged.
+
+**⚠ MLP-vs-linear rows are NOT protocol-matched (warm-start asymmetry, found
+2026-07-16).** `ACTIVE_LEARNING.FINE_TUNE` defaults to **True** (here *and* in
+Itai's repo), so the linear probe is **warm-started across episodes** — at 1000
+labels it has accumulated ~2000 epochs — while the sklearn-MLP path rebuilds a
+cold model every episode (300 adam iterations, final iterate, no best-val
+selection). Offline replay on the identical seed-1 lSets + the run's real valSet
+(clean) decomposes the apparent "MLP better early, worse late" crossover:
+
+| protocol (clean, seed 1) | 100 | 300 | 500 | 700 | 1000 |
+|---|---|---|---|---|---|
+| linear, cold, final epoch | 25.2 | 35.8 | 40.7 | 41.8 | 44.9 |
+| linear, warm (pipeline row) | 25.6 | 40.0 | 43.6 | 44.4 | 47.1 |
+| MLP, cold, final (pipeline row) | 36.1 | 39.9 | 41.8 | 43.4 | 44.9 |
+| MLP, cold, best-val epoch | 36.0 | 40.0 | 43.3 | 43.8 | 46.7 |
+| MLP, warm, best-val | 36.0 | 39.9 | 41.3 | 41.3 | 42.4 |
+
+Same-protocol (both cold, final): MLP ≥ linear at *every* budget — the
+crossover disappears. The pipeline linear row's late-budget lead is warm-start
+gain (+2.2 @1000; checkpoint selection adds ≈0 — val is monotone on clean data),
+and the MLP row's late-budget shortfall is the missing best-iterate selection
+(−1.8 @1000: the cold MLP peaks at ~30-60 adam epochs and then decays).
+Warm-starting *hurts* the MLP (42.4 @1000 — the known warm-start plasticity
+loss), so each head's pipeline protocol is roughly its own best/worst case:
+at their respective best protocols the heads tie @1000 clean (47.1 vs 46.7).
+The @100 column is unaffected (episode 0 is cold for both): the MLP's +10 there
+is a genuine learned-nonlinearity gain (converged linear models reach only
+27.5-28.9; a frozen random 256-relu lift reaches 11.4; 1-NN reaches 38.1 — at
+100 pts/100 classes the SimCLR classes are locally, nonlinearly structured).
+
+**Resolution under noise (sweep 31085802, 12/12, best-val MLP rows now in
+R2-R5):** giving the MLP the same best-val selection the linear head always had
+**erases the apparent "MLP collapses under noise" reading entirely** — it was the
+final-iterate protocol measuring memorization, not the architecture. Fixed
+protocol vs the (warm) linear rows @1000: clean 46.8 vs 46.7 (tie, exactly the
+replay's prediction), noise .2 **42.5 vs 41.8**, noise .5 **35.0 vs 31.2**,
+noise .8 **17.2 vs 13.6** — the best-val MLP now *leads at every noise level and
+every budget* (each head under its own best protocol: warm for linear, cold +
+early stopping for MLP). Early stopping on a clean valSet is doing exactly its
+textbook job as a noise-robustness mechanism: the recovery vs final-iterate
+grows with noise (+1.4 clean → +5.4 @.2 → +10.4 @.5 → +7.3 @.8 at 1000). Note
+the noise-robust *training* arms (soft/pseudo, §4.6) still only exist under the
+linear head; an MLP-head + posterior-training combination is untested.
 
 ## 5. Takeaways
 
@@ -651,6 +699,24 @@ on his MLP protocol do not transfer to ours.
     ramped weight w(d)≤0.8 (far field dropped) still costs −1.1..−1.35 clean at every
     budget. Even good-shell targets (30–55% acc) dilute the ~72%-accurate covered diet,
     so the out-of-ball direction is closed at *any* weighting; covered-only stands.
+
+11. **Itai's BAYES_MISP ≈ ProbCover at every noise level, and the evaluator head is a
+    protocol minefield (§4.7, DELTA_ROOTCAUSE pitfall 3).** The ported `bayes_misp`
+    (diff max, α=0.5, CSR K) tracks probcover within ≤0.9 at every noise/budget under
+    the linear head — his selection rule adds nothing over ProbCover, on clean *or*
+    noisy data; the posterior-training arms (takeaways 2, 8) remain the differentiator.
+    On the evaluator side, three findings: (a) his **MLP head's +10 @100 is real
+    learned nonlinearity** (converged linear models stop at ~28; 1-NN's 38.1 is the
+    same low-n structure); (b) the apparent "MLP worse at high budget / collapses
+    under noise" was **protocol, not architecture** — the linear probe warm-starts
+    across episodes (`FINE_TUNE=True`, ~2000 cumulative epochs @1000) while the MLP
+    ran cold + final-iterate; (c) with **best-val epoch selection** (the protocol fix;
+    sweep 31085802) the cold MLP leads the warm linear probe at *every* noise level
+    (@1000: 46.8 vs 46.7 clean; 42.5 vs 41.8 @.2; 35.0 vs 31.2 @.5; 17.2 vs 13.6 @.8)
+    — early stopping on the clean valSet recovers +5..+10 under noise. Warm-starting
+    *hurts* the MLP (plasticity loss, 42.4 @1000 clean), so each head keeps its own
+    protocol: linear warm, MLP cold + best-val. Open: MLP head × posterior/pseudo
+    training is untested (NEXT_STEPS §9.7).
 
 ## 6. Reproducing the tables — single-source-of-truth pipeline
 

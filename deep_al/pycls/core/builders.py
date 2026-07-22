@@ -64,6 +64,23 @@ class FeaturesNet(nn.Module):
         return out
 
 
+class MLPHeadNet(nn.Module):
+    """Torch twin of the sklearn MLPClassifier eval head (from_mlp_sklearn):
+    one hidden ReLU layer, same widths. Exists so the MLP evaluator can train
+    on SOFT target rows (pseudo/posterior arms) and non-CE soft losses
+    (TRAIN.SOFT_LOSS), which sklearn's .fit() cannot. Protocol (cold start +
+    adam hyperparams) is pinned by the 'from_mlp_torch' config alias; best-val
+    checkpointing comes from the standard torch train loop."""
+
+    def __init__(self, in_layers, hidden, out_layers):
+        super().__init__()
+        self.lin1 = nn.Linear(in_layers, hidden)
+        self.final = nn.Linear(hidden, out_layers)
+
+    def forward(self, x):
+        return self.final(F.relu(self.lin1(x)))
+
+
 def get_model(cfg):
     """Gets the model class specified in the config."""
     err_str = "Model type '{}' not supported"
@@ -101,6 +118,12 @@ def build_model(cfg):
             )
         num_features = 384 if cfg.DATASET.NAME in ['IMAGENET50', 'IMAGENET100', 'IMAGENET200'] else 512
         num_features = 2 if cfg.DATASET.NAME in ['SCENARIO_A', 'HALF_MOON'] else num_features
+        # Torch MLP head — same widths as the sklearn head above (hidden 256 on
+        # CIFAR), trained through the regular torch loop (soft-target capable).
+        if getattr(cfg, 'EVAL_MODEL_TYPE', None) == 'from_mlp_torch':
+            hidden = 384 if cfg.DATASET.NAME in ['IMAGENET50', 'IMAGENET100', 'IMAGENET200'] else 256
+            hidden = 2 if cfg.DATASET.NAME in ['SCENARIO_A', 'HALF_MOON'] else hidden
+            return MLPHeadNet(num_features, hidden, cfg.MODEL.NUM_CLASSES).cuda()
         return FeaturesNet(num_features, cfg.MODEL.NUM_CLASSES).cuda()
 
     model = get_model(cfg)(num_classes=cfg.MODEL.NUM_CLASSES, use_dropout=True)

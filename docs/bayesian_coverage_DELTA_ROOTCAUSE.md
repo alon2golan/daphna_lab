@@ -6,9 +6,13 @@ This is a running log of **result-interpretation pitfalls** in the bayes-coverag
 so future readers don't re-chase them. Pitfall 1 (the bulk of this doc): **ProbCover's δ
 is a per-dataset, per-embedding purity parameter, not a constant** — the source of the
 "our number is too high" question. Pitfall 2 (see "Related pitfall" below): **feature
-L2-normalization flips sign with training convergence** — helps @1000, hurts @100. Common
-thread: a single knob whose effect depends on regime, so a number read at the wrong regime
-misleads._
+L2-normalization flips sign with training convergence** — helps @1000, hurts @100.
+Pitfall 3 (added 2026-07-16): **the two evaluator heads run different training
+protocols** — the linear probe warm-starts across episodes while the sklearn MLP
+restarts cold and keeps its final (overfit) iterate — which manufactured a fake
+"MLP better early, worse late" crossover. Common thread: a single knob whose effect
+depends on regime (or differs silently between arms), so a number read at the wrong
+regime misleads._
 
 ## The question
 
@@ -150,6 +154,113 @@ not, and it is a **training/optimization** artifact, not a property of the repre
    pseudo best training arm; posterior-training still beats observed under noise, though the
    margin shrinks — part of what posteriors "fixed" was feature-norm pathology, not only
    label noise). Absolute @1000 numbers are understated by +2-7 under a raw-feature convention.
+
+## Related pitfall 3: warm-start protocol asymmetry between evaluator heads
+
+_(Investigation 2026-07-16, triggered by the BAYES_MISP port's MLP-vs-linear rows
+in R2. Diagnostics: session replays on the exact seed-1 lSets — the finding is
+log-verified against the production runs, see below. §4.7 of
+`bayesian_coverage_RESULTS.md` carries the same decomposition table.)_
+
+**The question.** In R2 (clean), the sklearn-MLP head (`from_mlp_sklearn`, Itai's
+evaluator) beats the linear probe by ~+10 @100 labels but *loses* to it @1000
+(45.4 vs 46.7). "High-capacity model wins with FEW examples, loses with many" is
+backwards — bug?
+
+**Root cause — the two heads never ran the same training protocol.**
+`ACTIVE_LEARNING.FINE_TUNE` defaults to **True** (in our repo *and* in Itai's
+bayes_al_2025), so:
+
+- the **linear probe is warm-started**: each episode resumes from the previous
+  episode's weights. By 1000 labels it has accumulated ~2000 epochs. Log-verified:
+  in the production run, episode 2 (300 labels) sits at val 37.2% after just 10
+  epochs — a cold model needs ~200 epochs to reach that.
+- the **sklearn MLP is rebuilt cold every episode** (explicit in the
+  `from_mlp_sklearn` code path, ours and Itai's) and `.fit()` returns the **final**
+  iterate — but a cold MLP peaks at ~30-60 adam epochs and then decays
+  (overfitting; under label noise, memorization).
+
+**Decomposition** (offline replay, identical seed-1 lSets, the run's real 5000-pt
+valSet, clean):
+
+| protocol | 100 | 300 | 500 | 700 | 1000 |
+|---|---|---|---|---|---|
+| linear, cold, final epoch | 25.2 | 35.8 | 40.7 | 41.8 | 44.9 |
+| linear, **warm** ← what the tables report | 25.6 | 40.0 | 43.6 | 44.4 | 47.1 |
+| MLP, cold, **final** ← what the tables report | 36.1 | 39.9 | 41.8 | 43.4 | 44.9 |
+| MLP, cold, best-val epoch | 36.0 | 40.0 | 43.3 | 43.8 | 46.7 |
+| MLP, warm, best-val | 36.0 | 39.9 | 41.3 | 41.3 | 42.4 |
+
+**Findings.**
+
+1. **The "MLP worse late" half of the crossover is protocol, not architecture.**
+   Same protocol (both cold, final iterate): MLP ≥ linear at *every* budget clean.
+   The published gap @1000 = linear's warm-start gain (+2.2) plus the MLP's missing
+   best-iterate selection (−1.8). Checkpoint selection itself adds ≈0 for the
+   linear head on clean data (val is monotone) — warm-start is the active knob.
+2. **Warm-start is a real gain for the linear probe (+2-4 pts, biggest @300)** —
+   it is effectively extra optimization time; the cold probe's fixed 200-epoch cos
+   schedule is under-converged at mid budgets (@300 trajectory 27.5/33.9/35.9 at
+   epochs 50/100/200, still rising). This compounds with Pitfall 2: both are
+   "the probe measures the optimizer, not the method" artifacts.
+3. **Warm-start HURTS the MLP** (42.4 vs 46.7 @1000, even with best-val selection)
+   — the known warm-start plasticity-loss effect in neural nets. So "run everything
+   warm" is not the fix; the heads want different protocols.
+4. **The "MLP better early" half is REAL.** Episode 0 is cold for both heads, and
+   the MLP's +10 @100 survives every control: converged linear models (lbfgs
+   logistic regression 27.5, adam-linear 28.9) stay ~8 below MLP 36.1; a frozen
+   random 512→256 relu lift collapses to 11.4 (so it's *learned* nonlinearity, not
+   random features); 1-NN's 38.1 @100 shows the same low-n local structure. At 100
+   pts / 100 classes the SimCLR classes are locally, nonlinearly structured, and no
+   linear boundary from 100 points captures it.
+5. **The noise tables (R3-R5) carry the same confound.** The large linear-over-MLP
+   margins there (e.g. 31.2 vs 24.6 @noise .5 @1000) mix real noise-robustness with
+   the protocol asymmetry; they should not be read as "MLP memorizes noise" until
+   the protocol-matched rerun lands.
+
+**Resolution (protocol decision, 2026-07-16, with Alon):** keep the linear head
+warm (established study protocol, genuine gain); keep the MLP cold but add
+**best-val epoch selection** against the same clean valSet the probe checkpoints
+on — implemented in `train_al.py` (`from_mlp_sklearn` now trains via per-epoch
+`partial_fit` + best-val snapshot; deliberately departs from Itai's final-iterate
+protocol). MLP noise rows rerun as sweep **31085802**. No cold-start production
+runs needed — the decomposition above already quantifies them.
+
+**Postscript — the pitfall immediately bit its own fix.** The first best-val
+rerun (sweep 31085570, superseded) came back *worse* than final-iterate @1000
+clean (42.9 vs 45.4) — matching the warm-MLP replay row above (42.4) almost
+exactly. Cause: the main loop keeps the same model object across episodes when
+`FINE_TUNE=True`; sklearn's `.fit()` masked that by re-initializing on every
+call, but `partial_fit` **continues from existing weights**, so switching the
+implementation silently switched the MLP from cold to warm. Fixed with
+`sklearn.base.clone(model)` at the top of the branch (cold clone per episode;
+regression test: re-feeding a fitted model reproduces identical results).
+Corollary to lesson 1: *the warm/cold property can hide in the fitting API, not
+just in the loop* — `.fit()` is cold-by-contract, `partial_fit` is warm-by-contract.
+
+**Outcome (rerun v2, sweep 31085802, 12/12):** the fixed cold + best-val MLP
+lands exactly where the replay predicted (46.8 vs predicted 46.7 @1000 clean)
+and **erases the "MLP collapses under noise" reading** — recovery vs
+final-iterate grows with noise (+1.4 clean, +5.4 @.2, +10.4 @.5, +7.3 @.8 at
+1000 labels), i.e. the collapse was the final-iterate protocol measuring
+memorization. With each head at its own best protocol the best-val MLP now leads
+the warm linear probe at every noise level (42.5 vs 41.8 @.2; 35.0 vs 31.2 @.5;
+17.2 vs 13.6 @.8 @1000). Early stopping on a clean valSet = textbook
+noise-robustness, quantified.
+
+**Lessons to carry forward.**
+
+1. **Before comparing two "heads", diff their full training protocols**, not just
+   architectures: init policy (warm/cold), iterate selection (final/best-val),
+   schedule. Here two silent defaults manufactured a crossover that survived two
+   wrong explanations (checkpointing; "MLP memorizes noise") before the log
+   trajectory exposed the warm start.
+2. **`FINE_TUNE=True` is a study-wide property**: every linear-head row in R2-R5
+   (all sweeps, all arms) is warm-started cumulative training. Fine — but any new
+   evaluator added to the tables must either match it or be flagged.
+3. **A trajectory in the production log beats a replica.** The decisive evidence
+   was episode 2 starting at val 37.2 after 10 epochs — visible in the sweep's
+   own stdout, no rerun needed.
 
 ## Note on the TypiClust embedding
 

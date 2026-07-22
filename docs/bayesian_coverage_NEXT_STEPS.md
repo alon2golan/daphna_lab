@@ -53,7 +53,9 @@ to a future session.** Next up per the §9 execution order:
 | §8.3 Q2 + 9.1 offline 1-NN/NW evaluator study | ✅ DONE 2026-07-12 — denoise-then-1NN ≈ best trained arm @ noise .8 with zero training (§8.3 Q2) |
 | §9.1 w(d) distance-decayed OOB weight | ❌ ANSWERED 2026-07-13, NOT ADOPTED (sweep 31058388): clean −1.1..−1.35 at every budget — even the good shell dilutes; out-of-ball closed for good |
 | §9.4 noise-rate estimator bake-off | ✅ MEASURED 2026-07-14 (offline, nothing adopted): DS-EM best assumption-free (separates clean-vs-.2 every budget), impurity-corr LOO most accurate (needs clean anchor), raw-LOO saturates, Netta q̂ under-estimates low-budget — see §9.4 block; **which estimator to adopt deferred** |
-| **Recommended config** | normalized `pseudo all`, covered-only (see RESULTS §0) — CONFIRMED against w(d) too |
+| §9.7 MLP head | ✅ ANSWERED 2026-07-22 — sklearn cold+best-val MLP adopted for observed labels (beats warm linear at every noise/budget); **pseudo-stack does NOT stack** (torch twin, wdfix sweep 31088628: −1..−5 vs linear+pseudo, deficit grows with noise) |
+| §9.8 reverse-KL loss | ❌ ANSWERED 2026-07-22, NOT ADOPTED — ties soft-CE under noise, loses −0.7..−1.7 on clean (both heads); soft-CE stands |
+| **Recommended config** | normalized `pseudo all`, covered-only (see RESULTS §0) — CONFIRMED against w(d), MLP-stack and rKL too |
 | Best unimplemented spin-off | **in-ball RBF-weighted product exponents** (§7.9 replay: labeled-plane denoising 87→96.7 @100 clean) |
 | Open engineering guards | guard (b) per-ball caps (§7.5); `filtered`/`reweighted` threshold fix (§7.6) |
 
@@ -640,16 +642,43 @@ fixed additive acquisition for tophat kernels, RESULTS note above §4.1), state 
 when the two selection rules pick different points, and check whether either formalism
 *predicts* the high-budget product-vs-additive gap. Deliverable: a THEORY section, no runs.
 
-### 9.7 MLP classifier head
+### 9.7 MLP classifier head — ✅ ANSWERED (head adopted for observed labels; pseudo-stack ❌ does NOT stack — wdfix sweep 31088628, 2026-07-16/22)
 
-Itai reached 1-NN-competitive results with an MLP probe (his sklearn `from_mlp_sklearn`
-head, hidden 256 — now available in this repo via `--eval_model_type from_mlp_sklearn`).
-Swapping our linear head for an MLP could stack with `pseudo all`'s target volume — the
-cheapest possibly-large win on the board. Caveat from the §4.7 noise sweep: under label
-noise the MLP head *inverts* (memorizes noisy labels, 9.9 vs 13.6 @1000 noise .8), so
-this is a clean/low-noise play unless combined with posterior/pseudo targets.
+Itai's sklearn MLP head (hidden 256) is in the repo (`--eval_model_type from_mlp_sklearn`)
+**with best-val epoch selection** (cold clone per episode + per-epoch `partial_fit`,
+checkpointed on the clean valSet — RESULTS §4.7, DELTA_ROOTCAUSE pitfall 3). Status
+2026-07-16: under this protocol the MLP head **leads the (warm) linear probe at every
+noise level and budget** on observed labels (@1000: 46.8/42.5/35.0/17.2 vs
+46.7/41.8/31.2/13.6 at noise 0/.2/.5/.8). The earlier "MLP memorizes noise" caveat is
+retracted — it was a final-iterate protocol artifact; early stopping recovers +5..+10
+under noise. Protocol rules learned: keep the MLP **cold** (warm-start costs it ~4 pts —
+plasticity loss) and never compare heads without matching init + iterate-selection.
 
-### 9.8 KL loss instead of CE
+**What remains open — the actual §9.7 bet:** stack the MLP head with the posterior
+training arms. `pseudo all` + linear (norm) is the study's best training arm (49.0 clean
+@1000); MLP + observed already does 46.8 with zero posterior machinery. MLP ×
+{soft_posterior, pseudo all} needs the torch twin (`from_mlp_torch`, MLPHeadNet in
+builders.py) since sklearn's `.fit` can't take soft-target rows — arms are wired but
+unswept. If the two gains are even partially additive this sets new bests at every
+noise level.
+
+**VERDICT (wdfix sweep 31088628, collected 2026-07-22): the gains do NOT stack.**
+First torch-twin sweep (31085854) was invalid — sklearn `alpha=3e-2` was mapped 1:1
+onto Adam `weight_decay`, ~200× too strong (sklearn divides the penalty by batch
+size), so the head underfit and *degraded* with budget. With `WEIGHT_DECAY=1.5e-4`
+the arch-parity gate passes (torch 34.5→44.9 vs sklearn 34.9→46.8 over budgets
+100→1000, probcover/clean/observed; residual −1..−1.9 at high budget — torch is a
+slightly conservative stand-in). On `pseudo all`, MLP-torch trails the warm-norm
+linear at **every** noise and budget: clean −0.9..−1.4, noise .2 ≈ −3, noise .5 ≈ −5,
+noise .8 ≈ −5 — the deficit *grows* with noise, so it is not the parity residual.
+Reading: the pseudo-all posterior targets already linearize the problem (they are
+built from the feature-space ball structure), so the MLP's extra capacity has nothing
+left to model and only adds variance under noise. **Recommended config unchanged:
+warm-norm linear + `pseudo all` (48.4±0.2 @1000 clean). MLP head (sklearn, cold+
+best-val) remains the best *observed-label* head.** Full tables:
+`classifier_model_comparison.md`.
+
+### 9.8 KL loss instead of CE — ❌ ANSWERED, NOT ADOPTED (sweep 31088628, 2026-07-22)
 
 The soft-target arms (`soft_posterior`, pseudo) train with soft cross-entropy. With
 *fixed* targets, forward KL(target‖model) = soft-CE minus the targets' entropy — the
@@ -658,6 +687,14 @@ KL(model‖target): mode-seeking, it lets the classifier commit to a single clas
 spread-out posterior instead of averaging over it. Possibly a better fit for impure balls
 at high noise. Cheap ablation: one loss-flag, re-run the soft/pseudo arms at one noise
 level first.
+
+**VERDICT (`--soft_loss rkl`, both heads, all noise levels): no win anywhere.** On the
+linear head rKL ties soft-CE under noise (noise .5 ±0.1; noise .8 +0.2, within seed
+noise) and **loses on clean** (−0.7 @300 → −1.7 @1000 — mode-seeking commits early
+and can't use the calibrated spread). On the MLP head it is uniformly slightly worse
+(−0.1..−0.6 below the same head with soft-CE). The impure-ball hypothesis didn't pay:
+where posteriors are most spread (noise .8) rKL is exactly neutral. **Soft-CE stands
+for all soft-target arms.** Tables: `classifier_model_comparison.md`.
 
 ### Proposed execution order (all offline/CPU first)
 
