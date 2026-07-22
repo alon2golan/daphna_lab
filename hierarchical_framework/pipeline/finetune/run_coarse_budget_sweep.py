@@ -126,9 +126,9 @@ def append_csv(row, csv_path):
     return csv_path
 
 
-def save_figure(results, selector, seed):
+def save_figure(results, selector, seed, tag=""):
     """Plots the two curves (frozen vs finetuned 20-way accuracy) against num_labeled and writes
-    a PNG under outputs/finetune/. One figure per (selector, seed) run."""
+    a PNG under outputs/finetune/. One figure per (selector, seed, tag) run."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     budgets = [entry["num_labeled"] for entry in results]          # x-axis: labeled points
     frozen = [entry["frozen_acc"] for entry in results]            # curve 1
@@ -145,7 +145,8 @@ def save_figure(results, selector, seed):
     ax.legend()
     fig.tight_layout()
 
-    png_path = RESULTS_DIR / f"coarse_budget_sweep_{selector}_seed{seed}.png"
+    tag_suffix = f"_{tag}" if tag else ""                          # keep tagged variants' PNGs apart
+    png_path = RESULTS_DIR / f"coarse_budget_sweep_{selector}_seed{seed}{tag_suffix}.png"
     fig.savefig(png_path, dpi=130)
     plt.close(fig)
     print(f"saved -> {png_path}", flush=True)
@@ -155,20 +156,22 @@ def save_figure(results, selector, seed):
 # --- wandb ---
 
 def init_curve_run(project, group, curve, selector, seed, embeddings_tag, num_coarse, shard,
-                   epochs, lr_backbone):
+                   epochs, lr_backbone, tag=""):
     """Opens ONE wandb run for a single curve ('frozen' or 'finetuned'). Both curves use the SAME
     metric key 'coarse_acc', and differ only by config.curve + the run name, so the sidebar shows
-    them as separate runs and overlaying/grouping-by-curve draws exactly two lines. Returns the run
-    object so the caller can log to it directly (needed to keep two runs open at once)."""
+    them as separate runs and overlaying/grouping-by-curve draws exactly two lines. `tag` labels a
+    finetune VARIANT (e.g. ep80_lr3e5) so several finetune settings can coexist as distinct runs.
+    Returns the run object so the caller can log to it directly (two runs stay open at once)."""
+    tag_suffix = f"_{tag}" if tag else ""                          # distinguishes finetune variants
     shard_suffix = f"_shard{shard}" if shard is not None else ""   # unique per parallel worker
     run = wandb.init(
         project=project,
         group=group,                                               # the shared experiment group
-        name=f"{curve}_{selector}_seed{seed}{shard_suffix}",       # curve is first -> frozen/finetuned split
+        name=f"{curve}_{selector}_seed{seed}{tag_suffix}{shard_suffix}",  # curve first -> frozen/finetuned split
         job_type=curve,                                            # one-click filter: frozen vs finetuned
         reinit=True,                                               # allow a second run open in this process
         config=dict(
-            experiment="coarse_budget_sweep", curve=curve,         # group/colour by this to get 2 lines
+            experiment="coarse_budget_sweep", curve=curve, tag=(tag or "default"),  # group/colour keys
             embeddings_tag=embeddings_tag, selector=selector, seed=seed,
             shard=(shard if shard is not None else "all"), num_superclasses=num_coarse,
             # finetune knobs (only meaningful for the finetuned curve)
@@ -188,7 +191,7 @@ def init_curve_run(project, group, curve, selector, seed, embeddings_tag, num_co
 # --- Orchestration ---
 
 def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
-        use_wandb, project, group, multi_gpu, epochs, lr_backbone, shard=None):
+        use_wandb, project, group, multi_gpu, epochs, lr_backbone, tag="", shard=None):
     """Extracts the frozen embeddings once, then sweeps this worker's budgets through both curves.
     With `shard` set (one parallel worker over a slice of budgets), outputs are suffixed by the
     shard so parallel workers never collide; each worker is its own LIVE wandb run in the shared
@@ -198,8 +201,9 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
     num_coarse = int(coarse_map.max()) + 1
     selector = SELECTORS[selector_name]                            # the pluggable selection strategy
     embeddings_tag = Path(checkpoint_dir).name                    # e.g. "1000ep", for wandb config
+    tag_suffix = f"_{tag}" if tag else ""                         # labels the finetune variant
     shard_suffix = f"_shard{shard}" if shard is not None else ""  # names outputs per parallel worker
-    csv_path = RESULTS_DIR / f"coarse_budget_sweep_{selector_name}_seed{seed}{shard_suffix}.csv"
+    csv_path = RESULTS_DIR / f"coarse_budget_sweep_{selector_name}_seed{seed}{tag_suffix}{shard_suffix}.csv"
 
     # Use every visible GPU (DataParallel) when asked and more than one is present
     use_multi = multi_gpu and torch.cuda.device_count() > 1
@@ -223,9 +227,9 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
     frozen_run = finetuned_run = None
     if live_wandb:
         frozen_run = init_curve_run(project, group, "frozen", selector_name, seed,
-                                    embeddings_tag, num_coarse, shard, epochs, lr_backbone)
+                                    embeddings_tag, num_coarse, shard, epochs, lr_backbone, tag=tag)
         finetuned_run = init_curve_run(project, group, "finetuned", selector_name, seed,
-                                       embeddings_tag, num_coarse, shard, epochs, lr_backbone)
+                                       embeddings_tag, num_coarse, shard, epochs, lr_backbone, tag=tag)
 
     # Sweep budgets; each budget reloads a fresh backbone for curve 2 inside scores_for_budget
     results = []                                                    # collected for the end-of-run plot
@@ -252,7 +256,7 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
 
     # A single (unsharded) run plots the combined PNG; parallel shards leave that to the merge step
     if shard is None:
-        save_figure(results, selector_name, seed)
+        save_figure(results, selector_name, seed, tag=tag)
     if live_wandb:
         frozen_run.finish()
         finetuned_run.finish()
@@ -282,6 +286,10 @@ def main():
                         help="epochs for the coarse-head finetune (curve 2 only)")
     parser.add_argument("--lr_backbone", type=float, default=LR_BACKBONE,
                         help="backbone learning rate for the finetune (curve 2 only)")
+    parser.add_argument("--tag", default="",
+                        help="label for a finetune VARIANT (e.g. ep80_lr3e5); suffixes the csv/png + "
+                             "wandb run names + config.tag so several finetune settings coexist as "
+                             "distinct runs you can compare")
     parser.add_argument("--shard", default=None,
                         help="label for one parallel worker over a slice of --budgets; suffixes the "
                              "csv + wandb run names so parallel workers never collide")
@@ -290,7 +298,7 @@ def main():
     run(args.checkpoint_dir, args.data_dir, args.dataset, args.budgets, args.selector,
         args.seed, args.wandb, args.project, args.group,
         multi_gpu=not args.no_multi_gpu, epochs=args.finetune_epochs,
-        lr_backbone=args.lr_backbone, shard=args.shard)
+        lr_backbone=args.lr_backbone, tag=args.tag, shard=args.shard)
 
 
 if __name__ == "__main__":
