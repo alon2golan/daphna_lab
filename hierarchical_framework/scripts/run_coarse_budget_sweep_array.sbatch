@@ -3,16 +3,17 @@
 #SBATCH --mem=32g
 #SBATCH -c 4
 #SBATCH --time=6:00:00
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gg:g0:1
 #SBATCH --array=0-4
 #SBATCH --output=hierarchical_framework/outputs/slurm_logs/coarse_sweep_%A_%a.out
 #SBATCH --error=hierarchical_framework/outputs/slurm_logs/coarse_sweep_%A_%a.err
 #SBATCH --killable
 #SBATCH --requeue
 
-# PARALLEL coarse-budget sweep as a slurm job ARRAY: each array task takes ONE GPU (any type --
-# tasks schedule independently, so you don't need many GPUs at once and mixed hardware is fine)
-# and runs one shard of the budgets. Every task is its OWN LIVE wandb run in the SAME group with
+# PARALLEL coarse-budget sweep as a slurm job ARRAY: each array task takes ONE GPU from the gg:g0
+# group (a5000 / rtx2080 / l4 -- any type; tasks schedule independently, so you don't need many
+# GPUs at once and mixed hardware is fine). For the l40s nodes use gg:g4 instead. Each task runs
+# one shard of the budgets. Every task is its OWN LIVE wandb run in the SAME group with
 # the SAME metric keys, so overlaying the group's runs on one panel shows the two curves filling
 # in LIVE as each task reports -- no waiting for a merge. Each task also writes its own shard CSV.
 #

@@ -3,7 +3,7 @@
 #SBATCH --mem=48g
 #SBATCH -c 8
 #SBATCH --time=8:00:00
-#SBATCH --gres=gpu:l40s:2
+#SBATCH --gres=gg:g0:2
 #SBATCH --output=hierarchical_framework/outputs/slurm_logs/coarse_sweep_%j.out
 #SBATCH --error=hierarchical_framework/outputs/slurm_logs/coarse_sweep_%j.err
 #SBATCH --killable
