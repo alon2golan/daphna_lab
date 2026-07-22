@@ -25,9 +25,11 @@ saturates; Netta's q̂ under-estimates at low budget. **Nothing wired into produ
 estimator adopted yet — Alon deferred the "which one / how to estimate correctly" decision
 to a future session.** Next up per the §9 execution order:
 
-1. **9.2 δ replay sweep** (offline): grid {0.5, 0.6, 0.75, 0.9, 1.1} through the §4.5
-   replay metrics. Also directly relevant to 9.4's open question (ball impurity is what caps
-   every disagreement-based noise estimator; smaller δ → less impurity).
+1. ~~**9.2 δ replay sweep** (offline)~~ ✅ stage 1 DONE 2026-07-22 (δ=0.75 sits at the
+   denoising/noise-ID optimum for noise ≥ .5; clean wants δ≈0.6 purity-wise — see §9.2);
+   **stage 2 paired training sweep RUNNING, job 31108061** (δ {0.6,0.9} × noise × 3 seeds).
+   On completion: collect via build_results_master (sweep BAYESCOV_delta_stage2__20260722),
+   compare vs δ=0.75 baseline 31048960.
 2. **In-ball RBF-weighted product exponents** (the §7.9 replay's 87→96.7 denoising win)
    — the one remaining *training* change with a measured large effect; 12-run paired sweep.
 3. 9.3 classifier-as-tempered-expert (replay first) and the 9.5 posterior-gain
@@ -546,6 +548,40 @@ Two-stage plan: (1) **offline first** — rerun the §4.5 replay at δ ∈ {0.5,
 distance distribution tells us which δ values meaningfully change coverage. Caveat: replay
 holds the *trajectory* fixed while δ also shapes selection, so (2) confirm the offline
 winner with a small paired training sweep (~24 runs) before believing it.
+
+**Stage 1 DONE (2026-07-22)** — `batch_utils/eval_delta_replay.py`, δ ∈ {0.5, 0.6, 0.75,
+0.9, 1.1} × 4 noise × 3 seeds × budgets 100–1000, replaying the recorded bayes_product
+trajectories. Sanity gate: at δ=0.75 the LOO keep counts match the live runs' logged
+counts 10/10 budgets in all 12 cells (exact one-at-a-time fold order preserved — block
+matmul deviated on 12/1000 near-tie argmaxes and was rejected). Results in
+`results/cifar100/delta_replay/`. Headlines (B=1000 means over seeds):
+
+- **The two mechanisms confirmed to pull opposite ways, so the optimum is
+  noise-dependent.** Purity metrics are monotone in −δ everywhere: covered-point
+  accuracy on clean 83.9% @δ.5 → 66.7% @δ.75 → 26.2% @δ1.1; ECE degrades monotonically
+  with δ at every noise (posterior overconfidence = ball impurity).
+- **Denoising and noise-ID want δ≈0.75 once noise ≥ .5.** Labeled-plane post_acc at
+  n.8: 24.5% @δ.5 vs **61.6% @δ.75** (tiny balls can't cross-vote, the posterior just
+  parrots the noisy label); LOO noise-ID AUC peaks at δ=0.75 at *every* noise level
+  (n.8: .915 @.75 vs .684 @.5, .882 @1.1). δ=0.75 was never re-examined but it sits at
+  the denoising/noise-ID optimum — inherited luck.
+- **Coverage volume collapses below 0.75**: cov 5.1%/16.7%/49.5%/79.9%/100% @1000
+  (clean). At δ=0.5 the pseudo-all diet would be ~10× smaller. Correct-covered *mass*
+  (cov×acc, clean) is 4.3/13.1/33.0/41.1/26.2% — δ=0.9 adds correct mass but nearly
+  doubles the wrong mass (38.8% vs 16.5%), the exact §4.5-A damage regime.
+- Top-k-per-class pseudo precision @1000 peaks at δ=0.75 for n.2/.5 (81.9/70.7%), at
+  δ≤0.6 on clean, and δ=0.6–0.75 at n.8.
+
+**Reading:** for the noisy regimes (the method's home turf) δ=0.75 is defensible and
+plausibly optimal; the interesting bet is **clean/low-noise, where δ≈0.6 trades 3×
+less coverage for +12 pts purity** — whether that wins in training depends on the
+volume-vs-purity elasticity of the classifier, which replay cannot resolve.
+**Stage 2 LAUNCHED (job 31108061, 2026-07-22)**: paired training sweep, champion arm
+(bayes_product + pseudo all + norm linear), δ ∈ {0.6, 0.9} × 4 noise × 3 seeds
+(24 runs, `_delta_stage2_sweep.sh`, sweep `BAYESCOV_delta_stage2__20260722`);
+δ=0.75 baseline = sweep 31048960, same seeds. Note stage 2 lets δ shape *selection*
+too, so it also probes the ProbCover-side effect ([δ root-cause]: the 38.1@100
+1-NN number is δ-inflated).
 
 ### 9.3 Use the classifier to estimate the posterior (feedback loop)
 
