@@ -11,7 +11,11 @@ launching any sweep / `sbatch` array:
    ssh phoenix 'bash -lc "squeue -A daphna -t RUNNING -h -o \"%u|%b\""'
    ```
 2. **Cap array concurrency** with the `%N` throttle — default to **`--array=0-N%6`**
-   (~6-8 GPUs, a quarter of the pool). Do NOT use high values like `%60`.
+   (~6-8 GPUs, a quarter of the pool) for NON-killable jobs. Do NOT use high values
+   like `%60`. **Exception (Alon, 2026-07-22): jobs submitted with `--killable` need
+   NO throttle** — run the full array; they yield to labmates via preemption instead
+   of hogging quota. (A running throttled array can be lifted live with
+   `scontrol update JobId=<id> ArrayTaskThrottle=0`.)
 3. Request **`--gres=gpu:1`** per task unless the job genuinely uses multiple GPUs.
 4. Prefer a **preemptible partition** (`killable`) so jobs yield instead of blocking labmates.
 
