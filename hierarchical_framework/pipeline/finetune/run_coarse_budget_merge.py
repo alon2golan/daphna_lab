@@ -5,6 +5,7 @@
 
 import argparse
 import csv
+import math
 import sys
 from pathlib import Path
 
@@ -92,7 +93,12 @@ def main():
     # separate from the live per-shard runs. Same metric key -> two lines when grouped by curve.
     if args.wandb and wandb is not None:
         num_coarse = int(CIFAR100_COARSE.max()) + 1                    # 20 superclasses
-        for curve, key in (("frozen", "frozen_acc"), ("finetuned", "finetuned_acc")):
+        # Skip the frozen consolidated run when this variant skipped frozen (all-NaN)
+        frozen_present = any(not math.isnan(e["frozen_acc"]) for e in results)
+        curves = [("finetuned", "finetuned_acc")]
+        if frozen_present:
+            curves.insert(0, ("frozen", "frozen_acc"))
+        for curve, key in curves:
             run = init_curve_run(args.project, args.group, curve, args.selector, args.seed,
                                  embeddings_tag="merged", num_coarse=num_coarse, shard="merged",
                                  epochs=FINETUNE_EPOCHS, lr_backbone=LR_BACKBONE, tag=args.tag)

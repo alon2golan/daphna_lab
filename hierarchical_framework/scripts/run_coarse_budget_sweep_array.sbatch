@@ -49,10 +49,11 @@ BUDGET_SHARDS=(
 SHARD_BUDGETS=${BUDGET_SHARDS[$SLURM_ARRAY_TASK_ID]}
 echo "shard $SLURM_ARRAY_TASK_ID budgets=[$SHARD_BUDGETS] extra args=[$*]"
 
-# --wandb on so this shard streams its own live run; --shard names its csv + run uniquely.
+# --shard names this worker's csv + (if --wandb is passed through) run. wandb is OPT-IN via "$@":
+# pass --wandb for live per-shard runs, or omit it and let the merge step build the clean runs.
 python -u hierarchical_framework/pipeline/finetune/run_coarse_budget_sweep.py \
   --budgets $SHARD_BUDGETS \
   --shard "$SLURM_ARRAY_TASK_ID" \
-  --wandb "$@"
+  "$@"
 
 echo "shard $SLURM_ARRAY_TASK_ID done."

@@ -82,15 +82,20 @@ def labeled_set_for_budget(train_fine, budget, selector, seed):
 
 def scores_for_budget(budget, checkpoint_dir, dataset, data_dir, coarse_map, selector, seed,
                       frozen_train, frozen_test, train_fine, test_fine, test_coarse,
-                      train_aug, train_eval, test_eval, device, multi_gpu, epochs, lr_backbone):
-    """Computes (frozen_acc, finetuned_acc, num_labeled) for a single budget."""
+                      train_aug, train_eval, test_eval, device, multi_gpu, epochs, lr_backbone,
+                      compute_frozen=True):
+    """Computes (frozen_acc, finetuned_acc, num_labeled) for a single budget. With compute_frozen
+    False, the frozen probe is skipped (frozen_acc = NaN) -- used so parallel variants don't each
+    recompute the identical frozen curve."""
     labeled = labeled_set_for_budget(train_fine, budget, selector, seed)
     indices = labeled.coarse_indices                                # the labeled points (coarse-only)
     labeled_coarse = coarse_map[train_fine[indices]]                # their superclass labels
 
-    # Curve 1: 20-way MLP on the FROZEN embeddings of exactly these points
-    frozen_acc = coarse_mlp_accuracy(frozen_train[indices], labeled_coarse,
-                                     frozen_test, test_coarse, seed=seed)
+    # Curve 1: 20-way MLP on the FROZEN embeddings of exactly these points (skippable)
+    frozen_acc = float("nan")
+    if compute_frozen:
+        frozen_acc = coarse_mlp_accuracy(frozen_train[indices], labeled_coarse,
+                                         frozen_test, test_coarse, seed=seed)
 
     # Curve 2: fresh backbone -> finetune on these points -> re-extract -> same 20-way MLP
     backbone = load_backbone(checkpoint_dir, device, multi_gpu=multi_gpu)  # independent per budget
@@ -135,7 +140,9 @@ def save_figure(results, selector, seed, tag=""):
     finetuned = [entry["finetuned_acc"] for entry in results]      # curve 2
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(budgets, frozen, "o--", color="grey", label="frozen (probe on SimCLR embedding)")
+    # frozen may be all-NaN when it was skipped (skip_frozen); only draw it if it was computed
+    if not all(np.isnan(v) for v in frozen):
+        ax.plot(budgets, frozen, "o--", color="grey", label="frozen (probe on SimCLR embedding)")
     ax.plot(budgets, finetuned, "o-", color="tab:blue", label="finetuned (coarse-head, then probe)")
     ax.set_xscale("log")                                           # budgets span 100 -> 50000
     ax.set_xlabel("number of coarse-labeled training points")
@@ -191,7 +198,8 @@ def init_curve_run(project, group, curve, selector, seed, embeddings_tag, num_co
 # --- Orchestration ---
 
 def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
-        use_wandb, project, group, multi_gpu, epochs, lr_backbone, tag="", shard=None):
+        use_wandb, project, group, multi_gpu, epochs, lr_backbone, tag="", shard=None,
+        skip_frozen=False):
     """Extracts the frozen embeddings once, then sweeps this worker's budgets through both curves.
     With `shard` set (one parallel worker over a slice of budgets), outputs are suffixed by the
     shard so parallel workers never collide; each worker is its own LIVE wandb run in the shared
@@ -223,11 +231,14 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
 
     # Frozen and finetuned are SEPARATE wandb runs (same key 'coarse_acc'); both stay open so each
     # budget streams live into its own run. Group/colour by config.curve to get the two lines.
+    # With skip_frozen, only the finetuned run is opened (frozen is identical across variants, so
+    # one variant computes it and the rest skip to avoid the redundant work + duplicate runs).
     live_wandb = use_wandb and wandb is not None
     frozen_run = finetuned_run = None
     if live_wandb:
-        frozen_run = init_curve_run(project, group, "frozen", selector_name, seed,
-                                    embeddings_tag, num_coarse, shard, epochs, lr_backbone, tag=tag)
+        if not skip_frozen:
+            frozen_run = init_curve_run(project, group, "frozen", selector_name, seed,
+                                        embeddings_tag, num_coarse, shard, epochs, lr_backbone, tag=tag)
         finetuned_run = init_curve_run(project, group, "finetuned", selector_name, seed,
                                        embeddings_tag, num_coarse, shard, epochs, lr_backbone, tag=tag)
 
@@ -237,7 +248,8 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
         frozen_acc, finetuned_acc, num_labeled = scores_for_budget(
             budget, checkpoint_dir, dataset, data_dir, coarse_map, selector, seed,
             frozen_train, frozen_test, train_fine, test_fine, test_coarse,
-            train_aug, train_eval, test_eval, device, use_multi, epochs, lr_backbone)
+            train_aug, train_eval, test_eval, device, use_multi, epochs, lr_backbone,
+            compute_frozen=not skip_frozen)
         gain = finetuned_acc - frozen_acc
         print(f"[budget={num_labeled}] frozen={frozen_acc:.2f} finetuned={finetuned_acc:.2f} "
               f"gain={gain:+.2f}", flush=True)
@@ -251,14 +263,16 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
                     f"{frozen_acc:.4f}", f"{finetuned_acc:.4f}", f"{gain:.4f}"], csv_path)
         if live_wandb:
             # Same metric key in both runs -> two lines when grouped/overlaid by curve
-            frozen_run.log({"num_labeled": num_labeled, "coarse_acc": frozen_acc})
+            if frozen_run is not None:
+                frozen_run.log({"num_labeled": num_labeled, "coarse_acc": frozen_acc})
             finetuned_run.log({"num_labeled": num_labeled, "coarse_acc": finetuned_acc})
 
     # A single (unsharded) run plots the combined PNG; parallel shards leave that to the merge step
     if shard is None:
         save_figure(results, selector_name, seed, tag=tag)
     if live_wandb:
-        frozen_run.finish()
+        if frozen_run is not None:
+            frozen_run.finish()
         finetuned_run.finish()
     print(f"saved -> {csv_path}", flush=True)
 
@@ -293,12 +307,16 @@ def main():
     parser.add_argument("--shard", default=None,
                         help="label for one parallel worker over a slice of --budgets; suffixes the "
                              "csv + wandb run names so parallel workers never collide")
+    parser.add_argument("--skip_frozen", action="store_true",
+                        help="skip the frozen curve (it is identical across finetune variants, so "
+                             "compute it in one variant and skip it in the rest)")
     args = parser.parse_args()
 
     run(args.checkpoint_dir, args.data_dir, args.dataset, args.budgets, args.selector,
         args.seed, args.wandb, args.project, args.group,
         multi_gpu=not args.no_multi_gpu, epochs=args.finetune_epochs,
-        lr_backbone=args.lr_backbone, tag=args.tag, shard=args.shard)
+        lr_backbone=args.lr_backbone, tag=args.tag, shard=args.shard,
+        skip_frozen=args.skip_frozen)
 
 
 if __name__ == "__main__":

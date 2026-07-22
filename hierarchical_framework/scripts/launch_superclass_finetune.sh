@@ -20,8 +20,10 @@ GROUP=superclass_frozen_vs_finetuned_v2      # the NEW group; bump the suffix fo
 
 # One sbatch per finetune variant -> they queue independently and run at the same time on separate
 # GPUs. --tag names each; full default budgets (all 21) are used automatically (no --budgets).
+# Frozen is identical across variants, so ONLY the first variant computes it; the rest add
+# --skip_frozen. Result in the group: one frozen run + three finetuned runs.
 sbatch "$JOB" --group "$GROUP" --tag ep30_lr1e4  --finetune_epochs 30  --lr_backbone 1e-4
-sbatch "$JOB" --group "$GROUP" --tag ep80_lr3e5  --finetune_epochs 80  --lr_backbone 3e-5
-sbatch "$JOB" --group "$GROUP" --tag ep100_lr1e4 --finetune_epochs 100 --lr_backbone 1e-4
+sbatch "$JOB" --group "$GROUP" --tag ep80_lr3e5  --finetune_epochs 80  --lr_backbone 3e-5 --skip_frozen
+sbatch "$JOB" --group "$GROUP" --tag ep100_lr1e4 --finetune_epochs 100 --lr_backbone 1e-4 --skip_frozen
 
 echo "submitted 3 finetune variants (each its own job, running in parallel) to group '$GROUP'"
