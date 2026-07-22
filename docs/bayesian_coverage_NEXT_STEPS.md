@@ -25,11 +25,9 @@ saturates; Netta's q̂ under-estimates at low budget. **Nothing wired into produ
 estimator adopted yet — Alon deferred the "which one / how to estimate correctly" decision
 to a future session.** Next up per the §9 execution order:
 
-1. ~~**9.2 δ replay sweep** (offline)~~ ✅ stage 1 DONE 2026-07-22 (δ=0.75 sits at the
-   denoising/noise-ID optimum for noise ≥ .5; clean wants δ≈0.6 purity-wise — see §9.2);
-   **stage 2 paired training sweep RUNNING, job 31108061** (δ {0.6,0.9} × noise × 3 seeds).
-   On completion: collect via build_results_master (sweep BAYESCOV_delta_stage2__20260722),
-   compare vs δ=0.75 baseline 31048960.
+1. ~~**9.2 δ sweep**~~ ✅ CLOSED 2026-07-22 (stage 1 replay + stage 2 paired training,
+   job 31108061): **δ=0.75 confirmed at every noise level and budget** — 0.6 loses on
+   coverage volume, 0.9 on ball impurity; no retune for CIFAR100/SimCLR (see §9.2).
 2. **In-ball RBF-weighted product exponents** (the §7.9 replay's 87→96.7 denoising win)
    — the one remaining *training* change with a measured large effect; 12-run paired sweep.
 3. 9.3 classifier-as-tempered-expert (replay first) and the 9.5 posterior-gain
@@ -55,6 +53,7 @@ to a future session.** Next up per the §9 execution order:
 | §8.3 Q2 + 9.1 offline 1-NN/NW evaluator study | ✅ DONE 2026-07-12 — denoise-then-1NN ≈ best trained arm @ noise .8 with zero training (§8.3 Q2) |
 | §9.1 w(d) distance-decayed OOB weight | ❌ ANSWERED 2026-07-13, NOT ADOPTED (sweep 31058388): clean −1.1..−1.35 at every budget — even the good shell dilutes; out-of-ball closed for good |
 | §9.4 noise-rate estimator bake-off | ✅ MEASURED 2026-07-14 (offline, nothing adopted): DS-EM best assumption-free (separates clean-vs-.2 every budget), impurity-corr LOO most accurate (needs clean anchor), raw-LOO saturates, Netta q̂ under-estimates low-budget — see §9.4 block; **which estimator to adopt deferred** |
+| §9.2 δ sweep (replay + paired training) | ✅ CLOSED 2026-07-22 — δ=0.75 confirmed at every noise/budget (job 31108061); 0.6 starves coverage, 0.9 poisons purity |
 | §9.7 MLP head | ✅ ANSWERED 2026-07-22 — sklearn cold+best-val MLP adopted for observed labels (beats warm linear at every noise/budget); **pseudo-stack does NOT stack** (torch twin, wdfix sweep 31088628: −1..−5 vs linear+pseudo, deficit grows with noise) |
 | §9.8 reverse-KL loss | ❌ ANSWERED 2026-07-22, NOT ADOPTED — ties soft-CE under noise, loses −0.7..−1.7 on clean (both heads); soft-CE stands |
 | **Recommended config** | normalized `pseudo all`, covered-only (see RESULTS §0) — CONFIRMED against w(d), MLP-stack and rKL too |
@@ -576,12 +575,24 @@ matmul deviated on 12/1000 near-tie argmaxes and was rejected). Results in
 plausibly optimal; the interesting bet is **clean/low-noise, where δ≈0.6 trades 3×
 less coverage for +12 pts purity** — whether that wins in training depends on the
 volume-vs-purity elasticity of the classifier, which replay cannot resolve.
-**Stage 2 LAUNCHED (job 31108061, 2026-07-22)**: paired training sweep, champion arm
-(bayes_product + pseudo all + norm linear), δ ∈ {0.6, 0.9} × 4 noise × 3 seeds
-(24 runs, `_delta_stage2_sweep.sh`, sweep `BAYESCOV_delta_stage2__20260722`);
-δ=0.75 baseline = sweep 31048960, same seeds. Note stage 2 lets δ shape *selection*
-too, so it also probes the ProbCover-side effect ([δ root-cause]: the 38.1@100
-1-NN number is δ-inflated).
+**Stage 2 DONE (job 31108061, 24/24, collected 2026-07-22) — δ=0.75 CONFIRMED, §9.2
+CLOSED.** Paired training sweep, champion arm (bayes_product + pseudo all + norm
+linear), δ ∈ {0.6, 0.9} × 4 noise × 3 seeds vs the δ=0.75 baseline (31048960, same
+seeds). Here δ shapes *selection* too, unlike the replay. Result: **δ=0.75 wins at
+every noise level and every budget.** Test acc @1000, δ .6/.75/.9:
+clean 47.9/48.4/40.3 · n.2 45.0/46.6/40.0 · n.5 38.9/42.6/36.6 · n.8 24.4/29.2/24.8.
+The replay's clean-data purity bet does NOT pay in training — δ=0.6's +12 pts
+per-point purity never overcomes its 3× coverage loss (clean −3.7 @100, narrowing to
+−0.5 @1000: coverage catches up with budget but never crosses), and δ=0.9's extra
+covered mass is poisoned by impurity (−5..−8 clean, −6.6 @1000 n.2), exactly the
+§4.5-A damage regime. Reading: end-to-end, training-diet *volume* dominates
+per-target purity at low coverage, and impurity dominates once coverage is cheap —
+δ=0.75 sits at the crossing at every noise level, matching its replay-side
+denoising/noise-ID optimum. The inherited default survives a proper examination;
+no δ retune recommended for CIFAR100/SimCLR. (New datasets/embeddings should still
+re-run `eval_delta_replay.py` — the crossing is geometry-dependent.)
+Rows live in `results_master.csv` under sweep 31108061 (new `delta` column,
+default 0.75 for all pre-§9.2 rows; ROW_SPEC renderers unaffected).
 
 ### 9.3 Use the classifier to estimate the posterior (feedback loop)
 

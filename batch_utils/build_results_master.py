@@ -51,6 +51,7 @@ STUDY_SWEEPS = {
     "31085854",  # classifier comparison: pseudo-all x {LH-norm x rkl, torch-MLP x {softce, rkl}} + torch-MLP parity gate. LH rows VALID; torch-MLP rows INVALID for display (Adam wd 200x too strong — sklearn alpha semantics; parity gate failed 26.5->10.6)
     "31088628",  # wd-fix rerun of the torch-MLP arms (WEIGHT_DECAY 3e-2 -> 1.5e-4) — the display pin for MLP-torch rows
     "31086759",  # rerun of 31085867 tasks 5+7 (hung at training start) — normalized below
+    "31108061",  # §9.2 stage-2 δ sweep: champion arm (bayes_product + pseudo all + norm) at initial_delta {0.6, 0.9}; δ=0.75 baseline stays 31048960
 }
 
 # A rerun of individual hung/failed array tasks gets its own SLURM job id, but the
@@ -59,7 +60,11 @@ RERUN_OF = {
     "31086759": "31085867",
 }
 
-FIELDS = ["sampling", "model", "train_labels", "norm", "noise", "budget", "seed", "test_acc", "sweep_id", "source"]
+# delta = the run's ProbCover/ball radius (initial_delta). Every arm before the
+# §9.2 sweep ran at the inherited 0.75; rows from sources that don't record it
+# default to 0.75 in main(). ROW_SPEC-driven renderers pin by sweep_id and are
+# unaffected; δ-comparison analyses filter on this column.
+FIELDS = ["sampling", "model", "train_labels", "norm", "noise", "budget", "seed", "test_acc", "sweep_id", "source", "delta"]
 
 # canonical pseudo_k schedules -> arm name
 PSEUDO_K_LIN10 = "1,2,3,4,5,6,7,8,9,10"
@@ -124,6 +129,7 @@ def rows_from_result_json():
             seed=p.get("seed"),
             sweep_id=sid,
             source="result.json",
+            delta=float(p.get("initial_delta") or 0.75),
         )
         for ep in d.get("episodes", []):
             b, acc = ep.get("labeled_size"), ep.get("test_acc")
@@ -238,6 +244,8 @@ def main():
     rows = (rows_from_result_json() + rows_from_eval_1nn()
             + rows_from_eval_1nn_fill() + rows_from_eval_heads_fill()
             + rows_from_posterior_alone())
+    for r in rows:
+        r.setdefault("delta", 0.75)
     rows.sort(key=lambda r: (str(r["sampling"]), str(r["model"]), str(r["train_labels"]),
                              r["norm"], r["noise"], r["budget"], str(r["seed"])))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
