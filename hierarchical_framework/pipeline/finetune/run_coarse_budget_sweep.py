@@ -42,6 +42,7 @@ from two_head_finetune import (
     FINETUNE_EPOCHS, LR_BACKBONE, LR_HEADS, WEIGHT_DECAY,
     COARSE_LOSS_WEIGHT, FINE_LOSS_WEIGHT, FREEZE_BACKBONE, TRAIN_BATCH_SIZE,
     FREEZE_BN, HEAD_WARMUP_EPOCHS, LR_SCHEDULE, LR_WARMUP_EPOCHS,
+    FINETUNE_BLOCKS, LABEL_SMOOTHING,
 )
 from probes import coarse_mlp_accuracy, MLP_HIDDEN_LAYER_SIZES, MLP_MAX_ITERATIONS
 
@@ -86,7 +87,8 @@ def scores_for_budget(budget, checkpoint_dir, dataset, data_dir, coarse_map, sel
                       train_aug, train_eval, test_eval, device, multi_gpu, epochs, lr_backbone,
                       compute_frozen=True, freeze_bn=FREEZE_BN, head_warmup_epochs=HEAD_WARMUP_EPOCHS,
                       lr_schedule=LR_SCHEDULE, lr_warmup_epochs=LR_WARMUP_EPOCHS,
-                      weight_decay=WEIGHT_DECAY):
+                      weight_decay=WEIGHT_DECAY, finetune_blocks=FINETUNE_BLOCKS,
+                      label_smoothing=LABEL_SMOOTHING):
     """Computes (frozen_acc, finetuned_acc, num_labeled) for a single budget. With compute_frozen
     False, the frozen probe is skipped (frozen_acc = NaN) -- used so parallel variants don't each
     recompute the identical frozen curve."""
@@ -110,7 +112,8 @@ def scores_for_budget(budget, checkpoint_dir, dataset, data_dir, coarse_map, sel
                                   epochs=epochs, lr_backbone=lr_backbone,
                                   freeze_bn=freeze_bn, head_warmup_epochs=head_warmup_epochs,
                                   lr_schedule=lr_schedule, lr_warmup_epochs=lr_warmup_epochs,
-                                  weight_decay=weight_decay)
+                                  weight_decay=weight_decay, finetune_blocks=finetune_blocks,
+                                  label_smoothing=label_smoothing)
     tuned_train, _ = extract_features(backbone, train_eval, device)
     tuned_test, _ = extract_features(backbone, test_eval, device)
     finetuned_acc = coarse_mlp_accuracy(tuned_train[indices], labeled_coarse,
@@ -171,7 +174,8 @@ def save_figure(results, selector, seed, tag=""):
 def init_curve_run(project, group, curve, selector, seed, embeddings_tag, num_coarse, shard,
                    epochs, lr_backbone, tag="", freeze_bn=FREEZE_BN,
                    head_warmup_epochs=HEAD_WARMUP_EPOCHS, lr_schedule=LR_SCHEDULE,
-                   lr_warmup_epochs=LR_WARMUP_EPOCHS, weight_decay=WEIGHT_DECAY):
+                   lr_warmup_epochs=LR_WARMUP_EPOCHS, weight_decay=WEIGHT_DECAY,
+                   finetune_blocks=FINETUNE_BLOCKS, label_smoothing=LABEL_SMOOTHING):
     """Opens ONE wandb run for a single curve ('frozen' or 'finetuned'). Both curves use the SAME
     metric key 'coarse_acc', and differ only by config.curve + the run name, so the sidebar shows
     them as separate runs and overlaying/grouping-by-curve draws exactly two lines. `tag` labels a
@@ -197,6 +201,7 @@ def init_curve_run(project, group, curve, selector, seed, embeddings_tag, num_co
             # low-budget stabilizers (this experiment's new knobs)
             freeze_bn=int(freeze_bn), head_warmup_epochs=head_warmup_epochs,
             lr_schedule=lr_schedule, lr_warmup_epochs=lr_warmup_epochs,
+            finetune_blocks=finetune_blocks, label_smoothing=label_smoothing,
             # probe knobs (both curves)
             probe_mlp_hidden=str(MLP_HIDDEN_LAYER_SIZES), probe_mlp_iters=MLP_MAX_ITERATIONS,
         ),
@@ -211,7 +216,8 @@ def init_curve_run(project, group, curve, selector, seed, embeddings_tag, num_co
 def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
         use_wandb, project, group, multi_gpu, epochs, lr_backbone, tag="", shard=None,
         skip_frozen=False, freeze_bn=FREEZE_BN, head_warmup_epochs=HEAD_WARMUP_EPOCHS,
-        lr_schedule=LR_SCHEDULE, lr_warmup_epochs=LR_WARMUP_EPOCHS, weight_decay=WEIGHT_DECAY):
+        lr_schedule=LR_SCHEDULE, lr_warmup_epochs=LR_WARMUP_EPOCHS, weight_decay=WEIGHT_DECAY,
+        finetune_blocks=FINETUNE_BLOCKS, label_smoothing=LABEL_SMOOTHING):
     """Extracts the frozen embeddings once, then sweeps this worker's budgets through both curves.
     With `shard` set (one parallel worker over a slice of budgets), outputs are suffixed by the
     shard so parallel workers never collide; each worker is its own LIVE wandb run in the shared
@@ -252,12 +258,14 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
                                         embeddings_tag, num_coarse, shard, epochs, lr_backbone, tag=tag,
                                         freeze_bn=freeze_bn, head_warmup_epochs=head_warmup_epochs,
                                         lr_schedule=lr_schedule, lr_warmup_epochs=lr_warmup_epochs,
-                                        weight_decay=weight_decay)
+                                        weight_decay=weight_decay, finetune_blocks=finetune_blocks,
+                                        label_smoothing=label_smoothing)
         finetuned_run = init_curve_run(project, group, "finetuned", selector_name, seed,
                                        embeddings_tag, num_coarse, shard, epochs, lr_backbone, tag=tag,
                                        freeze_bn=freeze_bn, head_warmup_epochs=head_warmup_epochs,
                                        lr_schedule=lr_schedule, lr_warmup_epochs=lr_warmup_epochs,
-                                       weight_decay=weight_decay)
+                                       weight_decay=weight_decay, finetune_blocks=finetune_blocks,
+                                       label_smoothing=label_smoothing)
 
     # Sweep budgets; each budget reloads a fresh backbone for curve 2 inside scores_for_budget
     results = []                                                    # collected for the end-of-run plot
@@ -268,7 +276,8 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
             train_aug, train_eval, test_eval, device, use_multi, epochs, lr_backbone,
             compute_frozen=not skip_frozen, freeze_bn=freeze_bn,
             head_warmup_epochs=head_warmup_epochs, lr_schedule=lr_schedule,
-            lr_warmup_epochs=lr_warmup_epochs, weight_decay=weight_decay)
+            lr_warmup_epochs=lr_warmup_epochs, weight_decay=weight_decay,
+            finetune_blocks=finetune_blocks, label_smoothing=label_smoothing)
         gain = finetuned_acc - frozen_acc
         print(f"[budget={num_labeled}] frozen={frozen_acc:.2f} finetuned={finetuned_acc:.2f} "
               f"gain={gain:+.2f}", flush=True)
@@ -341,6 +350,12 @@ def main():
                         help="linear backbone-lr ramp 0->lr_backbone over the first N unfrozen epochs")
     parser.add_argument("--weight_decay", type=float, default=WEIGHT_DECAY,
                         help="L2 regularization on all trainable params in the finetune")
+    parser.add_argument("--finetune_blocks", type=int, default=FINETUNE_BLOCKS,
+                        help="0 = finetune the whole trunk; N>0 = only the last N ResNet stages "
+                             "(layer4, then layer3, ...) train and earlier layers stay frozen -- "
+                             "confines distortion to the most task-specific features")
+    parser.add_argument("--label_smoothing", type=float, default=LABEL_SMOOTHING,
+                        help="cross-entropy label smoothing for the finetune heads (0 = off)")
     args = parser.parse_args()
 
     run(args.checkpoint_dir, args.data_dir, args.dataset, args.budgets, args.selector,
@@ -349,7 +364,8 @@ def main():
         lr_backbone=args.lr_backbone, tag=args.tag, shard=args.shard,
         skip_frozen=args.skip_frozen, freeze_bn=args.freeze_bn,
         head_warmup_epochs=args.head_warmup_epochs, lr_schedule=args.lr_schedule,
-        lr_warmup_epochs=args.lr_warmup_epochs, weight_decay=args.weight_decay)
+        lr_warmup_epochs=args.lr_warmup_epochs, weight_decay=args.weight_decay,
+        finetune_blocks=args.finetune_blocks, label_smoothing=args.label_smoothing)
 
 
 if __name__ == "__main__":

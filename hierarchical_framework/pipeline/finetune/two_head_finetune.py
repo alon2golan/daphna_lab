@@ -29,6 +29,13 @@ FREEZE_BN = False            # keep BatchNorm in eval mode during finetune (free
 HEAD_WARMUP_EPOCHS = 0       # LP-FT: epochs to train the HEAD ONLY (backbone frozen) before unfreezing
 LR_SCHEDULE = "constant"     # "constant" or "cosine" backbone-lr schedule over the unfrozen phase
 LR_WARMUP_EPOCHS = 0         # linear backbone-lr ramp 0->LR_BACKBONE over the first N unfrozen epochs
+FINETUNE_BLOCKS = 0          # 0 = finetune the WHOLE trunk; N>0 = only the last N ResNet stages
+LABEL_SMOOTHING = 0.0        # cross-entropy label smoothing (0 = off); mild low-data regularizer
+
+# The ResNet residual stages, shallow -> deep. Partial finetune keeps the LAST N of these
+# trainable and freezes everything before them (stem + earlier stages), so only the most
+# task-specific features move -- the standard way to limit distortion at low budget.
+RESNET_STAGES = ["layer1", "layer2", "layer3", "layer4"]
 
 
 # --- Trainable Heads ---
@@ -53,6 +60,34 @@ def set_bn_eval(backbone):
     for module in backbone.modules():
         if isinstance(module, nn.modules.batchnorm._BatchNorm):
             module.eval()
+    return backbone
+
+
+def configure_unfrozen(backbone, finetune_blocks, freeze_bn):
+    """Sets requires_grad + train/eval mode for the UNFROZEN phase. With finetune_blocks=0 the
+    whole trunk trains (the original behavior). With N>0, only the last N ResNet stages train and
+    everything before them (stem + earlier stages) is frozen in eval -- so distortion is confined
+    to the most task-specific layers. Frozen Adam params (requires_grad=False) are simply skipped,
+    so no optimizer rebuild is needed. `freeze_bn` still forces BN eval across the trainable part."""
+    core = backbone.module if isinstance(backbone, nn.DataParallel) else backbone  # unwrap DataParallel
+    stages = [getattr(core, name) for name in RESNET_STAGES if hasattr(core, name)]  # shallow->deep
+
+    # Full finetune (or an N so large it covers every stage): unfreeze everything, trunk in train()
+    if finetune_blocks <= 0 or finetune_blocks >= len(stages):
+        set_backbone_trainable(backbone, True)
+        backbone.train()
+    else:
+        trainable = set(stages[len(stages) - finetune_blocks:])  # the last N stages only
+        for parameter in core.parameters():                      # freeze the whole trunk first...
+            parameter.requires_grad = False
+        core.eval()                                              # frozen part in eval (no BN drift)
+        for stage in trainable:                                  # ...then re-open the trailing stages
+            for parameter in stage.parameters():
+                parameter.requires_grad = True
+            stage.train()                                        # trainable stages back in train()
+
+    if freeze_bn:
+        set_bn_eval(backbone)  # optionally pin BN stats across whatever is trainable
     return backbone
 
 
@@ -101,7 +136,8 @@ def finetune_two_heads(backbone, feature_dim, train_aug_dataset, labeled_set,
                        epochs=FINETUNE_EPOCHS, lr_backbone=LR_BACKBONE,
                        freeze_bn=FREEZE_BN, head_warmup_epochs=HEAD_WARMUP_EPOCHS,
                        lr_schedule=LR_SCHEDULE, lr_warmup_epochs=LR_WARMUP_EPOCHS,
-                       weight_decay=WEIGHT_DECAY):
+                       weight_decay=WEIGHT_DECAY, finetune_blocks=FINETUNE_BLOCKS,
+                       label_smoothing=LABEL_SMOOTHING):
     """Finetunes `backbone` in place on the labeled set with a coarse head and a fine head.
     Each head trains ONLY on its own group: the fine head on fine-labeled points, the coarse
     head on coarse-labeled points. A point shared between the groups is forwarded once per
@@ -132,7 +168,7 @@ def finetune_two_heads(backbone, feature_dim, train_aug_dataset, labeled_set,
         ],
         weight_decay=weight_decay,
     )
-    cross_entropy = nn.CrossEntropyLoss()  # standard multi-class loss for both heads
+    cross_entropy = nn.CrossEntropyLoss(label_smoothing=label_smoothing)  # both heads; smoothing optional
 
     # Combine the two groups into one training set, tagging each row with its granularity:
     # fine-labeled rows first (is_fine=True), then coarse-labeled rows (is_fine=False)
@@ -163,12 +199,9 @@ def finetune_two_heads(backbone, feature_dim, train_aug_dataset, labeled_set,
             set_backbone_trainable(backbone, False)
             backbone.eval()
         else:
-            # Unfrozen finetune: backbone trains; optionally hold BN in eval to freeze its stats,
-            # and set this epoch's backbone lr from the schedule (heads keep their fixed lr).
-            set_backbone_trainable(backbone, True)
-            backbone.train()
-            if freeze_bn:
-                set_bn_eval(backbone)
+            # Unfrozen finetune: open the trainable part (whole trunk, or only the last N stages),
+            # optionally pin BN, and set this epoch's backbone lr from the schedule (heads fixed lr).
+            configure_unfrozen(backbone, finetune_blocks, freeze_bn)
             unfrozen_epoch = epoch - head_warmup_epochs
             optimizer.param_groups[1]["lr"] = backbone_lr_at(
                 unfrozen_epoch, epochs, lr_backbone, lr_schedule, lr_warmup_epochs)
