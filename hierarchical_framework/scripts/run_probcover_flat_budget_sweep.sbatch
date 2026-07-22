@@ -45,9 +45,12 @@ mkdir -p hierarchical_framework/outputs/slurm_logs
 # Keep wandb's local run files under outputs/ (not ROOT/wandb) so they're saved with the rest.
 export WANDB_DIR="$ROOT/hierarchical_framework/outputs"
 
-echo "ProbCover flat sweep: emb=$EMB_DIR group=$GROUP project=$PROJECT delta=$DELTA budget=$BUDGET rounds=$ROUNDS"
+# Per-round CSVs land here, one file per evaluator (named from the run name + seed).
+CSV_DIR="hierarchical_framework/outputs/active_learning/$GROUP"
 
-# One live wandb run per flat evaluator, both in project=$PROJECT group=$GROUP.
+echo "ProbCover flat sweep: emb=$EMB_DIR group=$GROUP project=$PROJECT delta=$DELTA budget=$BUDGET rounds=$ROUNDS csv_dir=$CSV_DIR"
+
+# One live wandb run per flat evaluator, both in project=$PROJECT group=$GROUP; each also writes a CSV.
 for EVAL in 1nn mlp; do
   echo "=== eval=$EVAL ==="
   python -u hierarchical_framework/pipeline/run_active_learning.py \
@@ -57,7 +60,8 @@ for EVAL in 1nn mlp; do
     --delta "$DELTA" \
     --budget "$BUDGET" \
     --rounds "$ROUNDS" \
-    --wandb --project "$PROJECT" --group "$GROUP"
+    --wandb --project "$PROJECT" --group "$GROUP" \
+    --csv "$CSV_DIR"
 done
 
 echo "done."

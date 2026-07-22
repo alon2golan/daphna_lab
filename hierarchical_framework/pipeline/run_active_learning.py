@@ -20,6 +20,7 @@
 # (solo-learn, the current work).
 
 import argparse
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -34,7 +35,7 @@ from shared.wandb_logger import RunLogger
 def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle=False,
         log_coarse=False, label_granularity="fine", label_cost_ratio=5.0, delta="auto_delta",
         budget=100, rounds=10, split="train", seed=0, dataset="cifar100",
-        use_wandb=False, wandb_kwargs=None):
+        use_wandb=False, wandb_kwargs=None, csv_path=None):
 
     embeddings_path = Path(embeddings_dir)
 
@@ -94,6 +95,7 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
     logger.set_config(resolved_delta=float(delta), cost_per_label=float(cost_per_label))
 
     labeled_indices = []   # every point labeled so far, in pick order
+    csv_rows = []          # one row per round, mirrored to --csv (same numbers as wandb)
     for round_index in range(rounds):
 
         # Ask the strategy for this round's points; it updates its own internal state.
@@ -127,7 +129,30 @@ def run(embeddings_dir, strategy="probcover", evaluator="1nn", superclass_oracle
                          coverage=coverage, coarse_accuracy=coarse_accuracy,
                          annotation_cost=annotation_cost)
 
+        # Same scalars the logger just sent to wandb, kept as a row for the CSV mirror below.
+        csv_rows.append({
+            "round": round_index,
+            "num_labeled": len(labeled_indices),
+            "budget_per_class": labels_per_class,
+            "annotation_cost": annotation_cost,
+            acc_metric: accuracy,
+            "coarse_accuracy": coarse_accuracy,
+            "coverage": coverage,
+        })
+
     logger.finish()
+
+    # Mirror the per-round scalars to a CSV so results persist off-wandb. Written once at the
+    # end (the loop already streams live to wandb); parent dir is created if missing.
+    if csv_path is not None:
+        csv_path = Path(csv_path)
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(csv_rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(csv_rows)
+        print(f"[csv] wrote {len(csv_rows)} rows -> {csv_path}", flush=True)
+
     return labeled_indices
 
 
@@ -188,6 +213,10 @@ def main():
     parser.add_argument("--project", default="superclass_analysis", help="wandb project name.")
     parser.add_argument("--name", default=None, help="wandb run name (defaults to an auto name built from the knobs).")
     parser.add_argument("--group", default=None, help="wandb group (defaults to the strategy).")
+    parser.add_argument(
+        "--csv", default=None,
+        help="Write per-round scalars to this CSV path (same numbers as wandb). If a directory is "
+             "given, the file is named <run_name>_seed<seed>.csv inside it.")
 
     args = parser.parse_args()
 
@@ -219,11 +248,19 @@ def main():
         },
     )
 
+    # Resolve --csv: a directory gets an auto filename from the run name + seed; a full path is
+    # used as-is. Distinct run names (they carry the evaluator) keep the two flat runs separate.
+    csv_path = args.csv
+    if csv_path is not None:
+        csv_path = Path(csv_path)
+        if csv_path.suffix != ".csv":            # treat a suffix-less arg as a directory
+            csv_path = csv_path / f"{run_name}_seed{args.seed}.csv"
+
     run(args.embeddings_dir, strategy=args.strategy, evaluator=args.evaluator,
         superclass_oracle=args.superclass_oracle, log_coarse=args.log_coarse,
         label_granularity=args.label_granularity, label_cost_ratio=args.label_cost_ratio,
         delta=args.delta, budget=args.budget, rounds=args.rounds, split=args.split, seed=args.seed,
-        dataset=args.dataset, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs)
+        dataset=args.dataset, use_wandb=args.wandb, wandb_kwargs=wandb_kwargs, csv_path=csv_path)
 
 
 if __name__ == "__main__":
