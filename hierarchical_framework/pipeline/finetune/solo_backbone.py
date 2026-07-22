@@ -12,6 +12,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torchvision import transforms
 from omegaconf import OmegaConf
 
 # solo-learn is a sibling project, not an installed package; put it on the path before
@@ -33,6 +34,27 @@ EXTRACTION_BATCH_SIZE = 256
 
 # Worker processes for the extraction dataloaders
 EXTRACTION_WORKERS = 4
+
+# CIFAR normalization used by solo-learn's cifar pipeline (train AND val). The strong-aug train
+# transform below MUST end with these exact stats so finetune-time inputs match the eval-time
+# (T_val) inputs the features are extracted with -- otherwise the embedding shifts and breaks.
+CIFAR_MEAN = (0.4914, 0.4822, 0.4465)
+CIFAR_STD = (0.247, 0.243, 0.261)
+
+
+def strong_train_transform():
+    """SimCLR-style train augmentation: the existing RandomResizedCrop + flip PLUS the photometric
+    half that the default finetune transform lacks -- color jitter and random grayscale. This is
+    the pretraining-era aug, so it stays in-distribution for the SimCLR backbone. Same crop size
+    (32) and same Normalize stats as T_val, so only the augmentation strength changes."""
+    return transforms.Compose([
+        transforms.RandomResizedCrop(size=32, scale=(0.08, 1.0)),          # same spatial crop as default
+        transforms.RandomHorizontalFlip(),                                  # same flip as default
+        transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),  # SimCLR jitter
+        transforms.RandomGrayscale(p=0.2),                                  # SimCLR grayscale drop
+        transforms.ToTensor(),
+        transforms.Normalize(CIFAR_MEAN, CIFAR_STD),                        # MUST match T_val stats
+    ])
 
 
 # --- Backbone Loading ---
@@ -84,16 +106,20 @@ def infer_feature_dim(backbone, eval_dataset, device):
 
 # --- Datasets (index-aligned to the .npy features) ---
 
-def build_datasets(dataset, data_dir):
+def build_datasets(dataset, data_dir, aug="default"):
     """Returns three CIFAR datasets sharing one index order:
       train_aug  -- T_train augmentations, for the finetune loop,
       train_eval -- T_val (deterministic), for extracting train features,
       test_eval  -- T_val, for extracting test features.
-    Row i is image i in every one of them, matching train_features.npy row i."""
+    Row i is image i in every one of them, matching train_features.npy row i.
+    aug="strong" swaps the finetune-loop T_train for the SimCLR-style transform (adds color jitter
+    + grayscale); train_eval/test_eval always use T_val, so feature extraction is unaffected."""
     data_dir = str(data_dir)
 
     # solo-learn's transform pair: T_train has random crop/flip, T_val is ToTensor+Normalize
     T_train, T_val = prepare_transforms(dataset)
+    if aug == "strong":
+        T_train = strong_train_transform()  # only the finetune-loop augmentation changes
 
     # Augmented train + clean test, using T_train on the training split
     train_aug, test_eval = prepare_datasets(

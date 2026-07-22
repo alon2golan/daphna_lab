@@ -31,6 +31,7 @@ LR_SCHEDULE = "constant"     # "constant" or "cosine" backbone-lr schedule over 
 LR_WARMUP_EPOCHS = 0         # linear backbone-lr ramp 0->LR_BACKBONE over the first N unfrozen epochs
 FINETUNE_BLOCKS = 0          # 0 = finetune the WHOLE trunk; N>0 = only the last N ResNet stages
 LABEL_SMOOTHING = 0.0        # cross-entropy label smoothing (0 = off); mild low-data regularizer
+L2SP = 0.0                   # L2-SP: pull backbone weights toward their PRETRAINED values (0 = off)
 
 # The ResNet residual stages, shallow -> deep. Partial finetune keeps the LAST N of these
 # trainable and freezes everything before them (stem + earlier stages), so only the most
@@ -137,7 +138,7 @@ def finetune_two_heads(backbone, feature_dim, train_aug_dataset, labeled_set,
                        freeze_bn=FREEZE_BN, head_warmup_epochs=HEAD_WARMUP_EPOCHS,
                        lr_schedule=LR_SCHEDULE, lr_warmup_epochs=LR_WARMUP_EPOCHS,
                        weight_decay=WEIGHT_DECAY, finetune_blocks=FINETUNE_BLOCKS,
-                       label_smoothing=LABEL_SMOOTHING):
+                       label_smoothing=LABEL_SMOOTHING, l2sp=L2SP):
     """Finetunes `backbone` in place on the labeled set with a coarse head and a fine head.
     Each head trains ONLY on its own group: the fine head on fine-labeled points, the coarse
     head on coarse-labeled points. A point shared between the groups is forwarded once per
@@ -169,6 +170,15 @@ def finetune_two_heads(backbone, feature_dim, train_aug_dataset, labeled_set,
         weight_decay=weight_decay,
     )
     cross_entropy = nn.CrossEntropyLoss(label_smoothing=label_smoothing)  # both heads; smoothing optional
+
+    # L2-SP anchor: snapshot the PRETRAINED backbone weights now (the backbone was just loaded fresh
+    # from the checkpoint), so the penalty can pull the finetuned weights back toward THESE instead
+    # of toward zero like ordinary weight decay. Only meaningful when l2sp > 0. Unwrap DataParallel
+    # so the parameter objects match the ones the optimizer updates.
+    l2sp_pairs = []
+    if l2sp > 0:
+        core = backbone.module if isinstance(backbone, nn.DataParallel) else backbone
+        l2sp_pairs = [(p, p.detach().clone()) for p in core.parameters()]  # (live param, pretrained anchor)
 
     # Combine the two groups into one training set, tagging each row with its granularity:
     # fine-labeled rows first (is_fine=True), then coarse-labeled rows (is_fine=False)
@@ -230,6 +240,13 @@ def finetune_two_heads(backbone, feature_dim, train_aug_dataset, labeled_set,
 
             # Coarse is the primary task; the fine term is a small anti-collapse regularizer
             loss = COARSE_LOSS_WEIGHT * coarse_loss + FINE_LOSS_WEIGHT * fine_loss
+
+            # L2-SP: penalize squared distance of each TRAINABLE backbone weight from its pretrained
+            # anchor -- an explicit anti-distortion regularizer (only the trainable stages count, so
+            # this composes with partial finetune and skips the frozen warmup phase automatically).
+            if l2sp_pairs:
+                sp = sum(((p - p0) ** 2).sum() for p, p0 in l2sp_pairs if p.requires_grad)
+                loss = loss + l2sp * sp
 
             optimizer.zero_grad()  # clear last step's grads
             loss.backward()        # grads flow into heads AND (if unfrozen) the backbone

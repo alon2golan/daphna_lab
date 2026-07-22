@@ -42,7 +42,7 @@ from two_head_finetune import (
     FINETUNE_EPOCHS, LR_BACKBONE, LR_HEADS, WEIGHT_DECAY,
     COARSE_LOSS_WEIGHT, FINE_LOSS_WEIGHT, FREEZE_BACKBONE, TRAIN_BATCH_SIZE,
     FREEZE_BN, HEAD_WARMUP_EPOCHS, LR_SCHEDULE, LR_WARMUP_EPOCHS,
-    FINETUNE_BLOCKS, LABEL_SMOOTHING,
+    FINETUNE_BLOCKS, LABEL_SMOOTHING, L2SP,
 )
 from probes import coarse_mlp_accuracy, MLP_HIDDEN_LAYER_SIZES, MLP_MAX_ITERATIONS
 
@@ -88,7 +88,7 @@ def scores_for_budget(budget, checkpoint_dir, dataset, data_dir, coarse_map, sel
                       compute_frozen=True, freeze_bn=FREEZE_BN, head_warmup_epochs=HEAD_WARMUP_EPOCHS,
                       lr_schedule=LR_SCHEDULE, lr_warmup_epochs=LR_WARMUP_EPOCHS,
                       weight_decay=WEIGHT_DECAY, finetune_blocks=FINETUNE_BLOCKS,
-                      label_smoothing=LABEL_SMOOTHING):
+                      label_smoothing=LABEL_SMOOTHING, l2sp=L2SP):
     """Computes (frozen_acc, finetuned_acc, num_labeled) for a single budget. With compute_frozen
     False, the frozen probe is skipped (frozen_acc = NaN) -- used so parallel variants don't each
     recompute the identical frozen curve."""
@@ -113,7 +113,7 @@ def scores_for_budget(budget, checkpoint_dir, dataset, data_dir, coarse_map, sel
                                   freeze_bn=freeze_bn, head_warmup_epochs=head_warmup_epochs,
                                   lr_schedule=lr_schedule, lr_warmup_epochs=lr_warmup_epochs,
                                   weight_decay=weight_decay, finetune_blocks=finetune_blocks,
-                                  label_smoothing=label_smoothing)
+                                  label_smoothing=label_smoothing, l2sp=l2sp)
     tuned_train, _ = extract_features(backbone, train_eval, device)
     tuned_test, _ = extract_features(backbone, test_eval, device)
     finetuned_acc = coarse_mlp_accuracy(tuned_train[indices], labeled_coarse,
@@ -175,7 +175,8 @@ def init_curve_run(project, group, curve, selector, seed, embeddings_tag, num_co
                    epochs, lr_backbone, tag="", freeze_bn=FREEZE_BN,
                    head_warmup_epochs=HEAD_WARMUP_EPOCHS, lr_schedule=LR_SCHEDULE,
                    lr_warmup_epochs=LR_WARMUP_EPOCHS, weight_decay=WEIGHT_DECAY,
-                   finetune_blocks=FINETUNE_BLOCKS, label_smoothing=LABEL_SMOOTHING):
+                   finetune_blocks=FINETUNE_BLOCKS, label_smoothing=LABEL_SMOOTHING,
+                   l2sp=L2SP, aug="default"):
     """Opens ONE wandb run for a single curve ('frozen' or 'finetuned'). Both curves use the SAME
     metric key 'coarse_acc', and differ only by config.curve + the run name, so the sidebar shows
     them as separate runs and overlaying/grouping-by-curve draws exactly two lines. `tag` labels a
@@ -202,6 +203,7 @@ def init_curve_run(project, group, curve, selector, seed, embeddings_tag, num_co
             freeze_bn=int(freeze_bn), head_warmup_epochs=head_warmup_epochs,
             lr_schedule=lr_schedule, lr_warmup_epochs=lr_warmup_epochs,
             finetune_blocks=finetune_blocks, label_smoothing=label_smoothing,
+            l2sp=l2sp, aug=aug,
             # probe knobs (both curves)
             probe_mlp_hidden=str(MLP_HIDDEN_LAYER_SIZES), probe_mlp_iters=MLP_MAX_ITERATIONS,
         ),
@@ -217,7 +219,8 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
         use_wandb, project, group, multi_gpu, epochs, lr_backbone, tag="", shard=None,
         skip_frozen=False, freeze_bn=FREEZE_BN, head_warmup_epochs=HEAD_WARMUP_EPOCHS,
         lr_schedule=LR_SCHEDULE, lr_warmup_epochs=LR_WARMUP_EPOCHS, weight_decay=WEIGHT_DECAY,
-        finetune_blocks=FINETUNE_BLOCKS, label_smoothing=LABEL_SMOOTHING):
+        finetune_blocks=FINETUNE_BLOCKS, label_smoothing=LABEL_SMOOTHING, l2sp=L2SP,
+        aug="default"):
     """Extracts the frozen embeddings once, then sweeps this worker's budgets through both curves.
     With `shard` set (one parallel worker over a slice of budgets), outputs are suffixed by the
     shard so parallel workers never collide; each worker is its own LIVE wandb run in the shared
@@ -238,7 +241,7 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
 
     # Load the pristine backbone and build the datasets ONCE
     backbone = load_backbone(checkpoint_dir, device, multi_gpu=use_multi)
-    train_aug, train_eval, test_eval = build_datasets(dataset, data_dir)
+    train_aug, train_eval, test_eval = build_datasets(dataset, data_dir, aug=aug)
 
     # Extract the FROZEN embeddings ONCE (before any finetuning); curve 1 reuses them at every budget
     frozen_train, train_fine = extract_features(backbone, train_eval, device)
@@ -259,13 +262,13 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
                                         freeze_bn=freeze_bn, head_warmup_epochs=head_warmup_epochs,
                                         lr_schedule=lr_schedule, lr_warmup_epochs=lr_warmup_epochs,
                                         weight_decay=weight_decay, finetune_blocks=finetune_blocks,
-                                        label_smoothing=label_smoothing)
+                                        label_smoothing=label_smoothing, l2sp=l2sp, aug=aug)
         finetuned_run = init_curve_run(project, group, "finetuned", selector_name, seed,
                                        embeddings_tag, num_coarse, shard, epochs, lr_backbone, tag=tag,
                                        freeze_bn=freeze_bn, head_warmup_epochs=head_warmup_epochs,
                                        lr_schedule=lr_schedule, lr_warmup_epochs=lr_warmup_epochs,
                                        weight_decay=weight_decay, finetune_blocks=finetune_blocks,
-                                       label_smoothing=label_smoothing)
+                                       label_smoothing=label_smoothing, l2sp=l2sp, aug=aug)
 
     # Sweep budgets; each budget reloads a fresh backbone for curve 2 inside scores_for_budget
     results = []                                                    # collected for the end-of-run plot
@@ -277,7 +280,7 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
             compute_frozen=not skip_frozen, freeze_bn=freeze_bn,
             head_warmup_epochs=head_warmup_epochs, lr_schedule=lr_schedule,
             lr_warmup_epochs=lr_warmup_epochs, weight_decay=weight_decay,
-            finetune_blocks=finetune_blocks, label_smoothing=label_smoothing)
+            finetune_blocks=finetune_blocks, label_smoothing=label_smoothing, l2sp=l2sp)
         gain = finetuned_acc - frozen_acc
         print(f"[budget={num_labeled}] frozen={frozen_acc:.2f} finetuned={finetuned_acc:.2f} "
               f"gain={gain:+.2f}", flush=True)
@@ -356,6 +359,12 @@ def main():
                              "confines distortion to the most task-specific features")
     parser.add_argument("--label_smoothing", type=float, default=LABEL_SMOOTHING,
                         help="cross-entropy label smoothing for the finetune heads (0 = off)")
+    parser.add_argument("--l2sp", type=float, default=L2SP,
+                        help="L2-SP weight: pull backbone weights toward their PRETRAINED values "
+                             "instead of toward zero (explicit anti-distortion regularizer; 0 = off)")
+    parser.add_argument("--aug", default="default", choices=["default", "strong"],
+                        help="finetune-loop augmentation: 'strong' adds SimCLR color jitter + "
+                             "grayscale on top of the default crop+flip (curve 2 only; frozen unaffected)")
     args = parser.parse_args()
 
     run(args.checkpoint_dir, args.data_dir, args.dataset, args.budgets, args.selector,
@@ -365,7 +374,8 @@ def main():
         skip_frozen=args.skip_frozen, freeze_bn=args.freeze_bn,
         head_warmup_epochs=args.head_warmup_epochs, lr_schedule=args.lr_schedule,
         lr_warmup_epochs=args.lr_warmup_epochs, weight_decay=args.weight_decay,
-        finetune_blocks=args.finetune_blocks, label_smoothing=args.label_smoothing)
+        finetune_blocks=args.finetune_blocks, label_smoothing=args.label_smoothing,
+        l2sp=args.l2sp, aug=args.aug)
 
 
 if __name__ == "__main__":
