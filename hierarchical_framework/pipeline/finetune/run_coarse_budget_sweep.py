@@ -176,7 +176,7 @@ def init_curve_run(project, group, curve, selector, seed, embeddings_tag, num_co
         group=group,                                               # the shared experiment group
         name=f"{curve}_{selector}_seed{seed}{tag_suffix}{shard_suffix}",  # curve first -> frozen/finetuned split
         job_type=curve,                                            # one-click filter: frozen vs finetuned
-        reinit=True,                                               # allow a second run open in this process
+        reinit="create_new",                                       # keep BOTH runs active at once (live)
         config=dict(
             experiment="coarse_budget_sweep", curve=curve, tag=(tag or "default"),  # group/colour keys
             embeddings_tag=embeddings_tag, selector=selector, seed=seed,
@@ -229,12 +229,15 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
     print(f"frozen embeddings ready on {device}: train {frozen_train.shape}, test {frozen_test.shape}",
           flush=True)
 
-    # Frozen and finetuned are SEPARATE wandb runs (same key 'coarse_acc'). wandb only keeps one run
-    # active per process, so we stream the FINETUNED curve live during the loop, then log the (cheap,
-    # static) FROZEN curve as its own run right after. With skip_frozen the frozen run is omitted.
+    # Frozen and finetuned are SEPARATE wandb runs (same key 'coarse_acc'), both opened with
+    # reinit="create_new" so they stay active at once and BOTH stream live per budget. With
+    # skip_frozen the frozen run is omitted (it is identical across variants).
     live_wandb = use_wandb and wandb is not None
-    finetuned_run = None
+    frozen_run = finetuned_run = None
     if live_wandb:
+        if not skip_frozen:
+            frozen_run = init_curve_run(project, group, "frozen", selector_name, seed,
+                                        embeddings_tag, num_coarse, shard, epochs, lr_backbone, tag=tag)
         finetuned_run = init_curve_run(project, group, "finetuned", selector_name, seed,
                                        embeddings_tag, num_coarse, shard, epochs, lr_backbone, tag=tag)
 
@@ -258,21 +261,18 @@ def run(checkpoint_dir, data_dir, dataset, budgets, selector_name, seed,
                     epochs, int(FREEZE_BACKBONE),
                     f"{frozen_acc:.4f}", f"{finetuned_acc:.4f}", f"{gain:.4f}"], csv_path)
         if live_wandb:
-            # Finetuned streams live; frozen is logged as its own run after the loop
+            # Both runs are active -> both fill in live on the same coarse_acc panel as budgets grow
+            if frozen_run is not None:
+                frozen_run.log({"num_labeled": num_labeled, "coarse_acc": frozen_acc})
             finetuned_run.log({"num_labeled": num_labeled, "coarse_acc": finetuned_acc})
 
     # A single (unsharded) run plots the combined PNG; parallel shards leave that to the merge step
     if shard is None:
         save_figure(results, selector_name, seed, tag=tag)
     if live_wandb:
-        finetuned_run.finish()                                     # close the finetuned run first
-        # Now log the frozen curve as its OWN run (skipped when frozen was not computed)
-        if not skip_frozen:
-            frozen_run = init_curve_run(project, group, "frozen", selector_name, seed,
-                                        embeddings_tag, num_coarse, shard, epochs, lr_backbone, tag=tag)
-            for entry in results:
-                frozen_run.log({"num_labeled": entry["num_labeled"], "coarse_acc": entry["frozen_acc"]})
+        if frozen_run is not None:
             frozen_run.finish()
+        finetuned_run.finish()
     print(f"saved -> {csv_path}", flush=True)
 
 
