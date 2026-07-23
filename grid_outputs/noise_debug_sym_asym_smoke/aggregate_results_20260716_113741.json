@@ -1,0 +1,1184 @@
+{
+  "noise=asym__al=npc_probcover_oracle__nm=none__loss=cross_entropy__seed=NA": {
+    "pipeline": {
+      "active_learning": {
+        "budget": 100,
+        "max_iter": 1,
+        "method": "npc_probcover_oracle",
+        "nas_aum_max_pred_noisy_rate": 0.5,
+        "nas_filter_method": "oracle",
+        "nas_min_labeled_size": 0,
+        "nas_noise_dropout": true,
+        "nas_noise_dropout_min_fraction": 0.1
+      },
+      "cfg": "../configs/cifar100/al/RESNET18.yaml",
+      "evaluation": {
+        "also_eval_knn": true,
+        "knn_k": 1
+      },
+      "noise": {
+        "labels_path": "/cs/labs/daphna/tomn/projects/daphna_lab/deep_al/tools/data/CIFAR-100_human.pt",
+        "rate": 0.2,
+        "resolved_transition_matrix_path": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_npc_probcover_oracle_from_features_2026_7_16_114206_72587/resolved_transition_asym_0.200.npy",
+        "superclass_groups_path": null,
+        "transition_matrix": null,
+        "transition_metadata": {
+          "dataset_name": "CIFAR100",
+          "diagonal_mean": 0.8000002503395081,
+          "noise_rate": 0.2,
+          "noise_type": "asym",
+          "num_classes": 100,
+          "off_diagonal_mass_mean": 0.20000003278255463,
+          "provided_superclass_groups_path": null,
+          "provided_transition_path": null,
+          "resolved_transition_path": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_npc_probcover_oracle_from_features_2026_7_16_114206_72587/resolved_transition_asym_0.200.npy",
+          "row_sum_max": 1.0,
+          "row_sum_min": 1.0,
+          "source": "torchvision_cifar100_raw_coarse_labels"
+        },
+        "type": "asym",
+        "variant": "auto"
+      },
+      "noise_handling": {
+        "aum_conf_threshold": 0.8,
+        "aum_percentile": 10.0,
+        "cleaning_conf_threshold": 0.9,
+        "cleaning_pred_source": "checkpoint",
+        "crossval_folds": 5,
+        "crossval_max_iter": 300,
+        "method": "none",
+        "temporal_conf_threshold": 0.8,
+        "temporal_min_seen": 2,
+        "temporal_momentum": 0.8,
+        "warmup_episode": 3,
+        "warmup_min_acc": 60.0
+      },
+      "paper_hparams": true,
+      "paper_hparams_applied": {
+        "ACTIVE_LEARNING.INITIAL_DELTA": {
+          "reason": "DCoM appendix / ProbCover CIFAR deltas",
+          "value": 0.65
+        },
+        "KERNEL_TYPE": {
+          "reason": "ProbCover uses radius balls / TopHat kernel",
+          "value": "tophat"
+        },
+        "OPTIM.BASE_LR": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.1
+        },
+        "OPTIM.MAX_EPOCH": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 200
+        },
+        "OPTIM.MOMENTUM": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.9
+        },
+        "OPTIM.NESTEROV": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": false
+        },
+        "OPTIM.WEIGHT_DECAY": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.0005
+        },
+        "SPARSE_K": {
+          "reason": "ProbCover graph is sparse coverage",
+          "value": true
+        },
+        "TRAIN.BATCH_SIZE": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 128
+        }
+      },
+      "run_args": {
+        "a_logistic": null,
+        "alpha": null,
+        "base_lr": 0.1,
+        "bootstrap_beta": 0.8,
+        "confidence_method": null,
+        "cont_method": null,
+        "debug": false,
+        "decrease_alpha": false,
+        "delta_resolution": null,
+        "diff_method": null,
+        "dropout_iterations": null,
+        "eval_model_type": "from_features",
+        "exp_name": "noise_debug_sym_asym_smoke",
+        "features_tag": null,
+        "gce_q": 0.7,
+        "high_budget": false,
+        "initial_delta": 0.65,
+        "initial_sigma": null,
+        "initial_size": 100,
+        "k_logistic": null,
+        "kernel_type": "tophat",
+        "loss_fun": "cross_entropy",
+        "matrix_dtype": null,
+        "max_delta": null,
+        "max_epoch": 200,
+        "momentum": 0.9,
+        "nas_aum_epochs": 40,
+        "nas_aum_fake_percentile": 80.0,
+        "nas_aum_fake_ratio": 1.0,
+        "nas_aum_lr": 0.1,
+        "nas_aum_max_pred_noisy_rate": 0.5,
+        "nas_aum_weight_decay": 0.0,
+        "nas_cv_folds": 3,
+        "nas_cv_max_iter": 300,
+        "nas_filter_method": null,
+        "nas_knn_k": -1,
+        "nas_min_labeled_size": 0,
+        "nas_noise_dropout": true,
+        "nas_noise_dropout_min_fraction": 0.1,
+        "nesterov": false,
+        "norm_importance": false,
+        "seed": 0,
+        "soft_border_val": null,
+        "sparse_K": true,
+        "sparse_ds": false,
+        "test_batch_size": null,
+        "train_batch_size": 128,
+        "weight_decay": 0.0005
+      }
+    },
+    "results": {
+      "exp_dir": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_npc_probcover_oracle_from_features_2026_7_16_114206_72587",
+      "status": "completed",
+      "summary": {
+        "effective_bootstrap_beta": 0.8,
+        "effective_gce_q": 0.7,
+        "effective_loss_fun": "cross_entropy",
+        "episode_al_times": [
+          1.7499868869781494
+        ],
+        "episode_states": [
+          {
+            "episode": 0,
+            "lSet_size": 100,
+            "method_details": {
+              "budget": 100,
+              "fine_tune": true,
+              "lSet_size_before_sampling": 100,
+              "max_iter": 1,
+              "method": "npc_probcover_oracle",
+              "uSet_size_before_sampling": 44900
+            },
+            "stage": "episode_start",
+            "uSet_size": 44900,
+            "valSet_size": 5000
+          },
+          {
+            "episode": 1,
+            "lSet_size": 200,
+            "method_details": {
+              "budget": 100,
+              "fine_tune": true,
+              "lSet_size_before_sampling": 200,
+              "max_iter": 1,
+              "method": "npc_probcover_oracle",
+              "uSet_size_before_sampling": 44800
+            },
+            "stage": "episode_start",
+            "uSet_size": 44800,
+            "valSet_size": 5000
+          }
+        ],
+        "episode_training_times": [
+          24.981448888778687,
+          24.08241295814514
+        ],
+        "final_knn_eval": {
+          "eval_time_sec": 0.22115254402160645,
+          "feature_dim": 512,
+          "fit_time_sec": 0.0014824867248535156,
+          "k_effective": 1,
+          "k_requested": 1,
+          "metric": "euclidean",
+          "status": "completed",
+          "test_acc": 30.869999999999997,
+          "test_size": 10000,
+          "train_acc": 100.0,
+          "train_size": 200,
+          "val_acc": 26.939999999999998,
+          "val_size": 5000
+        },
+        "final_lSet_len": 200,
+        "final_test_acc": 23.78,
+        "final_train_acc": 98.4375,
+        "final_uSet_len": 44800,
+        "final_valSet_len": 5000,
+        "final_val_acc": 24.959935897435898,
+        "initial_label_noise_rate_actual": 0.20048,
+        "initial_lset_noisy_count_actual": 27,
+        "initial_lset_noisy_rate_actual": 0.27,
+        "noise_method_results": [
+          {
+            "episode": 0,
+            "result": {
+              "method": "none",
+              "status": "skipped"
+            }
+          }
+        ],
+        "noisy_wrapper_applied": true,
+        "npc_filter_results": [
+          {
+            "episode": 0,
+            "labeled_size": 100,
+            "method": "oracle",
+            "nas_min_labeled_size": 0,
+            "noise_dropout_enabled": false,
+            "noise_dropout_eta": 0.0,
+            "noise_dropout_reason": "disabled_for_oracle_upper_bound",
+            "noise_dropout_restored": 0,
+            "oracle_clean_flagged": 0,
+            "oracle_clean_flagged_before_dropout": 0,
+            "oracle_correctly_flagged": 27,
+            "oracle_correctly_flagged_before_dropout": 27,
+            "oracle_detector": true,
+            "oracle_f1_after_dropout": 1.0,
+            "oracle_f1_before_dropout": 1.0,
+            "oracle_false_positive_rate_after_dropout": 0.0,
+            "oracle_false_positive_rate_before_dropout": 0.0,
+            "oracle_missed_noisy": 0,
+            "oracle_missed_noisy_before_dropout": 0,
+            "oracle_precision_after_dropout": 1.0,
+            "oracle_precision_before_dropout": 1.0,
+            "oracle_recall_after_dropout": 1.0,
+            "oracle_recall_before_dropout": 1.0,
+            "oracle_true_clean": 73,
+            "oracle_true_noisy": 27,
+            "oracle_true_noisy_rate": 0.27,
+            "pred_clean": 73,
+            "pred_noisy": 27,
+            "pred_noisy_after_dropout": 27,
+            "pred_noisy_before_dropout": 27,
+            "predicted_noise_rate": 0.27,
+            "predicted_noise_rate_after_dropout": 0.27,
+            "predicted_noise_rate_before_dropout": 0.27,
+            "query_index": 0,
+            "reason": "oracle_true_noisy_mask_for_diagnostics_only",
+            "unlabeled_size": 44900
+          }
+        ],
+        "paper_hparams_applied": {
+          "ACTIVE_LEARNING.INITIAL_DELTA": {
+            "reason": "DCoM appendix / ProbCover CIFAR deltas",
+            "value": 0.65
+          },
+          "KERNEL_TYPE": {
+            "reason": "ProbCover uses radius balls / TopHat kernel",
+            "value": "tophat"
+          },
+          "OPTIM.BASE_LR": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.1
+          },
+          "OPTIM.MAX_EPOCH": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 200
+          },
+          "OPTIM.MOMENTUM": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.9
+          },
+          "OPTIM.NESTEROV": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": false
+          },
+          "OPTIM.WEIGHT_DECAY": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.0005
+          },
+          "SPARSE_K": {
+            "reason": "ProbCover graph is sparse coverage",
+            "value": true
+          },
+          "TRAIN.BATCH_SIZE": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 128
+          }
+        },
+        "test_size": 10000,
+        "train_size": 50000
+      }
+    }
+  },
+  "noise=asym__al=probcover__nm=none__loss=cross_entropy__seed=NA": {
+    "pipeline": {
+      "active_learning": {
+        "budget": 100,
+        "max_iter": 1,
+        "method": "probcover",
+        "nas_aum_max_pred_noisy_rate": 0.5,
+        "nas_filter_method": null,
+        "nas_min_labeled_size": 0,
+        "nas_noise_dropout": true,
+        "nas_noise_dropout_min_fraction": 0.1
+      },
+      "cfg": "../configs/cifar100/al/RESNET18.yaml",
+      "evaluation": {
+        "also_eval_knn": true,
+        "knn_k": 1
+      },
+      "noise": {
+        "labels_path": "/cs/labs/daphna/tomn/projects/daphna_lab/deep_al/tools/data/CIFAR-100_human.pt",
+        "rate": 0.2,
+        "resolved_transition_matrix_path": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_probcover_from_features_2026_7_16_114109_342562/resolved_transition_asym_0.200.npy",
+        "superclass_groups_path": null,
+        "transition_matrix": null,
+        "transition_metadata": {
+          "dataset_name": "CIFAR100",
+          "diagonal_mean": 0.8000002503395081,
+          "noise_rate": 0.2,
+          "noise_type": "asym",
+          "num_classes": 100,
+          "off_diagonal_mass_mean": 0.20000003278255463,
+          "provided_superclass_groups_path": null,
+          "provided_transition_path": null,
+          "resolved_transition_path": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_probcover_from_features_2026_7_16_114109_342562/resolved_transition_asym_0.200.npy",
+          "row_sum_max": 1.0,
+          "row_sum_min": 1.0,
+          "source": "torchvision_cifar100_raw_coarse_labels"
+        },
+        "type": "asym",
+        "variant": "auto"
+      },
+      "noise_handling": {
+        "aum_conf_threshold": 0.8,
+        "aum_percentile": 10.0,
+        "cleaning_conf_threshold": 0.9,
+        "cleaning_pred_source": "checkpoint",
+        "crossval_folds": 5,
+        "crossval_max_iter": 300,
+        "method": "none",
+        "temporal_conf_threshold": 0.8,
+        "temporal_min_seen": 2,
+        "temporal_momentum": 0.8,
+        "warmup_episode": 3,
+        "warmup_min_acc": 60.0
+      },
+      "paper_hparams": true,
+      "paper_hparams_applied": {
+        "ACTIVE_LEARNING.INITIAL_DELTA": {
+          "reason": "DCoM appendix / ProbCover CIFAR deltas",
+          "value": 0.65
+        },
+        "KERNEL_TYPE": {
+          "reason": "ProbCover uses radius balls / TopHat kernel",
+          "value": "tophat"
+        },
+        "OPTIM.BASE_LR": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.1
+        },
+        "OPTIM.MAX_EPOCH": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 200
+        },
+        "OPTIM.MOMENTUM": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.9
+        },
+        "OPTIM.NESTEROV": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": false
+        },
+        "OPTIM.WEIGHT_DECAY": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.0005
+        },
+        "SPARSE_K": {
+          "reason": "ProbCover graph is sparse coverage",
+          "value": true
+        },
+        "TRAIN.BATCH_SIZE": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 128
+        }
+      },
+      "run_args": {
+        "a_logistic": null,
+        "alpha": null,
+        "base_lr": 0.1,
+        "bootstrap_beta": 0.8,
+        "confidence_method": null,
+        "cont_method": null,
+        "debug": false,
+        "decrease_alpha": false,
+        "delta_resolution": null,
+        "diff_method": null,
+        "dropout_iterations": null,
+        "eval_model_type": "from_features",
+        "exp_name": "noise_debug_sym_asym_smoke",
+        "features_tag": null,
+        "gce_q": 0.7,
+        "high_budget": false,
+        "initial_delta": 0.65,
+        "initial_sigma": null,
+        "initial_size": 100,
+        "k_logistic": null,
+        "kernel_type": "tophat",
+        "loss_fun": "cross_entropy",
+        "matrix_dtype": null,
+        "max_delta": null,
+        "max_epoch": 200,
+        "momentum": 0.9,
+        "nas_aum_epochs": 40,
+        "nas_aum_fake_percentile": 80.0,
+        "nas_aum_fake_ratio": 1.0,
+        "nas_aum_lr": 0.1,
+        "nas_aum_max_pred_noisy_rate": 0.5,
+        "nas_aum_weight_decay": 0.0,
+        "nas_cv_folds": 3,
+        "nas_cv_max_iter": 300,
+        "nas_filter_method": null,
+        "nas_knn_k": -1,
+        "nas_min_labeled_size": 0,
+        "nas_noise_dropout": true,
+        "nas_noise_dropout_min_fraction": 0.1,
+        "nesterov": false,
+        "norm_importance": false,
+        "seed": 0,
+        "soft_border_val": null,
+        "sparse_K": true,
+        "sparse_ds": false,
+        "test_batch_size": null,
+        "train_batch_size": 128,
+        "weight_decay": 0.0005
+      }
+    },
+    "results": {
+      "exp_dir": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_probcover_from_features_2026_7_16_114109_342562",
+      "status": "completed",
+      "summary": {
+        "effective_bootstrap_beta": 0.8,
+        "effective_gce_q": 0.7,
+        "effective_loss_fun": "cross_entropy",
+        "episode_al_times": [
+          1.7596752643585205
+        ],
+        "episode_states": [
+          {
+            "episode": 0,
+            "lSet_size": 100,
+            "method_details": {
+              "budget": 100,
+              "family": "CoverageMatrixMethod",
+              "features": "ds_utils.load_features(..., normalized=True)",
+              "fine_tune": true,
+              "initial_delta": 0.65,
+              "initial_sigma": null,
+              "kernel_build_batch_size": null,
+              "kernel_type": "tophat",
+              "lSet_size_before_sampling": 100,
+              "matrix_dtype": null,
+              "max_iter": 1,
+              "method": "probcover",
+              "sparse_K": true,
+              "uSet_size_before_sampling": 44900
+            },
+            "stage": "episode_start",
+            "uSet_size": 44900,
+            "valSet_size": 5000
+          },
+          {
+            "episode": 1,
+            "lSet_size": 200,
+            "method_details": {
+              "budget": 100,
+              "family": "CoverageMatrixMethod",
+              "features": "ds_utils.load_features(..., normalized=True)",
+              "fine_tune": true,
+              "initial_delta": 0.65,
+              "initial_sigma": null,
+              "kernel_build_batch_size": null,
+              "kernel_type": "tophat",
+              "lSet_size_before_sampling": 200,
+              "matrix_dtype": null,
+              "max_iter": 1,
+              "method": "probcover",
+              "sparse_K": true,
+              "uSet_size_before_sampling": 44800
+            },
+            "stage": "episode_start",
+            "uSet_size": 44800,
+            "valSet_size": 5000
+          }
+        ],
+        "episode_training_times": [
+          23.76725149154663,
+          23.90196704864502
+        ],
+        "final_knn_eval": {
+          "eval_time_sec": 0.22059273719787598,
+          "feature_dim": 512,
+          "fit_time_sec": 0.0014424324035644531,
+          "k_effective": 1,
+          "k_requested": 1,
+          "metric": "euclidean",
+          "status": "completed",
+          "test_acc": 29.69,
+          "test_size": 10000,
+          "train_acc": 100.0,
+          "train_size": 200,
+          "val_acc": 26.16,
+          "val_size": 5000
+        },
+        "final_lSet_len": 200,
+        "final_test_acc": 22.950000000000003,
+        "final_train_acc": 99.21875,
+        "final_uSet_len": 44800,
+        "final_valSet_len": 5000,
+        "final_val_acc": 23.99839743589743,
+        "initial_label_noise_rate_actual": 0.20048,
+        "initial_lset_noisy_count_actual": 27,
+        "initial_lset_noisy_rate_actual": 0.27,
+        "noise_method_results": [
+          {
+            "episode": 0,
+            "result": {
+              "method": "none",
+              "status": "skipped"
+            }
+          }
+        ],
+        "noisy_wrapper_applied": true,
+        "npc_filter_results": [],
+        "paper_hparams_applied": {
+          "ACTIVE_LEARNING.INITIAL_DELTA": {
+            "reason": "DCoM appendix / ProbCover CIFAR deltas",
+            "value": 0.65
+          },
+          "KERNEL_TYPE": {
+            "reason": "ProbCover uses radius balls / TopHat kernel",
+            "value": "tophat"
+          },
+          "OPTIM.BASE_LR": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.1
+          },
+          "OPTIM.MAX_EPOCH": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 200
+          },
+          "OPTIM.MOMENTUM": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.9
+          },
+          "OPTIM.NESTEROV": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": false
+          },
+          "OPTIM.WEIGHT_DECAY": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.0005
+          },
+          "SPARSE_K": {
+            "reason": "ProbCover graph is sparse coverage",
+            "value": true
+          },
+          "TRAIN.BATCH_SIZE": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 128
+          }
+        },
+        "test_size": 10000,
+        "train_size": 50000
+      }
+    }
+  },
+  "noise=sym__al=npc_probcover_oracle__nm=none__loss=cross_entropy__seed=NA": {
+    "pipeline": {
+      "active_learning": {
+        "budget": 100,
+        "max_iter": 1,
+        "method": "npc_probcover_oracle",
+        "nas_aum_max_pred_noisy_rate": 0.5,
+        "nas_filter_method": "oracle",
+        "nas_min_labeled_size": 0,
+        "nas_noise_dropout": true,
+        "nas_noise_dropout_min_fraction": 0.1
+      },
+      "cfg": "../configs/cifar100/al/RESNET18.yaml",
+      "evaluation": {
+        "also_eval_knn": true,
+        "knn_k": 1
+      },
+      "noise": {
+        "labels_path": "/cs/labs/daphna/tomn/projects/daphna_lab/deep_al/tools/data/CIFAR-100_human.pt",
+        "rate": 0.2,
+        "resolved_transition_matrix_path": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_npc_probcover_oracle_from_features_2026_7_16_114013_991504/resolved_transition_sym_0.200.npy",
+        "superclass_groups_path": null,
+        "transition_matrix": null,
+        "transition_metadata": {
+          "dataset_name": "CIFAR100",
+          "diagonal_mean": 0.8000002503395081,
+          "noise_rate": 0.2,
+          "noise_type": "sym",
+          "num_classes": 100,
+          "off_diagonal_mass_mean": 0.20000003278255463,
+          "provided_superclass_groups_path": null,
+          "provided_transition_path": null,
+          "resolved_transition_path": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_npc_probcover_oracle_from_features_2026_7_16_114013_991504/resolved_transition_sym_0.200.npy",
+          "row_sum_max": 1.0,
+          "row_sum_min": 0.9999997019767761,
+          "source": "generated_symmetric"
+        },
+        "type": "sym",
+        "variant": "auto"
+      },
+      "noise_handling": {
+        "aum_conf_threshold": 0.8,
+        "aum_percentile": 10.0,
+        "cleaning_conf_threshold": 0.9,
+        "cleaning_pred_source": "checkpoint",
+        "crossval_folds": 5,
+        "crossval_max_iter": 300,
+        "method": "none",
+        "temporal_conf_threshold": 0.8,
+        "temporal_min_seen": 2,
+        "temporal_momentum": 0.8,
+        "warmup_episode": 3,
+        "warmup_min_acc": 60.0
+      },
+      "paper_hparams": true,
+      "paper_hparams_applied": {
+        "ACTIVE_LEARNING.INITIAL_DELTA": {
+          "reason": "DCoM appendix / ProbCover CIFAR deltas",
+          "value": 0.65
+        },
+        "KERNEL_TYPE": {
+          "reason": "ProbCover uses radius balls / TopHat kernel",
+          "value": "tophat"
+        },
+        "OPTIM.BASE_LR": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.1
+        },
+        "OPTIM.MAX_EPOCH": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 200
+        },
+        "OPTIM.MOMENTUM": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.9
+        },
+        "OPTIM.NESTEROV": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": false
+        },
+        "OPTIM.WEIGHT_DECAY": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.0005
+        },
+        "SPARSE_K": {
+          "reason": "ProbCover graph is sparse coverage",
+          "value": true
+        },
+        "TRAIN.BATCH_SIZE": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 128
+        }
+      },
+      "run_args": {
+        "a_logistic": null,
+        "alpha": null,
+        "base_lr": 0.1,
+        "bootstrap_beta": 0.8,
+        "confidence_method": null,
+        "cont_method": null,
+        "debug": false,
+        "decrease_alpha": false,
+        "delta_resolution": null,
+        "diff_method": null,
+        "dropout_iterations": null,
+        "eval_model_type": "from_features",
+        "exp_name": "noise_debug_sym_asym_smoke",
+        "features_tag": null,
+        "gce_q": 0.7,
+        "high_budget": false,
+        "initial_delta": 0.65,
+        "initial_sigma": null,
+        "initial_size": 100,
+        "k_logistic": null,
+        "kernel_type": "tophat",
+        "loss_fun": "cross_entropy",
+        "matrix_dtype": null,
+        "max_delta": null,
+        "max_epoch": 200,
+        "momentum": 0.9,
+        "nas_aum_epochs": 40,
+        "nas_aum_fake_percentile": 80.0,
+        "nas_aum_fake_ratio": 1.0,
+        "nas_aum_lr": 0.1,
+        "nas_aum_max_pred_noisy_rate": 0.5,
+        "nas_aum_weight_decay": 0.0,
+        "nas_cv_folds": 3,
+        "nas_cv_max_iter": 300,
+        "nas_filter_method": null,
+        "nas_knn_k": -1,
+        "nas_min_labeled_size": 0,
+        "nas_noise_dropout": true,
+        "nas_noise_dropout_min_fraction": 0.1,
+        "nesterov": false,
+        "norm_importance": false,
+        "seed": 0,
+        "soft_border_val": null,
+        "sparse_K": true,
+        "sparse_ds": false,
+        "test_batch_size": null,
+        "train_batch_size": 128,
+        "weight_decay": 0.0005
+      }
+    },
+    "results": {
+      "exp_dir": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_npc_probcover_oracle_from_features_2026_7_16_114013_991504",
+      "status": "completed",
+      "summary": {
+        "effective_bootstrap_beta": 0.8,
+        "effective_gce_q": 0.7,
+        "effective_loss_fun": "cross_entropy",
+        "episode_al_times": [
+          1.7653603553771973
+        ],
+        "episode_states": [
+          {
+            "episode": 0,
+            "lSet_size": 100,
+            "method_details": {
+              "budget": 100,
+              "fine_tune": true,
+              "lSet_size_before_sampling": 100,
+              "max_iter": 1,
+              "method": "npc_probcover_oracle",
+              "uSet_size_before_sampling": 44900
+            },
+            "stage": "episode_start",
+            "uSet_size": 44900,
+            "valSet_size": 5000
+          },
+          {
+            "episode": 1,
+            "lSet_size": 200,
+            "method_details": {
+              "budget": 100,
+              "fine_tune": true,
+              "lSet_size_before_sampling": 200,
+              "max_iter": 1,
+              "method": "npc_probcover_oracle",
+              "uSet_size_before_sampling": 44800
+            },
+            "stage": "episode_start",
+            "uSet_size": 44800,
+            "valSet_size": 5000
+          }
+        ],
+        "episode_training_times": [
+          24.551281452178955,
+          24.02648663520813
+        ],
+        "final_knn_eval": {
+          "eval_time_sec": 0.22115230560302734,
+          "feature_dim": 512,
+          "fit_time_sec": 0.001468658447265625,
+          "k_effective": 1,
+          "k_requested": 1,
+          "metric": "euclidean",
+          "status": "completed",
+          "test_acc": 32.32,
+          "test_size": 10000,
+          "train_acc": 100.0,
+          "train_size": 200,
+          "val_acc": 26.419999999999998,
+          "val_size": 5000
+        },
+        "final_lSet_len": 200,
+        "final_test_acc": 25.730000000000004,
+        "final_train_acc": 98.4375,
+        "final_uSet_len": 44800,
+        "final_valSet_len": 5000,
+        "final_val_acc": 26.802884615384613,
+        "initial_label_noise_rate_actual": 0.2,
+        "initial_lset_noisy_count_actual": 16,
+        "initial_lset_noisy_rate_actual": 0.16,
+        "noise_method_results": [
+          {
+            "episode": 0,
+            "result": {
+              "method": "none",
+              "status": "skipped"
+            }
+          }
+        ],
+        "noisy_wrapper_applied": true,
+        "npc_filter_results": [
+          {
+            "episode": 0,
+            "labeled_size": 100,
+            "method": "oracle",
+            "nas_min_labeled_size": 0,
+            "noise_dropout_enabled": false,
+            "noise_dropout_eta": 0.0,
+            "noise_dropout_reason": "disabled_for_oracle_upper_bound",
+            "noise_dropout_restored": 0,
+            "oracle_clean_flagged": 0,
+            "oracle_clean_flagged_before_dropout": 0,
+            "oracle_correctly_flagged": 16,
+            "oracle_correctly_flagged_before_dropout": 16,
+            "oracle_detector": true,
+            "oracle_f1_after_dropout": 1.0,
+            "oracle_f1_before_dropout": 1.0,
+            "oracle_false_positive_rate_after_dropout": 0.0,
+            "oracle_false_positive_rate_before_dropout": 0.0,
+            "oracle_missed_noisy": 0,
+            "oracle_missed_noisy_before_dropout": 0,
+            "oracle_precision_after_dropout": 1.0,
+            "oracle_precision_before_dropout": 1.0,
+            "oracle_recall_after_dropout": 1.0,
+            "oracle_recall_before_dropout": 1.0,
+            "oracle_true_clean": 84,
+            "oracle_true_noisy": 16,
+            "oracle_true_noisy_rate": 0.16,
+            "pred_clean": 84,
+            "pred_noisy": 16,
+            "pred_noisy_after_dropout": 16,
+            "pred_noisy_before_dropout": 16,
+            "predicted_noise_rate": 0.16,
+            "predicted_noise_rate_after_dropout": 0.16,
+            "predicted_noise_rate_before_dropout": 0.16,
+            "query_index": 0,
+            "reason": "oracle_true_noisy_mask_for_diagnostics_only",
+            "unlabeled_size": 44900
+          }
+        ],
+        "paper_hparams_applied": {
+          "ACTIVE_LEARNING.INITIAL_DELTA": {
+            "reason": "DCoM appendix / ProbCover CIFAR deltas",
+            "value": 0.65
+          },
+          "KERNEL_TYPE": {
+            "reason": "ProbCover uses radius balls / TopHat kernel",
+            "value": "tophat"
+          },
+          "OPTIM.BASE_LR": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.1
+          },
+          "OPTIM.MAX_EPOCH": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 200
+          },
+          "OPTIM.MOMENTUM": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.9
+          },
+          "OPTIM.NESTEROV": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": false
+          },
+          "OPTIM.WEIGHT_DECAY": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.0005
+          },
+          "SPARSE_K": {
+            "reason": "ProbCover graph is sparse coverage",
+            "value": true
+          },
+          "TRAIN.BATCH_SIZE": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 128
+          }
+        },
+        "test_size": 10000,
+        "train_size": 50000
+      }
+    }
+  },
+  "noise=sym__al=probcover__nm=none__loss=cross_entropy__seed=NA": {
+    "pipeline": {
+      "active_learning": {
+        "budget": 100,
+        "max_iter": 1,
+        "method": "probcover",
+        "nas_aum_max_pred_noisy_rate": 0.5,
+        "nas_filter_method": null,
+        "nas_min_labeled_size": 0,
+        "nas_noise_dropout": true,
+        "nas_noise_dropout_min_fraction": 0.1
+      },
+      "cfg": "../configs/cifar100/al/RESNET18.yaml",
+      "evaluation": {
+        "also_eval_knn": true,
+        "knn_k": 1
+      },
+      "noise": {
+        "labels_path": "/cs/labs/daphna/tomn/projects/daphna_lab/deep_al/tools/data/CIFAR-100_human.pt",
+        "rate": 0.2,
+        "resolved_transition_matrix_path": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_probcover_from_features_2026_7_16_113910_199569/resolved_transition_sym_0.200.npy",
+        "superclass_groups_path": null,
+        "transition_matrix": null,
+        "transition_metadata": {
+          "dataset_name": "CIFAR100",
+          "diagonal_mean": 0.8000002503395081,
+          "noise_rate": 0.2,
+          "noise_type": "sym",
+          "num_classes": 100,
+          "off_diagonal_mass_mean": 0.20000003278255463,
+          "provided_superclass_groups_path": null,
+          "provided_transition_path": null,
+          "resolved_transition_path": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_probcover_from_features_2026_7_16_113910_199569/resolved_transition_sym_0.200.npy",
+          "row_sum_max": 1.0,
+          "row_sum_min": 0.9999997019767761,
+          "source": "generated_symmetric"
+        },
+        "type": "sym",
+        "variant": "auto"
+      },
+      "noise_handling": {
+        "aum_conf_threshold": 0.8,
+        "aum_percentile": 10.0,
+        "cleaning_conf_threshold": 0.9,
+        "cleaning_pred_source": "checkpoint",
+        "crossval_folds": 5,
+        "crossval_max_iter": 300,
+        "method": "none",
+        "temporal_conf_threshold": 0.8,
+        "temporal_min_seen": 2,
+        "temporal_momentum": 0.8,
+        "warmup_episode": 3,
+        "warmup_min_acc": 60.0
+      },
+      "paper_hparams": true,
+      "paper_hparams_applied": {
+        "ACTIVE_LEARNING.INITIAL_DELTA": {
+          "reason": "DCoM appendix / ProbCover CIFAR deltas",
+          "value": 0.65
+        },
+        "KERNEL_TYPE": {
+          "reason": "ProbCover uses radius balls / TopHat kernel",
+          "value": "tophat"
+        },
+        "OPTIM.BASE_LR": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.1
+        },
+        "OPTIM.MAX_EPOCH": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 200
+        },
+        "OPTIM.MOMENTUM": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.9
+        },
+        "OPTIM.NESTEROV": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": false
+        },
+        "OPTIM.WEIGHT_DECAY": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 0.0005
+        },
+        "SPARSE_K": {
+          "reason": "ProbCover graph is sparse coverage",
+          "value": true
+        },
+        "TRAIN.BATCH_SIZE": {
+          "reason": "TypiClust/Deep-AL config default",
+          "value": 128
+        }
+      },
+      "run_args": {
+        "a_logistic": null,
+        "alpha": null,
+        "base_lr": 0.1,
+        "bootstrap_beta": 0.8,
+        "confidence_method": null,
+        "cont_method": null,
+        "debug": false,
+        "decrease_alpha": false,
+        "delta_resolution": null,
+        "diff_method": null,
+        "dropout_iterations": null,
+        "eval_model_type": "from_features",
+        "exp_name": "noise_debug_sym_asym_smoke",
+        "features_tag": null,
+        "gce_q": 0.7,
+        "high_budget": false,
+        "initial_delta": 0.65,
+        "initial_sigma": null,
+        "initial_size": 100,
+        "k_logistic": null,
+        "kernel_type": "tophat",
+        "loss_fun": "cross_entropy",
+        "matrix_dtype": null,
+        "max_delta": null,
+        "max_epoch": 200,
+        "momentum": 0.9,
+        "nas_aum_epochs": 40,
+        "nas_aum_fake_percentile": 80.0,
+        "nas_aum_fake_ratio": 1.0,
+        "nas_aum_lr": 0.1,
+        "nas_aum_max_pred_noisy_rate": 0.5,
+        "nas_aum_weight_decay": 0.0,
+        "nas_cv_folds": 3,
+        "nas_cv_max_iter": 300,
+        "nas_filter_method": null,
+        "nas_knn_k": -1,
+        "nas_min_labeled_size": 0,
+        "nas_noise_dropout": true,
+        "nas_noise_dropout_min_fraction": 0.1,
+        "nesterov": false,
+        "norm_importance": false,
+        "seed": 0,
+        "soft_border_val": null,
+        "sparse_K": true,
+        "sparse_ds": false,
+        "test_batch_size": null,
+        "train_batch_size": 128,
+        "weight_decay": 0.0005
+      }
+    },
+    "results": {
+      "exp_dir": "/cs/labs/daphna/tomn/projects/daphna_lab/output/CIFAR100/resnet18/2026_7_16/noise_debug_sym_asym_smoke_CIFAR100_probcover_from_features_2026_7_16_113910_199569",
+      "status": "completed",
+      "summary": {
+        "effective_bootstrap_beta": 0.8,
+        "effective_gce_q": 0.7,
+        "effective_loss_fun": "cross_entropy",
+        "episode_al_times": [
+          2.0534603595733643
+        ],
+        "episode_states": [
+          {
+            "episode": 0,
+            "lSet_size": 100,
+            "method_details": {
+              "budget": 100,
+              "family": "CoverageMatrixMethod",
+              "features": "ds_utils.load_features(..., normalized=True)",
+              "fine_tune": true,
+              "initial_delta": 0.65,
+              "initial_sigma": null,
+              "kernel_build_batch_size": null,
+              "kernel_type": "tophat",
+              "lSet_size_before_sampling": 100,
+              "matrix_dtype": null,
+              "max_iter": 1,
+              "method": "probcover",
+              "sparse_K": true,
+              "uSet_size_before_sampling": 44900
+            },
+            "stage": "episode_start",
+            "uSet_size": 44900,
+            "valSet_size": 5000
+          },
+          {
+            "episode": 1,
+            "lSet_size": 200,
+            "method_details": {
+              "budget": 100,
+              "family": "CoverageMatrixMethod",
+              "features": "ds_utils.load_features(..., normalized=True)",
+              "fine_tune": true,
+              "initial_delta": 0.65,
+              "initial_sigma": null,
+              "kernel_build_batch_size": null,
+              "kernel_type": "tophat",
+              "lSet_size_before_sampling": 200,
+              "matrix_dtype": null,
+              "max_iter": 1,
+              "method": "probcover",
+              "sparse_K": true,
+              "uSet_size_before_sampling": 44800
+            },
+            "stage": "episode_start",
+            "uSet_size": 44800,
+            "valSet_size": 5000
+          }
+        ],
+        "episode_training_times": [
+          23.61893129348755,
+          24.727431297302246
+        ],
+        "final_knn_eval": {
+          "eval_time_sec": 0.4331822395324707,
+          "feature_dim": 512,
+          "fit_time_sec": 0.0016639232635498047,
+          "k_effective": 1,
+          "k_requested": 1,
+          "metric": "euclidean",
+          "status": "completed",
+          "test_acc": 30.759999999999998,
+          "test_size": 10000,
+          "train_acc": 100.0,
+          "train_size": 200,
+          "val_acc": 25.34,
+          "val_size": 5000
+        },
+        "final_lSet_len": 200,
+        "final_test_acc": 24.439999999999998,
+        "final_train_acc": 98.4375,
+        "final_uSet_len": 44800,
+        "final_valSet_len": 5000,
+        "final_val_acc": 25.861378205128204,
+        "initial_label_noise_rate_actual": 0.2,
+        "initial_lset_noisy_count_actual": 16,
+        "initial_lset_noisy_rate_actual": 0.16,
+        "noise_method_results": [
+          {
+            "episode": 0,
+            "result": {
+              "method": "none",
+              "status": "skipped"
+            }
+          }
+        ],
+        "noisy_wrapper_applied": true,
+        "npc_filter_results": [],
+        "paper_hparams_applied": {
+          "ACTIVE_LEARNING.INITIAL_DELTA": {
+            "reason": "DCoM appendix / ProbCover CIFAR deltas",
+            "value": 0.65
+          },
+          "KERNEL_TYPE": {
+            "reason": "ProbCover uses radius balls / TopHat kernel",
+            "value": "tophat"
+          },
+          "OPTIM.BASE_LR": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.1
+          },
+          "OPTIM.MAX_EPOCH": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 200
+          },
+          "OPTIM.MOMENTUM": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.9
+          },
+          "OPTIM.NESTEROV": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": false
+          },
+          "OPTIM.WEIGHT_DECAY": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 0.0005
+          },
+          "SPARSE_K": {
+            "reason": "ProbCover graph is sparse coverage",
+            "value": true
+          },
+          "TRAIN.BATCH_SIZE": {
+            "reason": "TypiClust/Deep-AL config default",
+            "value": 128
+          }
+        },
+        "test_size": 10000,
+        "train_size": 50000
+      }
+    }
+  }
+}

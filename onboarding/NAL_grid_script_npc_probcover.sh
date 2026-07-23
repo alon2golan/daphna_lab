@@ -27,7 +27,7 @@ mkdir -p "$BASE_GRID_OUT_DIR"
 
 GRID_NOISE_TYPES="${GRID_NOISE_TYPES:-clean,sym,asym,cifar100n}"
 # Includes ordinary ProbCover as the no-cleaning / no-NPC baseline.
-GRID_AL_METHODS="${GRID_AL_METHODS:-probcover,npc_probcover_crossval,npc_probcover_knn,npc_probcover_aum}"
+GRID_AL_METHODS="${GRID_AL_METHODS:-probcover,npc_probcover_crossval,npc_probcover_knn,npc_probcover_aum,npc_probcover_oracle}"
 # Keep noise_method=none: NPC changes selection only; it does not relabel or clean labels.
 GRID_NOISE_METHODS="none"
 
@@ -35,6 +35,11 @@ NOISE_RATE=0.2
 INITIAL_SIZE=100
 BUDGET_SIZE=100
 MAX_ITER=4
+# Keep 0 for the original NPC behavior. Use 200/300 to test delayed NPC.
+NAS_MIN_LABELED_SIZE="${NAS_MIN_LABELED_SIZE:-0}"
+# Prevent LowBudgetAUM from marking almost all labels as noisy. Use 1.0 for uncapped AUM.
+NAS_AUM_MAX_PRED_NOISY_RATE="${NAS_AUM_MAX_PRED_NOISY_RATE:-0.5}"
+
 
 CIFAR_N_VARIANT="auto"
 CIFAR_N_LABELS_PATH="$REPO_DIR/deep_al/tools/data/CIFAR-100_human.pt"
@@ -54,6 +59,8 @@ fi
 echo "GRID_JSON_PATH=$GRID_JSON_PATH"
 echo "GRID_NOISE_TYPES=$GRID_NOISE_TYPES"
 echo "GRID_AL_METHODS=$GRID_AL_METHODS"
+echo "NAS_MIN_LABELED_SIZE=$NAS_MIN_LABELED_SIZE"
+echo "NAS_AUM_MAX_PRED_NOISY_RATE=$NAS_AUM_MAX_PRED_NOISY_RATE"
 echo "Started at $(date)"
 
 python3 -u run_noise_al_pipeline.py \
@@ -83,6 +90,8 @@ python3 -u run_noise_al_pipeline.py \
   --nas_aum_fake_percentile 80 \
   --nas_aum_lr 0.1 \
   --nas_aum_weight_decay 0.0 \
+  --nas_aum_max_pred_noisy_rate "$NAS_AUM_MAX_PRED_NOISY_RATE" \
+  --nas_min_labeled_size "$NAS_MIN_LABELED_SIZE" \
   --nas_noise_dropout \
   --nas_noise_dropout_min_fraction 0.1 \
   "${JSON_ARGS[@]}"

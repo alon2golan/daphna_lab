@@ -308,12 +308,32 @@ class CoverageMatrixMethod:
 
         return noisy, {"k": int(k)}
 
+    def _oracle_noisy_mask(self, trainDataset, lset):
+        """Diagnostic upper-bound filter: uses the true clean labels.
+
+        This is not a valid AL method. It is only an ablation to verify whether
+        the NPC/ProbCover logic would help if the noise detector were perfect.
+        """
+        lset = np.asarray(lset, dtype=int)
+        clean_labels = self._get_clean_labels_from_dataset(trainDataset)
+        if clean_labels is None:
+            return np.zeros(len(lset), dtype=bool), {"reason": "oracle_requested_but_clean_labels_missing"}
+
+        current = self._get_current_labels_from_dataset(trainDataset)[lset]
+        noisy = current != clean_labels[lset]
+        return noisy.astype(bool), {
+            "reason": "oracle_true_noisy_mask_for_diagnostics_only",
+            "oracle_detector": True,
+        }
+
     def _lowbudget_aum_noisy_mask(self, trainDataset, lset, uset):
         """Low-budget AUM-style filter on frozen SSL features with a fake class.
 
-        This is the paper-faithful direction: train a small linear classifier on
-        labeled features + fake-class unlabeled features, track average margins,
-        and threshold labeled samples by the fake-class AUM percentile.
+        The raw fake-class threshold can be extremely aggressive when there are
+        about one labeled example per class. To avoid collapsing NPC coverage,
+        NAS_AUM_MAX_PRED_NOISY_RATE caps the fraction of labeled samples that
+        AUM may mark as noisy before noise dropout. Set the cap to 1.0 to recover
+        the uncapped fake-percentile rule.
         """
         lset = np.asarray(lset, dtype=int)
         uset = np.asarray(uset, dtype=int)
@@ -326,6 +346,7 @@ class CoverageMatrixMethod:
             return np.zeros(n, dtype=bool), {"reason": "too_few_samples_classes_or_unlabeled"}
 
         fake_ratio = float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_RATIO", 1.0))
+        fake_ratio = max(0.0, fake_ratio)
         n_fake = int(max(1, min(len(uset), round(fake_ratio * n))))
         rng = np.random.default_rng(int(self.seed or 0) + 1337 + n)
         fake_idx = rng.choice(uset, size=n_fake, replace=False)
@@ -376,39 +397,111 @@ class CoverageMatrixMethod:
                 opt.step()
 
             aum = (margin_sum / float(max(1, epochs))).detach().cpu().numpy()
+
         labeled_aum = aum[:n]
         fake_aum = aum[n:]
         percentile = float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_PERCENTILE", 80.0))
-        threshold = float(np.percentile(fake_aum, percentile))
+        raw_threshold = float(np.percentile(fake_aum, percentile))
+
+        max_rate = float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_MAX_PRED_NOISY_RATE", 1.0))
+        max_rate = float(np.clip(max_rate, 0.0, 1.0))
+        if max_rate < 1.0:
+            cap_threshold = float(np.percentile(labeled_aum, 100.0 * max_rate))
+            threshold = float(min(raw_threshold, cap_threshold))
+            threshold_was_capped = threshold < raw_threshold
+        else:
+            cap_threshold = None
+            threshold = raw_threshold
+            threshold_was_capped = False
+
+        noisy_uncapped = labeled_aum <= raw_threshold
         noisy = labeled_aum <= threshold
 
         return noisy.astype(bool), {
             "epochs": int(epochs),
             "n_fake": int(n_fake),
+            "fake_ratio": float(fake_ratio),
             "fake_percentile": float(percentile),
-            "threshold": threshold,
+            "threshold_raw_fake": raw_threshold,
+            "threshold_cap_labeled": None if cap_threshold is None else float(cap_threshold),
+            "threshold": float(threshold),
+            "threshold_was_capped": bool(threshold_was_capped),
+            "aum_max_pred_noisy_rate": float(max_rate),
+            "aum_uncapped_pred_noisy": int(noisy_uncapped.sum()),
+            "aum_uncapped_predicted_noise_rate": float(noisy_uncapped.mean()),
             "labeled_aum_mean": float(labeled_aum.mean()),
+            "labeled_aum_std": float(labeled_aum.std()),
             "fake_aum_mean": float(fake_aum.mean()),
+            "fake_aum_std": float(fake_aum.std()),
         }
+
+    def _add_oracle_quality_stats(self, stats, raw_noisy_mask, effective_noisy_mask, true_noisy):
+        """Add precision/recall/F1 diagnostics for detector masks."""
+        true_noisy = np.asarray(true_noisy, dtype=bool)
+        masks = {
+            "before_dropout": np.asarray(raw_noisy_mask, dtype=bool),
+            "after_dropout": np.asarray(effective_noisy_mask, dtype=bool),
+        }
+        stats["oracle_true_noisy_rate"] = float(true_noisy.mean()) if len(true_noisy) else 0.0
+        stats["oracle_true_clean"] = int((~true_noisy).sum())
+
+        for suffix, mask in masks.items():
+            tp = int((mask & true_noisy).sum())
+            fp = int((mask & (~true_noisy)).sum())
+            fn = int(((~mask) & true_noisy).sum())
+            tn = int(((~mask) & (~true_noisy)).sum())
+            precision = float(tp / max(1, tp + fp))
+            recall = float(tp / max(1, tp + fn))
+            f1 = float((2.0 * precision * recall) / max(1e-12, precision + recall))
+            false_positive_rate = float(fp / max(1, fp + tn))
+            stats[f"oracle_precision_{suffix}"] = precision
+            stats[f"oracle_recall_{suffix}"] = recall
+            stats[f"oracle_f1_{suffix}"] = f1
+            stats[f"oracle_false_positive_rate_{suffix}"] = false_positive_rate
 
     def _npc_clean_lset_positions(self, trainDataset, lset, uset):
         method = str(self.nas_filter_method or "none").lower()
         lset = np.asarray(lset, dtype=int)
+        min_labeled = int(getattr(self.cfg.ACTIVE_LEARNING, "NAS_MIN_LABELED_SIZE", 0))
 
         if len(lset) == 0 or method in ["none", ""]:
             noisy_mask = np.zeros(len(lset), dtype=bool)
             extra = {"reason": "empty_or_no_filter"}
+        elif method != "oracle" and min_labeled > 0 and len(lset) < min_labeled:
+            noisy_mask = np.zeros(len(lset), dtype=bool)
+            extra = {
+                "reason": "nas_delayed_until_min_labeled_size",
+                "nas_min_labeled_size": int(min_labeled),
+            }
         elif method == "crossval":
             noisy_mask, extra = self._crossval_noisy_mask(trainDataset, lset)
         elif method == "knn":
             noisy_mask, extra = self._knn_noisy_mask(trainDataset, lset)
         elif method == "aum":
             noisy_mask, extra = self._lowbudget_aum_noisy_mask(trainDataset, lset, uset)
+        elif method == "oracle":
+            noisy_mask, extra = self._oracle_noisy_mask(trainDataset, lset)
         else:
             raise ValueError(f"Unknown NAS_FILTER_METHOD={method}")
 
         raw_noisy_mask = np.asarray(noisy_mask, dtype=bool).copy()
-        noisy_mask, dropout_info = self._apply_noise_dropout(raw_noisy_mask, lset)
+        if method == "oracle":
+            # Oracle-NPC is an upper-bound diagnostic. Do not weaken the perfect
+            # detector by applying random noise dropout.
+            noisy_mask = raw_noisy_mask.copy()
+            q_hat = float(noisy_mask.mean()) if len(noisy_mask) else 0.0
+            dropout_info = {
+                "noise_dropout_enabled": False,
+                "noise_dropout_reason": "disabled_for_oracle_upper_bound",
+                "pred_noisy_before_dropout": int(raw_noisy_mask.sum()),
+                "predicted_noise_rate_before_dropout": q_hat,
+                "noise_dropout_eta": 0.0,
+                "noise_dropout_restored": 0,
+                "pred_noisy_after_dropout": int(noisy_mask.sum()),
+                "predicted_noise_rate_after_dropout": q_hat,
+            }
+        else:
+            noisy_mask, dropout_info = self._apply_noise_dropout(raw_noisy_mask, lset)
 
         clean_pos = np.where(~noisy_mask)[0].astype(int)
         stats = self._npc_stats(lset, noisy_mask, method)
@@ -416,6 +509,7 @@ class CoverageMatrixMethod:
         stats.update(dropout_info)
         stats["query_index"] = int(len(self.npc_filter_history))
         stats["unlabeled_size"] = int(len(uset))
+        stats["nas_min_labeled_size"] = int(min_labeled)
 
         clean_labels = self._get_clean_labels_from_dataset(trainDataset)
         if clean_labels is not None and len(lset) > 0:
@@ -438,6 +532,7 @@ class CoverageMatrixMethod:
                 "oracle_clean_flagged": int((noisy_mask & (~true_noisy)).sum()),
                 "oracle_missed_noisy": int(((~noisy_mask) & true_noisy).sum()),
             })
+            self._add_oracle_quality_stats(stats, raw_noisy_mask, noisy_mask, true_noisy)
 
         self.last_npc_filter_stats = dict(stats)
         self.npc_filter_history.append(dict(stats))

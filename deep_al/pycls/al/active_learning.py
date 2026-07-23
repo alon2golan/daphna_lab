@@ -81,7 +81,7 @@ class ActiveLearning:
                              delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA)
 
         elif sampling_fn in ["prob_cover", "probcover", "npc_probcover_crossval", "npc_probcover_knn",
-                             "npc_probcover_aum"]:
+                             "npc_probcover_aum", "npc_probcover_oracle"]:
             if getattr(self.cfg, 'KERNEL_TYPE', None) != 'tophat':
                 logger.info('Warning!! for ProbCover/NPC the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
                 print('Warning!! for ProbCover/NPC the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
@@ -98,6 +98,8 @@ class ActiveLearning:
                 self.cfg.ACTIVE_LEARNING.NAS_FILTER_METHOD = "knn"
             elif sampling_fn == "npc_probcover_aum":
                 self.cfg.ACTIVE_LEARNING.NAS_FILTER_METHOD = "aum"
+            elif sampling_fn == "npc_probcover_oracle":
+                self.cfg.ACTIVE_LEARNING.NAS_FILTER_METHOD = "oracle"
 
             cmm = CoverageMatrixMethod(self.cfg, train_labels=train_labels)
             return cmm

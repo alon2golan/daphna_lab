@@ -18,23 +18,25 @@ cd "$REPO_DIR/deep_al/tools"
 
 CFG_PATH="../configs/cifar100/al/RESNET18.yaml"
 SEED=0
-EXP_NAME="npc_probcover_smoke"
-BASE_GRID_OUT_DIR="$REPO_DIR/grid_outputs/npc_probcover_smoke"
+EXP_NAME="npc_probcover_noise_debug_smoke"
+BASE_GRID_OUT_DIR="$REPO_DIR/grid_outputs/npc_probcover_noise_debug_smoke"
 RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
-DEBUG_JSON="${DEBUG_JSON:-0}"
+
+DEBUG_JSON="${DEBUG_JSON:-1}"
 GRID_JSON_PATH="${GRID_JSON_PATH:-$BASE_GRID_OUT_DIR/aggregate_results_${RUN_TIMESTAMP}.json}"
 mkdir -p "$BASE_GRID_OUT_DIR"
 
 GRID_NOISE_TYPES="${GRID_NOISE_TYPES:-sym}"
-# Includes ordinary ProbCover as the no-cleaning / no-NPC baseline.
-GRID_AL_METHODS="${GRID_AL_METHODS:-probcover,npc_probcover_crossval,npc_probcover_knn,npc_probcover_aum}"
-# Keep noise_method=none: NPC changes selection only; it does not relabel or clean labels.
+GRID_AL_METHODS="${GRID_AL_METHODS:-probcover,npc_probcover_oracle}"
 GRID_NOISE_METHODS="none"
 
 NOISE_RATE=0.2
 INITIAL_SIZE=100
 BUDGET_SIZE=100
 MAX_ITER=1
+
+NAS_MIN_LABELED_SIZE="${NAS_MIN_LABELED_SIZE:-0}"
+NAS_AUM_MAX_PRED_NOISY_RATE="${NAS_AUM_MAX_PRED_NOISY_RATE:-0.5}"
 
 CIFAR_N_VARIANT="auto"
 CIFAR_N_LABELS_PATH="$REPO_DIR/deep_al/tools/data/CIFAR-100_human.pt"
@@ -54,6 +56,9 @@ fi
 echo "GRID_JSON_PATH=$GRID_JSON_PATH"
 echo "GRID_NOISE_TYPES=$GRID_NOISE_TYPES"
 echo "GRID_AL_METHODS=$GRID_AL_METHODS"
+echo "GRID_NOISE_METHODS=$GRID_NOISE_METHODS"
+echo "MAX_ITER=$MAX_ITER"
+echo "DEBUG_JSON=$DEBUG_JSON"
 echo "Started at $(date)"
 
 python3 -u run_noise_al_pipeline.py \
@@ -83,7 +88,13 @@ python3 -u run_noise_al_pipeline.py \
   --nas_aum_fake_percentile 80 \
   --nas_aum_lr 0.1 \
   --nas_aum_weight_decay 0.0 \
+  --nas_noise_dropout \
+  --nas_noise_dropout_min_fraction 0.1 \
+  --nas_min_labeled_size "$NAS_MIN_LABELED_SIZE" \
+  --nas_aum_max_pred_noisy_rate "$NAS_AUM_MAX_PRED_NOISY_RATE" \
   "${JSON_ARGS[@]}"
 
 echo "Finished at $(date)"
 echo "Aggregate JSON: $GRID_JSON_PATH"
+echo "To inspect noise debug lines, run:"
+echo "grep 'NOISE_DEBUG' gpu_grid_npc_${SLURM_JOB_ID}.log"

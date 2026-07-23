@@ -78,7 +78,7 @@ CIFAR_N_VARIANTS = {
 COLD_START_AL_METHODS = {
     "typiclust", "typiclust_rp", "typiclust_dc",
     "probcover", "prob_cover", "probcover_orig", "prob_cover_orig",
-    "npc_probcover_crossval", "npc_probcover_knn", "npc_probcover_aum",
+    "npc_probcover_crossval", "npc_probcover_knn", "npc_probcover_aum", "npc_probcover_oracle",
     "dcom",
     "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
     "misp", "mispc", "misp_plus", "all_misp",
@@ -269,7 +269,7 @@ def apply_paper_hparams(cfg: Any, pipeline: Dict[str, Any]) -> Dict[str, Dict[st
         # TypiClust constants are class constants in typiclust.py: K_NN=20, MAX_NUM_CLUSTERS=500, MIN_CLUSTER_SIZE=5.
         pass
 
-    elif al_name in {"probcover", "prob_cover", "probcover_orig", "prob_cover_orig", "npc_probcover_crossval", "npc_probcover_knn", "npc_probcover_aum"}:
+    elif al_name in {"probcover", "prob_cover", "probcover_orig", "prob_cover_orig", "npc_probcover_crossval", "npc_probcover_knn", "npc_probcover_aum", "npc_probcover_oracle"}:
         _set_default_cfg(cfg, pipeline, applied, "KERNEL_TYPE", "tophat", "ProbCover uses radius balls / TopHat kernel", run_arg="kernel_type")
         _set_default_cfg(cfg, pipeline, applied, "SPARSE_K", True, "ProbCover graph is sparse coverage", run_arg="sparse_K")
         delta, reason = _delta_from_table(cfg, prefer_dcom_table=True)
@@ -422,6 +422,8 @@ def build_cfg(cfg_file: str, pipeline: Dict[str, Any]) -> Any:
         "ACTIVE_LEARNING.NAS_AUM_FAKE_PERCENTILE": run_args.get("nas_aum_fake_percentile"),
         "ACTIVE_LEARNING.NAS_AUM_LR": run_args.get("nas_aum_lr"),
         "ACTIVE_LEARNING.NAS_AUM_WEIGHT_DECAY": run_args.get("nas_aum_weight_decay"),
+        "ACTIVE_LEARNING.NAS_AUM_MAX_PRED_NOISY_RATE": run_args.get("nas_aum_max_pred_noisy_rate"),
+        "ACTIVE_LEARNING.NAS_MIN_LABELED_SIZE": run_args.get("nas_min_labeled_size"),
         "ACTIVE_LEARNING.NAS_NOISE_DROPOUT": run_args.get("nas_noise_dropout"),
         "ACTIVE_LEARNING.NAS_NOISE_DROPOUT_MIN_FRACTION": run_args.get("nas_noise_dropout_min_fraction"),
     }
@@ -509,8 +511,20 @@ def _load_cifar_n_labels(pt_path: str, variant: str) -> np.ndarray:
 
 
 def _get_targets(dataset: Any) -> Optional[np.ndarray]:
+    """Return the currently active labels used for training/evaluation."""
     if hasattr(dataset, "noisy_labels"):
         return np.asarray(dataset.noisy_labels, dtype=np.int64)
+    if hasattr(dataset, "targets"):
+        return np.asarray(dataset.targets, dtype=np.int64)
+    if hasattr(dataset, "dataset") and hasattr(dataset.dataset, "targets"):
+        return np.asarray(dataset.dataset.targets, dtype=np.int64)
+    return None
+
+
+def _get_clean_targets(dataset: Any) -> Optional[np.ndarray]:
+    """Return the original clean labels; never prefer .noisy_labels here."""
+    if hasattr(dataset, "clean_labels"):
+        return np.asarray(dataset.clean_labels, dtype=np.int64)
     if hasattr(dataset, "targets"):
         return np.asarray(dataset.targets, dtype=np.int64)
     if hasattr(dataset, "dataset") and hasattr(dataset.dataset, "targets"):
@@ -534,8 +548,10 @@ def _set_targets(dataset: Any, labels: np.ndarray) -> None:
 def _ensure_noisy_dataset_label_attrs(dataset: Any, clean_labels: np.ndarray) -> Any:
     """Make noisy/clean label fields consistent for wrappers and DCoM."""
     clean_labels = np.asarray(clean_labels, dtype=np.int64)
-    if not hasattr(dataset, "clean_labels"):
-        dataset.clean_labels = clean_labels.copy()
+
+    # Always force the clean reference. Do not trust an existing clean_labels
+    # field from a wrapper or previous object.
+    dataset.clean_labels = clean_labels.copy()
 
     labels = _get_targets(dataset)
     if labels is None:
@@ -635,7 +651,7 @@ def apply_noise(clean_train_data: Any, cfg: Any, pipeline: Dict[str, Any]) -> tu
         return clean_train_data, False
 
     noise_type = str(noise_type).lower()
-    clean_labels = _get_targets(clean_train_data)
+    clean_labels = _get_clean_targets(clean_train_data)
     if clean_labels is None:
         raise RuntimeError("Could not read clean labels from train dataset")
 
@@ -1236,6 +1252,8 @@ def _nas_filter_from_al_method(al_method: Optional[str]) -> Optional[str]:
         return "knn"
     if name == "npc_probcover_aum":
         return "aum"
+    if name == "npc_probcover_oracle":
+        return "oracle"
     return None
 
 
@@ -1263,6 +1281,8 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "nas_filter_method": args.nas_filter_method or _nas_filter_from_al_method(al_method),
             "nas_noise_dropout": bool(args.nas_noise_dropout),
             "nas_noise_dropout_min_fraction": float(args.nas_noise_dropout_min_fraction),
+            "nas_min_labeled_size": int(args.nas_min_labeled_size),
+            "nas_aum_max_pred_noisy_rate": float(args.nas_aum_max_pred_noisy_rate),
         },
         "noise_handling": {
             "method": noise_method_norm,
@@ -1328,6 +1348,8 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "nas_aum_fake_percentile": args.nas_aum_fake_percentile,
             "nas_aum_lr": args.nas_aum_lr,
             "nas_aum_weight_decay": args.nas_aum_weight_decay,
+            "nas_aum_max_pred_noisy_rate": args.nas_aum_max_pred_noisy_rate,
+            "nas_min_labeled_size": args.nas_min_labeled_size,
             "nas_noise_dropout": args.nas_noise_dropout,
             "nas_noise_dropout_min_fraction": args.nas_noise_dropout_min_fraction,
         },
@@ -1387,10 +1409,29 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
     train_data, noisy_applied = apply_noise(clean_train_data, cfg, pipeline)
     train_labels = get_current_train_labels(train_data)
 
-    clean_labels = _get_targets(clean_train_data)
+    clean_labels = _get_clean_targets(clean_train_data)
     noisy_rate_actual = None
+    initial_lset_noisy_rate_actual = None
+    initial_lset_noisy_count_actual = None
+
     if clean_labels is not None and train_labels is not None:
-        noisy_rate_actual = float(np.mean(np.asarray(clean_labels) != np.asarray(train_labels)))
+        clean_labels_np = np.asarray(clean_labels, dtype=np.int64)
+        train_labels_np = np.asarray(train_labels, dtype=np.int64)
+
+        noisy_mask_actual = clean_labels_np != train_labels_np
+        noisy_rate_actual = float(noisy_mask_actual.mean())
+
+        lset_np = np.asarray(lSet, dtype=int)
+        initial_lset_noisy_count_actual = int(noisy_mask_actual[lset_np].sum())
+        initial_lset_noisy_rate_actual = float(noisy_mask_actual[lset_np].mean())
+
+        print(
+            f"NOISE_DEBUG noise_type={pipeline['noise']['type']} "
+            f"full_noisy_rate={noisy_rate_actual:.4f} "
+            f"initial_lset_noisy_count={initial_lset_noisy_count_actual}/{len(lset_np)} "
+            f"initial_lset_noisy_rate={initial_lset_noisy_rate_actual:.4f}",
+            flush=True,
+        )
 
     run_extra = {
         "train_size": int(train_size),
@@ -1402,6 +1443,8 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         "uSet_path": uSet_path,
         "valSet_path": valSet_path,
         "initial_label_noise_rate_actual": noisy_rate_actual,
+        "initial_lset_noisy_rate_actual": initial_lset_noisy_rate_actual,
+        "initial_lset_noisy_count_actual": initial_lset_noisy_count_actual,
         "noisy_wrapper_applied": bool(noisy_applied),
         "method_details_with_initial_pool": _method_runtime_details(cfg, pipeline, lSet=lSet, uSet=uSet),
     }
@@ -1528,6 +1571,9 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         "final_uSet_len": int(len(uSet)),
         "final_valSet_len": int(len(valSet)),
         "noisy_wrapper_applied": bool(noisy_applied),
+        "initial_label_noise_rate_actual": noisy_rate_actual,
+        "initial_lset_noisy_rate_actual": initial_lset_noisy_rate_actual,
+        "initial_lset_noisy_count_actual": initial_lset_noisy_count_actual,
         "final_train_acc": float(final_train_acc),
         "final_val_acc": float(final_val_acc),
         "final_test_acc": float(final_test_acc),
@@ -1553,6 +1599,9 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
             "final_uSet_len": int(len(uSet)),
             "final_valSet_len": int(len(valSet)),
             "noisy_wrapper_applied": bool(noisy_applied),
+            "initial_label_noise_rate_actual": noisy_rate_actual,
+            "initial_lset_noisy_rate_actual": initial_lset_noisy_rate_actual,
+            "initial_lset_noisy_count_actual": initial_lset_noisy_count_actual,
             "final_train_acc": float(final_train_acc),
             "final_val_acc": float(final_val_acc),
             "final_test_acc": float(final_test_acc),
@@ -1652,7 +1701,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--a_logistic", default=None, type=float)
     parser.add_argument("--k_logistic", default=None, type=int)
     parser.add_argument("--soft_border_val", default=None, type=float)
-    parser.add_argument("--nas_filter_method", default=None, choices=["none", "crossval", "knn", "aum"], type=str)
+    parser.add_argument("--nas_filter_method", default=None, choices=["none", "crossval", "knn", "aum", "oracle"], type=str)
     parser.add_argument("--nas_cv_folds", default=3, type=int)
     parser.add_argument("--nas_cv_max_iter", default=300, type=int)
     parser.add_argument("--nas_knn_k", default=-1, type=int)
@@ -1661,6 +1710,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--nas_aum_fake_percentile", default=80.0, type=float)
     parser.add_argument("--nas_aum_lr", default=0.1, type=float)
     parser.add_argument("--nas_aum_weight_decay", default=0.0, type=float)
+    parser.add_argument("--nas_aum_max_pred_noisy_rate", default=0.5, type=float,
+                        help="Cap the fraction of labeled samples that AUM can mark noisy before dropout. Use 1.0 for uncapped fake-threshold AUM.")
+    parser.add_argument("--nas_min_labeled_size", default=0, type=int,
+                        help="Apply NPC filtering only once |L| reaches this size. 0 keeps the original behavior.")
     parser.set_defaults(nas_noise_dropout=True)
     parser.add_argument(
         "--nas_noise_dropout",
@@ -1825,6 +1878,8 @@ def _light_grid_entry(combo_name: str, pipeline: Dict[str, Any], results: Dict[s
         "nas_filter_method": al_cfg.get("nas_filter_method"),
         "nas_noise_dropout": al_cfg.get("nas_noise_dropout"),
         "nas_noise_dropout_min_fraction": al_cfg.get("nas_noise_dropout_min_fraction"),
+        "nas_min_labeled_size": al_cfg.get("nas_min_labeled_size"),
+        "nas_aum_max_pred_noisy_rate": al_cfg.get("nas_aum_max_pred_noisy_rate"),
         "noise_method": nh_cfg.get("method") or "none",
         "loss_fun": loss_fun,
         "effective_loss_fun": summary.get("effective_loss_fun"),
