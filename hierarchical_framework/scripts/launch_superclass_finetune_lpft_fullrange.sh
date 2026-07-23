@@ -22,7 +22,10 @@ cd "$ROOT"                                    # submit from ROOT so the sbatch o
 JOB=hierarchical_framework/scripts/run_coarse_budget_sweep.sbatch   # single job, 2 GPUs
 
 GROUP=superclass_frozen_vs_finetuned_v2       # the EXISTING group -> same panel
-HI_BUDGETS="--budgets 4000 5000 6000 7000 8000 9000 10000 25000 50000"  # only the ones not yet run
+# 4k..25k already landed at 3 seeds; 50k is the only missing point (the long pole). Run just it so
+# we don't waste hours recomputing the rest. To rebuild the whole upper range, restore the full list:
+#   --budgets 4000 5000 6000 7000 8000 9000 10000 25000 50000
+HI_BUDGETS="--budgets 50000"                   # the only budget still missing for lpft_base + frozen
 
 # EXACT round-one LP-FT recipe behind tag lpft_base (full trunk, BN trainable). Must match the
 # earlier lpft_base jobs so the extended points belong to the same variant.
