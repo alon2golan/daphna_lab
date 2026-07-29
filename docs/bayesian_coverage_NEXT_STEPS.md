@@ -56,7 +56,11 @@ to a future session.** Next up per the §9 execution order:
 | §9.2 δ sweep (replay + paired training) | ✅ CLOSED 2026-07-22 — δ=0.75 confirmed at every noise/budget (job 31108061); 0.6 starves coverage, 0.9 poisons purity |
 | §9.7 MLP head | ✅ ANSWERED 2026-07-22 — sklearn cold+best-val MLP adopted for observed labels (beats warm linear at every noise/budget); **pseudo-stack does NOT stack** (torch twin, wdfix sweep 31088628: −1..−5 vs linear+pseudo, deficit grows with noise) |
 | §9.8 reverse-KL loss | ❌ ANSWERED 2026-07-22, NOT ADOPTED — ties soft-CE under noise, loses −0.7..−1.7 on clean (both heads); soft-CE stands |
-| **Recommended config** | normalized `pseudo all`, covered-only (see RESULTS §0) — CONFIRMED against w(d), MLP-stack and rKL too |
+| misp-vs-product 2×2×2 grid (§4.8) | ✅ MEASURED 2026-07-23 (sweeps 31116378/31116406/31116418; misp×pseudo enabled by MispPosteriorEngine) — **regime split: misp + pseudo(norm) + linear = new clean best 49.9@1000 (vs 48.4) and wins noise .2; product keeps noise ≥.5** (29.2 vs 25.2 @1000 n.8); §9.7 "no stack" extends to misp; NEW candidate: noise-adaptive acquisition |
+| misp_pure control + cold twins (§4.8 addendum) | ✅ MEASURED 2026-07-26 (sweeps 31130233/31130234/31130235, same lSets as the hybrid seed-for-seed) — **PoE training targets are the denoiser: pure categorical ties hybrid clean (49.6 vs 49.9) then loses −0.7/−2.0/−4.5 @.2/.5/.8**; noise-.8 ladder decomposes additively (product 29.2 > hybrid 25.2 > pure 20.7 ⇒ selection and target family ~4-5 pts each); **cold ≈ warm for all pseudo arms** (warm-start poison is observed-label-only) ⇒ noise-adaptive candidate = switch *acquisition only*, keep PoE targets |
+| clean-gap mechanism (§4.8 reading 8) | ✅ MEASURED 2026-07-28 (offline, `eval_clean_selection_geometry.py` + exact product replay on recorded lSets) — **misp ≡ ProbCover ≡ ideal coverage greedy at noise 0** (coverage 55.7% @1000, identical metrics); **product's label-conflict deficit (tied one-hot folds ⇒ deficit ≈ 0.5 on class-boundary overlaps) never retires** → ~47% of pick score by pick 300+, coverage 50.6% (−2,300 pseudo-labels), 76%-revisit anomaly explained ⇒ noise-adaptive candidate is now a single knob: **gate the conflict deficit by q̂ (DS-EM)** — no rule switch, product → ProbCover as q̂ → 0 |
+| probcover × PoE-pseudo control (§4.8 reading 7b) | ✅ MEASURED 2026-07-29 (sweep 31150815, `ProbCoverPseudoAdapter` wiring) — clean 49.7 ≈ hybrid 49.9 ✔, but **noise: 46.7/38.5/18.1 vs hybrid 47.5/41.7/25.2 — n.8 below even misp_pure** ⇒ misp's conflict dust is noise-RESPONSIVE and its revisits (57→69% vs probcover's flat 52%) feed the PoE denoiser; pseudo-purity gap tracks test-acc gap ~1:1 (`eval_pc_vs_misp_pseudo_quality.py`); **full n.8 ladder: product 29.2 > hybrid 25.2 > pure 20.7 > pc×PoE 18.1 = 3-point dose-response on the uncertainty-weight dial** — strengthens the q̂-gate candidate |
+| **Recommended config** | normalized `pseudo all`, covered-only; **selection: misp on clean/light noise (§4.8), product at noise ≥.5** — training plane CONFIRMED against w(d), MLP-stack and rKL too |
 | Best unimplemented spin-off | **in-ball RBF-weighted product exponents** (§7.9 replay: labeled-plane denoising 87→96.7 @100 clean) |
 | Open engineering guards | guard (b) per-ball caps (§7.5); `filtered`/`reweighted` threshold fix (§7.6) |
 
@@ -724,6 +728,15 @@ left to model and only adds variance under noise. **Recommended config unchanged
 warm-norm linear + `pseudo all` (48.4±0.2 @1000 clean). MLP head (sklearn, cold+
 best-val) remains the best *observed-label* head.** Full tables:
 `classifier_model_comparison.md`.
+
+**Norm-control (sweep 31116164, 2026-07-23):** the wdfix MLP+pseudo arm trained on
+*raw* features while the linear champion trains on *normalized* ones — a possible
+confound for the clean-data margin. Rerun of the exact soft-CE arm with
+`--normalize_features`: normalization helps the MLP on clean (deficit −0.9..−1.4
+→ −0.2..−1.0; 47.4 vs 48.4 @1000) and slightly at noise .2 (≈−2.2 vs ≈−2.6), is
+neutral at noise .5 and marginally *negative* at noise .8. Even with matched
+normalized inputs the linear head wins every noise×budget cell, so the
+"does not stack" verdict stands confound-free.
 
 ### 9.8 KL loss instead of CE — ❌ ANSWERED, NOT ADOPTED (sweep 31088628, 2026-07-22)
 

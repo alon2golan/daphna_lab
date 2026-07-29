@@ -35,7 +35,7 @@ single most-cited block, the per-noise test-accuracy tables, is **§4.1 "Results
 
 The curriculum pseudo-labeling arms (`lin10`/`agg50`/`all`) are rows inside R2–R5, not
 separate tables (see §4.6). The BAYES_MISP port rows (linear + MLP heads) are also
-inside R2–R5 (see §4.7).
+inside R2–R5 (see §4.7), as are the misp-vs-product 2×2×2 grid rows (see §4.8).
 
 ---
 ## 0. TL;DR
@@ -72,6 +72,19 @@ the linear probe — real learned nonlinearity), and with **best-val epoch selec
 (sweep 31085802) it now *leads the linear head at every noise level* (35.0 vs 31.2 @noise .5
 @1000) — the earlier "MLP collapses under noise" reading was a final-iterate protocol
 artifact. Full pitfall write-up: `bayesian_coverage_DELTA_ROOTCAUSE.md` pitfall 3.
+
+**misp-vs-product 2×2×2 grid (2026-07-23, §4.8):** filling the last three cells
+({observed, pseudo all (norm)} × {linear, MLP best-val} for both samplers) split
+the champion by regime: **misp selection + product-posterior pseudo training
+(norm, linear) is the new clean-data best — 49.9 vs 48.4 @1000** (ahead at every
+budget, and at noise .2) — while **product keeps the lead under noise ≥ .5**
+(29.2 vs 25.2 @1000 noise .8). The misp_pure control (2026-07-26, same lSets,
+categorical training targets) decomposes the flip: **selection and
+training-target family each contribute ~4-5 pts at noise .8** (product 29.2 >
+hybrid 25.2 > pure 20.7) — misp spreads better on clean data; product's
+revisiting acquisition *and* its PoE targets are what noise-robustness
+actually buys. Cold twins: cold ≈ warm for every pseudo arm — the pitfall-3
+warm-start poison is observed-label-only.
 
 ### Recommended configuration — normalized `pseudo all`, covered-only
 
@@ -119,6 +132,13 @@ MLP-head rows). Sources (all complete, per-run `result.json` on disk):
 | BAYES_MISP parity | 31078514 | {probcover, bayes_misp, bayes_additive} × MLP head, clean, seed 1 (port verification vs Itai's repo) | 3/3 ✔ |
 | BAYES_MISP noise | 31084429 | bayes_misp × noise {0, .2, .5, .8} × 3 seeds × head {MLP, linear} | 24/24 ✔ |
 | BAYES_MISP MLP best-val | 31085802 | bayes_misp × noise {0, .2, .5, .8} × 3 seeds × MLP head with best-val selection — supersedes the 31084429 MLP rows (31085570 = invalid first attempt, warm-contaminated) | 12/12 ✔ |
+| §4.8 grid: product × obs × MLP | 31116378 | bayes_product × observed × sklearn-MLP (cold + best-val), raw features × noise {0, .2, .5, .8} × 3 seeds | 12/12 ✔ |
+| §4.8 grid: misp × pseudo × linear | 31116406 | bayes_misp × pseudo all (norm) × warm linear × noise {0, .2, .5, .8} × 3 seeds (MispPosteriorEngine wiring) | 12/12 ✔ |
+| §4.8 grid: misp × pseudo × MLP-torch | 31116418 | bayes_misp × pseudo all (norm) × torch-MLP (cold + best-val, wdfix) × noise {0, .2, .5, .8} × 3 seeds (tasks 4+8 rerun as 31118649 — hung at training start) | 12/12 ✔ |
+| §4.8 addendum: misp_pure | 31130233 | bayes_misp selection + **categorical** (additive-engine) training targets × pseudo all (norm) × warm linear × noise {0, .2, .5, .8} × 3 seeds — same lSets as 31116406 | 12/12 ✔ |
+| §4.8 addendum: misp_pure cold | 31130234 | cold twin of 31130233 (`FINE_TUNE` off) | 12/12 ✔ |
+| §4.8 addendum: misp-hybrid cold | 31130235 | cold twin of 31116406 (PoE-engine targets, `FINE_TUNE` off; task 1 rerun as 31130784 — preempted at episode 0) | 12/12 ✔ |
+| §4.8 addendum: probcover × PoE-pseudo | 31150815 | probcover selection × PoE-engine pseudo all (norm) × warm linear × noise {0, .2, .5, .8} × 3 seeds (`ProbCoverPseudoAdapter` wiring) — the selection-axis control | 12/12 ✔ |
 
 All `bayes_*` selection rows train on **raw observed labels** unless a train-mode is
 named. Netta's sweeps have **no noise-0 arm** (never run) — hence the dashes.
@@ -260,7 +280,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | bayes_product | linear head | pseudo (lin10) | 26.3±1.0 | 40.6±0.8 | 43.4±0.0 | 45.2±0.9 | 46.3±0.5 |
 | bayes_product | linear head | pseudo (agg50) | 26.3±1.0 | 40.6±0.8 | 43.9±0.2 | 45.8±0.5 | 47.8±0.4 |
 | bayes_product | linear head | pseudo (all) | 37.6±0.4 | 42.6±0.7 | 44.9±0.1 | 46.5±0.1 | 47.5±0.2 |
-| bayes_product | linear head (norm) | pseudo (all) | **38.4±0.3** | **43.3±0.8** | **45.5±0.3** | **47.1±0.0** | **48.4±0.2** |
+| bayes_product | linear head (norm) | pseudo (all) | 38.4±0.3 | 43.3±0.8 | 45.5±0.3 | 47.1±0.0 | 48.4±0.2 |
 | *Posterior as classifier* | | | | | | | |
 | bayes_product | posterior-argmax | — | 18.1±0.2 | 23.9±0.4 | 26.8±0.3 | 28.8±0.3 | 30.8±0.2 |
 | *Netta NPC / AUM* | | | | | | | |
@@ -269,9 +289,19 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | npc | linear head | AUM clean-train | — | — | — | — | — |
 | *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
 | bayes_misp (Itai) | linear head | observed | 24.5±2.0 | 39.7±0.8 | 43.4±0.1 | 44.5±0.3 | 46.7±0.4 |
-| bayes_misp (Itai) | MLP head (best-val) | observed | 34.8±1.0 | **40.9±0.7** | **43.5±0.1** | **44.6±0.1** | **46.8±0.1** |
-| probcover | MLP head (seed 1) | observed | **35.4±0.0** | 39.8±0.0 | 42.3±0.0 | 43.5±0.0 | 45.7±0.0 |
+| bayes_misp (Itai) | MLP head (best-val) | observed | 34.8±1.0 | 40.9±0.7 | 43.5±0.1 | 44.6±0.1 | 46.8±0.1 |
+| probcover | MLP head (seed 1) | observed | 35.4±0.0 | 39.8±0.0 | 42.3±0.0 | 43.5±0.0 | 45.7±0.0 |
 | bayes_additive | MLP head (seed 1) | observed | 35.0±0.0 | 32.8±0.0 | 33.5±0.0 | 33.6±0.0 | 37.6±0.0 |
+| *misp vs product — full 2×2×2 grid (§4.8: {observed, pseudo all (norm)} × {linear, MLP best-val})* | | | | | | | |
+| bayes_product | MLP head (best-val) | observed | 34.1±0.8 | 39.1±1.3 | 41.9±0.2 | 43.7±0.5 | 45.2±0.2 |
+| bayes_product | MLP head (torch, norm) | pseudo (all) | 38.2±0.4 | 42.9±0.7 | 44.8±0.2 | 46.2±0.4 | 47.4±0.3 |
+| bayes_misp (Itai) | linear head (norm) | pseudo (all) | 39.0±0.8 | **45.1±0.2** | **47.5±0.1** | **48.8±0.1** | **49.9±0.2** |
+| bayes_misp (Itai) | MLP head (torch, norm) | pseudo (all) | **38.8±0.6** | **44.4±0.3** | **46.2±0.2** | **47.3±0.4** | **48.3±0.2** |
+| *misp_pure control + cold twins (§4.8: same lSets as the misp pseudo rows — only the training-target family / init protocol differ)* | | | | | | | |
+| bayes_misp (pure) | linear head (norm) | pseudo (all, categorical) | **39.3±0.7** | 45.0±0.2 | 47.4±0.2 | 48.4±0.2 | 49.6±0.3 |
+| bayes_misp (pure) | linear head (norm, cold) | pseudo (all, categorical) | 39.3±0.7 | 45.0±0.2 | 47.3±0.2 | 48.3±0.2 | 49.5±0.3 |
+| bayes_misp (Itai) | linear head (norm, cold) | pseudo (all) | 39.0±0.8 | 45.1±0.2 | 47.5±0.1 | 48.7±0.1 | 49.9±0.1 |
+| probcover | linear head (norm) | pseudo (all) | 38.8±0.6 | 44.9±0.1 | 47.3±0.3 | 48.4±0.3 | 49.7±0.2 |
 <!-- END:R2 -->
 
 **Table R3 — Test accuracy by method, noise 0.2.**
@@ -283,7 +313,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | *Baselines* | | | | | | | |
 | random | linear head | observed | 5.8±2.3 | 19.9±1.6 | 28.2±0.9 | 33.3±1.8 | 37.7±1.6 |
 | probcover | linear head | observed | 19.7±0.7 | 33.4±1.3 | 37.4±0.4 | 39.5±0.3 | 41.2±0.8 |
-| probcover | 1-NN | observed | **30.9±1.1** | 34.5±0.3 | 36.2±0.6 | 36.7±0.3 | 36.9±0.5 |
+| probcover | 1-NN | observed | 30.9±1.1 | 34.5±0.3 | 36.2±0.6 | 36.7±0.3 | 36.9±0.5 |
 | *Bayesian coverage — selection only (train on observed labels)* | | | | | | | |
 | bayes_additive | linear head | observed | 20.7±0.9 | 24.8±1.9 | 22.9±0.7 | 23.7±0.5 | 27.3±1.1 |
 | bayes_product | linear head | observed | 21.6±1.5 | 32.8±1.5 | 36.6±0.5 | 37.7±0.7 | 39.2±0.3 |
@@ -296,7 +326,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | bayes_product | linear head | pseudo (lin10) | 19.7±1.6 | 37.6±1.6 | 40.8±0.8 | 42.0±0.5 | 43.8±1.2 |
 | bayes_product | linear head | pseudo (agg50) | 19.7±1.6 | 37.6±1.6 | 40.8±0.8 | 41.4±0.8 | 44.1±0.6 |
 | bayes_product | linear head | pseudo (all) | 28.6±1.7 | 37.7±1.7 | 41.7±0.6 | 43.6±0.2 | 45.8±0.6 |
-| bayes_product | linear head (norm) | pseudo (all) | 29.7±1.5 | **38.7±1.9** | **42.7±0.6** | **44.5±0.2** | **46.6±0.6** |
+| bayes_product | linear head (norm) | pseudo (all) | 29.7±1.5 | **38.7±1.9** | **42.7±0.6** | 44.5±0.2 | 46.6±0.6 |
 | *Posterior as classifier* | | | | | | | |
 | bayes_product | posterior-argmax | — | 14.3±0.8 | 21.4±0.7 | 24.5±0.1 | 26.4±0.4 | 28.6±0.5 |
 | *Netta NPC / AUM* | | | | | | | |
@@ -305,9 +335,19 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | npc | linear head | AUM clean-train | 20.2±0.7 | 32.0±0.6 | 36.5±0.6 | 40.4±0.8 | 43.3±0.6 |
 | *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
 | bayes_misp (Itai) | linear head | observed | 20.6±0.8 | 33.9±1.3 | 37.6±0.3 | 39.7±0.5 | 41.8±0.4 |
-| bayes_misp (Itai) | MLP head (best-val) | observed | **28.4±1.1** | **33.4±1.2** | **37.3±1.1** | **39.8±1.2** | **42.5±0.9** |
+| bayes_misp (Itai) | MLP head (best-val) | observed | 28.4±1.1 | 33.4±1.2 | 37.3±1.1 | 39.8±1.2 | 42.5±0.9 |
 | probcover | MLP head (seed 1) | observed | — | — | — | — | — |
 | bayes_additive | MLP head (seed 1) | observed | — | — | — | — | — |
+| *misp vs product — full 2×2×2 grid (§4.8: {observed, pseudo all (norm)} × {linear, MLP best-val})* | | | | | | | |
+| bayes_product | MLP head (best-val) | observed | 26.0±1.7 | 32.5±1.5 | 37.0±1.0 | 38.8±0.5 | 40.8±0.1 |
+| bayes_product | MLP head (torch, norm) | pseudo (all) | 29.6±1.3 | 36.8±1.6 | **40.3±0.7** | **42.0±0.4** | **44.5±0.5** |
+| bayes_misp (Itai) | linear head (norm) | pseudo (all) | 32.3±0.8 | 38.6±0.5 | 42.7±0.2 | **45.2±0.7** | **47.5±0.3** |
+| bayes_misp (Itai) | MLP head (torch, norm) | pseudo (all) | **32.4±0.9** | **37.3±0.8** | 40.1±0.2 | 42.0±0.6 | 44.2±0.3 |
+| *misp_pure control + cold twins (§4.8: same lSets as the misp pseudo rows — only the training-target family / init protocol differ)* | | | | | | | |
+| bayes_misp (pure) | linear head (norm) | pseudo (all, categorical) | **32.4±0.8** | 38.5±0.5 | 42.4±0.2 | 44.7±0.7 | 46.8±0.6 |
+| bayes_misp (pure) | linear head (norm, cold) | pseudo (all, categorical) | 32.4±0.8 | 38.5±0.4 | 42.4±0.2 | 44.7±0.6 | 46.7±0.6 |
+| bayes_misp (Itai) | linear head (norm, cold) | pseudo (all) | 32.3±0.8 | 38.6±0.5 | 42.6±0.1 | 45.2±0.7 | 47.4±0.4 |
+| probcover | linear head (norm) | pseudo (all) | 31.7±1.3 | 37.8±1.0 | 41.9±0.4 | 44.5±0.5 | 46.7±0.2 |
 <!-- END:R3 -->
 
 **Table R4 — Test accuracy by method, noise 0.5.**
@@ -319,7 +359,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | *Baselines* | | | | | | | |
 | random | linear head | observed | 4.6±1.6 | 12.7±2.2 | 18.4±1.4 | 23.5±1.0 | 27.1±1.0 |
 | probcover | linear head | observed | 13.1±1.3 | 21.5±1.8 | 26.0±1.3 | 28.1±0.7 | 30.3±1.2 |
-| probcover | 1-NN | observed | **19.9±1.4** | 22.5±1.6 | 23.7±1.2 | 23.7±1.1 | 23.8±1.3 |
+| probcover | 1-NN | observed | 19.9±1.4 | 22.5±1.6 | 23.7±1.2 | 23.7±1.1 | 23.8±1.3 |
 | *Bayesian coverage — selection only (train on observed labels)* | | | | | | | |
 | bayes_additive | linear head | observed | 13.5±1.3 | 14.8±3.4 | 14.6±2.8 | 14.8±2.4 | 15.1±2.3 |
 | bayes_product | linear head | observed | 14.9±1.4 | 23.1±0.1 | 26.4±0.6 | 28.1±0.6 | 29.5±0.4 |
@@ -341,9 +381,19 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | npc | linear head | AUM clean-train | 13.3±1.5 | 20.7±1.0 | 26.6±1.3 | 30.4±1.7 | 35.6±1.0 |
 | *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
 | bayes_misp (Itai) | linear head | observed | 13.7±0.8 | 21.5±0.9 | 25.8±1.2 | 28.7±0.9 | 31.2±1.1 |
-| bayes_misp (Itai) | MLP head (best-val) | observed | **17.1±1.5** | **21.4±1.2** | **26.8±0.6** | **30.7±0.2** | **35.0±0.8** |
+| bayes_misp (Itai) | MLP head (best-val) | observed | 17.1±1.5 | 21.4±1.2 | 26.8±0.6 | 30.7±0.2 | 35.0±0.8 |
 | probcover | MLP head (seed 1) | observed | — | — | — | — | — |
 | bayes_additive | MLP head (seed 1) | observed | — | — | — | — | — |
+| *misp vs product — full 2×2×2 grid (§4.8: {observed, pseudo all (norm)} × {linear, MLP best-val})* | | | | | | | |
+| bayes_product | MLP head (best-val) | observed | 14.4±1.9 | 25.0±0.6 | 29.9±0.1 | 32.8±0.7 | 35.4±1.5 |
+| bayes_product | MLP head (torch, norm) | pseudo (all) | 17.2±3.0 | **28.0±1.0** | **32.5±0.5** | **34.8±0.9** | **37.9±0.6** |
+| bayes_misp (Itai) | linear head (norm) | pseudo (all) | 20.3±1.8 | 26.6±1.8 | 32.6±0.1 | 37.3±0.3 | 41.7±0.6 |
+| bayes_misp (Itai) | MLP head (torch, norm) | pseudo (all) | **20.4±1.7** | 24.6±1.5 | 28.6±0.8 | 31.5±0.6 | 35.5±0.5 |
+| *misp_pure control + cold twins (§4.8: same lSets as the misp pseudo rows — only the training-target family / init protocol differ)* | | | | | | | |
+| bayes_misp (pure) | linear head (norm) | pseudo (all, categorical) | 20.3±1.7 | 25.8±1.6 | 30.9±0.3 | 35.1±0.2 | 39.7±0.6 |
+| bayes_misp (pure) | linear head (norm, cold) | pseudo (all, categorical) | 20.3±1.7 | 25.9±1.6 | 30.9±0.3 | 35.2±0.3 | 39.7±0.5 |
+| bayes_misp (Itai) | linear head (norm, cold) | pseudo (all) | 20.3±1.8 | 26.7±1.9 | 32.7±0.0 | 37.4±0.3 | 41.7±0.7 |
+| probcover | linear head (norm) | pseudo (all) | **20.4±1.7** | 26.3±1.4 | 31.5±1.3 | 35.1±1.2 | 38.5±0.9 |
 <!-- END:R4 -->
 
 **Table R5 — Test accuracy by method, noise 0.8.**
@@ -355,7 +405,7 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | *Baselines* | | | | | | | |
 | random | linear head | observed | 2.6±0.6 | 4.9±2.2 | 7.2±1.7 | 9.4±1.1 | 10.3±1.5 |
 | probcover | linear head | observed | 5.9±0.9 | 8.2±1.1 | 10.4±0.4 | 11.6±0.3 | 12.7±0.1 |
-| probcover | 1-NN | observed | **7.6±0.5** | 9.3±0.1 | 9.7±0.5 | 9.7±0.4 | 9.9±0.9 |
+| probcover | 1-NN | observed | 7.6±0.5 | 9.3±0.1 | 9.7±0.5 | 9.7±0.4 | 9.9±0.9 |
 | *Bayesian coverage — selection only (train on observed labels)* | | | | | | | |
 | bayes_additive | linear head | observed | 5.5±2.0 | 6.0±2.3 | 5.7±2.1 | 5.3±1.4 | 5.4±0.9 |
 | bayes_product | linear head | observed | 4.6±0.5 | 9.7±2.0 | 10.9±1.5 | 11.8±1.5 | 12.6±1.6 |
@@ -377,9 +427,19 @@ posterior-as-classifier → Netta NPC/AUM). The `pseudo …` arm definitions and
 | npc | linear head | AUM clean-train | 5.7±1.6 | 7.4±0.6 | 10.3±0.7 | 11.7±1.0 | 15.0±0.8 |
 | *BAYES_MISP port (Itai's bayes_al_2025 — diff max, α=0.5, tophat δ=0.75; §4.7)* | | | | | | | |
 | bayes_misp (Itai) | linear head | observed | 5.9±0.6 | 8.6±0.9 | 11.0±1.3 | 12.1±0.5 | 13.6±0.7 |
-| bayes_misp (Itai) | MLP head (best-val) | observed | **7.0±0.9** | **9.0±0.7** | **12.0±0.9** | **14.3±0.5** | **17.2±0.9** |
+| bayes_misp (Itai) | MLP head (best-val) | observed | 7.0±0.9 | 9.0±0.7 | 12.0±0.9 | 14.3±0.5 | 17.2±0.9 |
 | probcover | MLP head (seed 1) | observed | — | — | — | — | — |
 | bayes_additive | MLP head (seed 1) | observed | — | — | — | — | — |
+| *misp vs product — full 2×2×2 grid (§4.8: {observed, pseudo all (norm)} × {linear, MLP best-val})* | | | | | | | |
+| bayes_product | MLP head (best-val) | observed | 4.6±0.4 | 11.1±2.0 | 14.3±2.1 | 18.2±1.6 | 20.9±1.7 |
+| bayes_product | MLP head (torch, norm) | pseudo (all) | 5.4±0.6 | **12.4±3.4** | **16.2±2.1** | **20.1±3.1** | **23.6±2.2** |
+| bayes_misp (Itai) | linear head (norm) | pseudo (all) | 7.8±1.5 | 11.6±1.1 | 16.6±1.2 | 20.8±0.8 | 25.2±1.2 |
+| bayes_misp (Itai) | MLP head (torch, norm) | pseudo (all) | **7.7±1.3** | 10.3±0.9 | 14.2±1.2 | 17.6±0.6 | 21.1±0.8 |
+| *misp_pure control + cold twins (§4.8: same lSets as the misp pseudo rows — only the training-target family / init protocol differ)* | | | | | | | |
+| bayes_misp (pure) | linear head (norm) | pseudo (all, categorical) | 7.6±1.5 | 10.4±1.3 | 13.5±1.3 | 16.9±1.1 | 20.7±0.8 |
+| bayes_misp (pure) | linear head (norm, cold) | pseudo (all, categorical) | 7.6±1.5 | 10.4±1.3 | 13.6±1.2 | 17.0±1.1 | 20.8±0.8 |
+| bayes_misp (Itai) | linear head (norm, cold) | pseudo (all) | 7.8±1.5 | 11.5±1.4 | 16.2±1.7 | 20.6±1.0 | 25.1±1.2 |
+| probcover | linear head (norm) | pseudo (all) | **7.9±0.7** | 10.0±0.1 | 13.0±0.2 | 15.1±0.9 | 18.1±1.4 |
 <!-- END:R5 -->
 
 ---
@@ -620,6 +680,125 @@ textbook job as a noise-robustness mechanism: the recovery vs final-iterate
 grows with noise (+1.4 clean → +5.4 @.2 → +10.4 @.5 → +7.3 @.8 at 1000). Note
 the noise-robust *training* arms (soft/pseudo, §4.6) still only exist under the
 linear head; an MLP-head + posterior-training combination is untested.
+
+### 4.8 misp vs product — the full 2×2×2 grid (sweeps 31116378 + 31116406 + 31116418, 12/12 each; 2026-07-23. Addendum: misp_pure control + cold twins, 31130233/31130234/31130235, 2026-07-26)
+
+Head-to-head of the two acquisition rules under **both** training regimes and
+**both** heads: {observed, pseudo all (norm)} × {linear, MLP best-val}. Three
+cells were missing and were filled here: product × observed × MLP (31116378),
+and misp × pseudo-all × {linear 31116406, MLP-torch 31116418} — the latter two
+enabled by the `MispPosteriorEngine` wiring (a BAYES_MISP run now carries a
+BayesianCoverage product-posterior training engine that re-folds the annotated
+lSet at training time; exact, since the product fold is an order-independent
+log-space sum over annotated points — verified in-log: pseudo counts match the
+δ=0.75 coverage exactly). Observed cells are raw-feature arms (misp-faithful
+protocol); pseudo cells are normalized-input arms (champion protocol); pseudo ×
+MLP uses the wd-fixed torch twin. Display rows live in R2–R5; per-seed truth in
+`results_master.csv`.
+
+@1000 labels, `pseudo all (norm)` + linear (misp vs product):
+**clean 49.9±0.2 vs 48.4±0.2 · noise .2 47.5±0.3 vs 46.6±0.6 · noise .5
+41.7±0.6 vs 42.6±0.5 · noise .8 25.2±1.2 vs 29.2±2.3.**
+
+Readings (full discussion + all 8 curves per noise level in the experiments
+log, `docs/bayes_experiments_log.html`, 2026-07-23 entry):
+
+1. **New clean-data champion: misp selection + product-posterior pseudo
+   training (norm, linear) — 49.9 @1000 clean**, ahead of the 48.4 champion at
+   every budget, and ahead at noise .2 too. The two planes are separable:
+   Itai's saturating max-rule is the better pure-coverage spreader, and it
+   composes cleanly with the §7.5 pseudo-labeling machinery.
+2. **Under real noise the order flips — and the flip is only *partly*
+   selection-driven.** Product + pseudo wins from budget ≥300 at noise .5 and
+   at every budget past 100 at noise .8 (29.2 vs 25.2 @1000). The original
+   "mirrors the observed rows" reading holds for the MLP-head observed rows
+   only (the warm linear observed rows are protocol-confounded at noise ≥ .5 —
+   DELTA_ROOTCAUSE pitfall 3); the misp_pure control below settles the
+   attribution directly: selection (product's revisiting) and training-target
+   family (PoE) each contribute ~4-5 pts at noise .8.
+3. **misp wins every @100 cell** (best low-budget spreader at all noise
+   levels), consistent with its TypiClust-like typicality bias.
+4. **§9.7 extends to misp:** linear + pseudo ≥ MLP-torch + pseudo in every
+   cell of both samplers; on observed labels the sklearn best-val MLP remains
+   the better head (both samplers) at low budget and for product under noise.
+
+**Addendum 2026-07-26 — the misp_pure control + cold twins (sweeps 31130233
+warm / 31130234 cold / 31130235 hybrid-cold, 12/12 each; hybrid-cold task 1
+rerun as 31130784).** What the grid calls "misp + pseudo" is a *hybrid*: misp's
+categorical+Dirichlet machinery does the selection, but the PoE posterior
+manufactures the training targets. The pure-misp control — the categorical
+posterior for **both** selection and training (`--combine additive` on the
+`MispPosteriorEngine`) — separates "selection rule" from "training-posterior
+family". Because misp selection never reads the classifier, misp_pure
+reproduces the **same lSets seed-for-seed** as the hybrid runs (and misp_pure ×
+observed ≡ misp × observed exactly, so those cells need no run): the comparison
+isolates the training-target family with zero selection variance. Cold twins of
+both pseudo arms ride along to test whether the pitfall-3 warm-start noise
+poison also afflicts pseudo-label training. @1000, linear (norm), pseudo all —
+pure vs hybrid vs product: **clean 49.6 / 49.9 / 48.4 · noise .2 46.8 / 47.5 /
+46.6 · noise .5 39.7 / 41.7 / 42.6 · noise .8 20.7 / 25.2 / 29.2.**
+
+5. **The PoE targets are the denoiser.** On identical lSets, misp_pure ties the
+   hybrid clean (−0.3) and loses progressively with noise: −0.7 @.2, −2.0 @.5,
+   −4.5 @.8 @1000. The categorical posterior's non-saturating averaging
+   dilutes under label noise; the PoE product concentrates past it.
+6. **The noise .8 ladder decomposes additively: product 29.2 > hybrid 25.2 >
+   pure 20.7** — revisiting selection and PoE training targets are each worth
+   ~4-5 pts, independently (see reading 2).
+7. **Cold ≈ warm at every noise for both pseudo arms (max |Δ| 0.2 @1000)** —
+   the pitfall-3 warm-start noise poison is an observed-label phenomenon;
+   pseudo-labels denoise the training history itself. The champion pseudo arms
+   keep `FINE_TUNE=True`; the "cold for noise ≥ .5" protocol rule applies to
+   observed-label linear rows only.
+7b. **probcover × PoE control (sweep 31150815, 2026-07-29) — the selection
+   axis, isolated.** probcover selection with the same PoE pseudo targets:
+   clean 49.7 ≈ hybrid 49.9 (the noise-0 equivalence of reading 8 holds
+   end-to-end), but **n.2 46.7 vs 47.5, n.5 38.5 vs 41.7, n.8 18.1 vs 25.2 —
+   below even misp_pure's 20.7**. misp's conflict residuals are
+   noise-responsive (revisits 57→62→69% as noise mints conflicts; probcover
+   is label-blind at 52.0% flat), and those repeated in-ball anchors are what
+   PoE denoising consumes: the offline fold replay
+   (`eval_pc_vs_misp_pseudo_quality.py`) shows the pseudo-target purity gap
+   tracks the test-acc gap ~1:1 (n.8 pseudo-acc 22.9 vs 15.1%; n.5 42.8 vs
+   37.9). Without revisits, PoE targets on single-anchor balls are
+   confidently-wrong label propagation — under heavy noise worse than
+   categorical targets on better-selected lSets. Full n.8 ladder @1000:
+   **product 29.2 > misp-hybrid 25.2 > misp_pure 20.7 > probcover×PoE 18.1**
+   — a measured dose-response on one dial: revisit rate 52% (uncertainty
+   weight 0) → 56-69% (misp, prior-damped) → 76-95% (product, undamped).
+8. **Mechanism of the clean gap — the label-conflict deficit (2026-07-28
+   offline study, `eval_clean_selection_geometry.py` +
+   `eval_product_drift_replay.py`, experiments-log entry of 2026-07-28).**
+   On the recorded clean lSets, misp is behaviorally *identical* to ProbCover
+   and to an ideal uncovered-count greedy (coverage 55.7% ≡ ≡ @1000; revisits
+   52-56%). Not because it fully retires label-conflicted points — misp's
+   selection posterior is the *normalized additive-count* matrix
+   (`BAYES_MISP.py`), so a 2-class-conflicted point keeps a residual deficit
+   too — but the Dirichlet prior mass αL=50 crushes it to 0.00057 vs 0.0194
+   for an uncovered in-ball point (2.9% relative; ~34 conflicted ≈ 1
+   uncovered). Product has no such damping: a point covered by anchors of k
+   different classes keeps a tied log-posterior (maxP = 1/k, deficit ≈ 0.5 =
+   50.5% relative; 2 conflicted ≈ 1 uncovered), so class-boundary overlap
+   regions never retire — from pick ~300 on, ~47-48% of each picked
+   ball's acquisition score is conflicted-covered mass (exact replay, fidelity
+   869/1000 + 855/1000, mismatch gaps ≤ 0.001 = ties), costing 6-10 fresh
+   points per pick → **coverage 50.6% vs 55.7% @1000 (~2,300 fewer
+   pseudo-labels, −9%)**, denser picks (mean ball 115 vs 59), lower class
+   entropy (4.41 vs 4.56), and the clean 76%-revisit anomaly. Product is a
+   coverage greedy *plus implicit boundary-uncertainty sampling*: on clean data
+   that buys +2.2 pseudo purity but volume beats purity (§9.2's lesson) → −1.5
+   test acc; under noise the same term is the revisit-denoising engine that
+   wins n ≥ .5. Per-seed truth in
+   `results/cifar100/clean_selection_geometry/`.
+
+**Recommendation:** clean / light noise → misp + pseudo all (norm) + linear;
+noise ≥ .5 → keep the product champion. Categorical training targets are not
+adopted. Open §9 candidate, sharpened twice (by the control, then by reading
+8's mechanism): no rule *switch* is needed — **gate the label-conflict deficit
+by the estimated noise rate** (treat conflicted-covered points as covered when
+q̂ ≈ 0, keep their residual deficit when q̂ > 0); product then interpolates to
+misp/ProbCover on clean data by construction, and the §9.4 DS-EM estimator
+already provides q̂. The PoE training targets stay in every regime.
 
 ## 5. Takeaways
 

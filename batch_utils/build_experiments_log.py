@@ -166,9 +166,60 @@ def delta_replay_panel():
                  traces, ytitle="%", xtitle="ball radius δ", xticks=deltas)
 
 
+def cleangeom_traces(metric, arms):
+    """Per-budget traces from the clean-selection-geometry study
+    (eval_clean_selection_geometry.py; mean over seeds {1,2,3})."""
+    rows = csv_rows("results/cifar100/clean_selection_geometry/per_budget.csv")
+    out = []
+    for arm, label, hue, dash, kw in arms:
+        m = mean_by([r for r in rows if r["arm"] == arm],
+                    lambda r: int(r["budget"]), lambda r: float(r[metric]))
+        xs = sorted(m)
+        out.append(tr(label, hue, xs, [round(m[x], 2) for x in xs], dash=dash, **kw))
+    return out
+
+
+def conflict_share_trace():
+    """Share of the picked ball's acquisition score contributed by already-
+    covered, label-CONFLICTED points, per pick (eval_product_drift_replay.py,
+    bucketed by 100 picks, mean of seeds 1+2)."""
+    from collections import defaultdict
+    buckets = defaultdict(list)
+    for path in ("results/cifar100/clean_selection_geometry/product_drift.csv",
+                 "results/cifar100/clean_selection_geometry/product_drift_s2.csv"):
+        for r in csv_rows(path):
+            score = float(r["pick_score"])
+            if score > 0:
+                buckets[int(r["i"]) // 100].append(
+                    100.0 * float(r["pick_conflict_mass"]) / score)
+    xs = sorted(buckets)
+    return [tr("conflicted-covered share of pick score", "red",
+               [b * 100 + 50 for b in xs],
+               [round(st.mean(buckets[b]), 1) for b in xs], width=3)]
+
+
 # ---------------------------------------------------------------------------
 # the experiments, chronological
 # ---------------------------------------------------------------------------
+def warmcold_traces(noise):
+    """warm-vs-cold linear replay traces (eval_warmcold_linear_replay.py) for
+    one noise level, mean over seeds, plus the sklearn best-val MLP reference
+    row (same misp lSets) from the master CSV."""
+    rows = [r for r in csv_rows("results/cifar100/warmcold_linear_replay/per_episode.csv")
+            if r["noise"] == noise]
+    out = []
+    for proto, hue, dash, w in [("warm", "blue", "solid", 3), ("cold", "green", "solid", 3)]:
+        m = mean_by([r for r in rows if r["protocol"] == proto],
+                    lambda r: int(r["budget"]), lambda r: float(r["test_acc"]))
+        xs = sorted(m)
+        out.append(tr(f"linear, {proto} (best-val)", hue, xs,
+                      [round(m[x], 2) for x in xs], dash=dash, width=w))
+    out.append(arm_tr("MLP sklearn, cold best-val (reference)", "violet",
+                      "bayes_misp", "MLP head", "observed", "31085802", noise,
+                      dash="dash", tint=True))
+    return out
+
+
 V_POS, V_NEG, V_NEU = "pos", "neg", "neu"
 
 EXPERIMENTS = [
@@ -410,6 +461,146 @@ EXPERIMENTS = [
                 arm_tr("δ = 0.75 (baseline)", "red", "bayes_product", "linear head", "pseudo (all)", "31048960", "0.8", width=3),
                 arm_tr("δ = 0.6", "red", "bayes_product", "linear head", "pseudo (all)", "31108061", "0.8", dash="dash", tint=True, delta="0.6"),
                 arm_tr("δ = 0.9", "red", "bayes_product", "linear head", "pseudo (all)", "31108061", "0.8", dash="dot", tint=True, delta="0.9")]),
+        ]),
+
+    dict(
+        date="2026-07-23", verdict=V_NEU,
+        sweeps="31116378 + 31116406 + 31116418 (12/12 each; misp×pseudo enabled by the MispPosteriorEngine wiring) + pins 30978366 / 31084429 / 31085802 / 31116164 / 31048960",
+        title="misp vs product — the full 2×2×2 grid ({observed, pseudo all (norm)} × {linear, MLP best-val})",
+        tested="Head-to-head of the two acquisition rules under BOTH training regimes and BOTH heads. Three cells were missing: product × observed × MLP, and misp × pseudo-all × {linear, MLP} — the latter two required giving BAYES_MISP runs the BayesianCoverage posterior machinery (a training-target engine that re-folds the annotated lSet; exact, since the product fold is order-independent).",
+        explain="Observed panels are raw-feature arms (the misp-faithful protocol); pseudo-all panels are normalized-input arms (the champion protocol). Observed MLP = sklearn head (cold + best-val); pseudo MLP = its torch twin (wd-fixed, soft-target capable) — a slightly conservative stand-in (−1..−1.9 parity residual at high budget). Same δ=0.75 tophat graph everywhere.",
+        conclusion="<b>The verdict is regime-split, and it produced a new clean-data champion.</b> "
+                   "<b>misp + pseudo all (norm) + linear sets the study's new best on clean data — 49.9±0.2 @1000 vs the champion's 48.4±0.2</b> — and leads at every budget (39.0/45.1/47.5 vs 38.4/43.3/45.5 @100/300/500); it also edges noise .2 (47.5 vs 46.6 @1000). "
+                   "<b>Under real noise the order flips: product wins from budget ≥300</b> (noise .5 @1000: 42.6 vs 41.7, and +5.6/+4.8 @300/500; noise .8 @1000: 29.2 vs 25.2, product ahead at every budget past 100). "
+                   "The split mirrors the observed-label rows, so it is <i>selection-driven</i>, not a training artifact: misp's saturating max-rule is the better pure-coverage spreader (it also wins @100 at every noise), while product's confusion-matrix posterior keeps balls open under noise until they are confidently resolved — exactly the design's noise-awareness paying off. "
+                   "Heads: §9.7's “does not stack” verdict extends to misp — linear + pseudo beats MLP-torch + pseudo in every cell of both samplers (misp clean @1000: 49.9 vs 48.3); on observed labels the sklearn MLP (cold+best-val) stays the better head for both samplers at low budget (+10 @100 clean) and for product under noise (35.4 vs 29.5 @1000 noise .5). "
+                   "<b>Recommendation:</b> clean/light noise → misp selection + product-posterior pseudo training (norm, linear); noise ≥ .5 → keep the product champion. Worth a follow-up: the hybrid confirms selection and training are separable — a noise-adaptive acquisition (misp-like when the posterior says labels are clean, product-like otherwise) is the obvious §9 candidate.",
+        panels=lambda: [
+            panel("e16_obs_n0", "observed labels (raw) — noise 0", [
+                arm_tr("product + linear", "cyan", "bayes_product", "linear head", "observed", "30978366", "0.0"),
+                arm_tr("product + MLP best-val", "cyan", "bayes_product", "MLP head", "observed", "31116378", "0.0", dash="dash"),
+                arm_tr("misp + linear", "yellow", "bayes_misp", "linear head", "observed", "31084429", "0.0"),
+                arm_tr("misp + MLP best-val", "yellow", "bayes_misp", "MLP head", "observed", "31085802", "0.0", dash="dash")]),
+            panel("e16_pse_n0", "pseudo all (norm) — noise 0", [
+                arm_tr("product + linear", "red", "bayes_product", "linear head", "pseudo (all)", "31048960", "0.0", width=3),
+                arm_tr("product + MLP torch", "red", "bayes_product", "MLP head (torch)", "pseudo (all)", "31116164", "0.0", dash="dash", tint=True),
+                arm_tr("misp + linear", "orange", "bayes_misp", "linear head", "pseudo (all)", "31116406", "0.0"),
+                arm_tr("misp + MLP torch", "orange", "bayes_misp", "MLP head (torch)", "pseudo (all)", "31116418", "0.0", dash="dash", tint=True)]),
+            panel("e16_obs_n2", "observed labels (raw) — noise 0.2", [
+                arm_tr("product + linear", "cyan", "bayes_product", "linear head", "observed", "30978366", "0.2"),
+                arm_tr("product + MLP best-val", "cyan", "bayes_product", "MLP head", "observed", "31116378", "0.2", dash="dash"),
+                arm_tr("misp + linear", "yellow", "bayes_misp", "linear head", "observed", "31084429", "0.2"),
+                arm_tr("misp + MLP best-val", "yellow", "bayes_misp", "MLP head", "observed", "31085802", "0.2", dash="dash")]),
+            panel("e16_pse_n2", "pseudo all (norm) — noise 0.2", [
+                arm_tr("product + linear", "red", "bayes_product", "linear head", "pseudo (all)", "31048960", "0.2", width=3),
+                arm_tr("product + MLP torch", "red", "bayes_product", "MLP head (torch)", "pseudo (all)", "31116164", "0.2", dash="dash", tint=True),
+                arm_tr("misp + linear", "orange", "bayes_misp", "linear head", "pseudo (all)", "31116406", "0.2"),
+                arm_tr("misp + MLP torch", "orange", "bayes_misp", "MLP head (torch)", "pseudo (all)", "31116418", "0.2", dash="dash", tint=True)]),
+            panel("e16_obs_n5", "observed labels (raw) — noise 0.5", [
+                arm_tr("product + linear", "cyan", "bayes_product", "linear head", "observed", "30978366", "0.5"),
+                arm_tr("product + MLP best-val", "cyan", "bayes_product", "MLP head", "observed", "31116378", "0.5", dash="dash"),
+                arm_tr("misp + linear", "yellow", "bayes_misp", "linear head", "observed", "31084429", "0.5"),
+                arm_tr("misp + MLP best-val", "yellow", "bayes_misp", "MLP head", "observed", "31085802", "0.5", dash="dash")]),
+            panel("e16_pse_n5", "pseudo all (norm) — noise 0.5", [
+                arm_tr("product + linear", "red", "bayes_product", "linear head", "pseudo (all)", "31048960", "0.5", width=3),
+                arm_tr("product + MLP torch", "red", "bayes_product", "MLP head (torch)", "pseudo (all)", "31116164", "0.5", dash="dash", tint=True),
+                arm_tr("misp + linear", "orange", "bayes_misp", "linear head", "pseudo (all)", "31116406", "0.5"),
+                arm_tr("misp + MLP torch", "orange", "bayes_misp", "MLP head (torch)", "pseudo (all)", "31116418", "0.5", dash="dash", tint=True)]),
+            panel("e16_obs_n8", "observed labels (raw) — noise 0.8", [
+                arm_tr("product + linear", "cyan", "bayes_product", "linear head", "observed", "30978366", "0.8"),
+                arm_tr("product + MLP best-val", "cyan", "bayes_product", "MLP head", "observed", "31116378", "0.8", dash="dash"),
+                arm_tr("misp + linear", "yellow", "bayes_misp", "linear head", "observed", "31084429", "0.8"),
+                arm_tr("misp + MLP best-val", "yellow", "bayes_misp", "MLP head", "observed", "31085802", "0.8", dash="dash")]),
+            panel("e16_pse_n8", "pseudo all (norm) — noise 0.8", [
+                arm_tr("product + linear", "red", "bayes_product", "linear head", "pseudo (all)", "31048960", "0.8", width=3),
+                arm_tr("product + MLP torch", "red", "bayes_product", "MLP head (torch)", "pseudo (all)", "31116164", "0.8", dash="dash", tint=True),
+                arm_tr("misp + linear", "orange", "bayes_misp", "linear head", "pseudo (all)", "31116406", "0.8"),
+                arm_tr("misp + MLP torch", "orange", "bayes_misp", "MLP head (torch)", "pseudo (all)", "31116418", "0.8", dash="dash", tint=True)]),
+        ]),
+
+    dict(
+        date="2026-07-26", verdict=V_POS,
+        sweeps="offline eval_warmcold_linear_replay.py on the 31084429 lSets (24 runs × warm/cold; fidelity gate vs recorded per-episode accs: mean |diff| 0.12, max 0.58, 0 warnings)",
+        title="Warm vs cold linear head under noise — warm wins clean, cold wins noise ≥ .5 (DELTA_ROOTCAUSE pitfall-3 addendum)",
+        tested="Pitfall 3 left one cell unmeasured: every linear row in R2-R5 is warm-started (FINE_TUNE=True, +2.2 @1000 on clean), but warm-starting under label noise means each episode RESUMES from weights that already spent thousands of epochs fitting wrong labels — and per-episode best-val checkpointing cannot undo an episode's starting point. Exact replica of the pipeline's linear protocol on the misp noise-sweep lSets (observed labels regenerated + asserted), warm vs cold per episode, all noise levels × seeds {1,2,3}.",
+        explain="The warm curve doubles as the fidelity gate (it must and does reproduce the production rows). The dashed reference is the sklearn cold+best-val MLP on the same lSets — the head that §9.7 adopted for observed labels partly on the strength of its noise lead over the (warm) linear rows.",
+        conclusion="<b>The warm-start effect flips sign with noise: warm +2.2..+3.9 on clean (the known optimization-time gain), a tie @1000 at noise .2, and cold +4.5 / +5.3 @1000 at noise .5 / .8</b> (35.7 vs 31.1; 18.8 vs 13.4). "
+                   "<b>Consequence: the MLP's high-budget noise lead over the linear head was this protocol artifact</b> — against the cold linear @1000 the MLP no longer leads under noise (noise .5: 35.0 vs cold-linear 35.7; noise .8: 17.2 vs 18.8; noise .2: 42.5 vs 41.9; clean tie). What survives for the MLP is the real low-budget nonlinearity gain (~+10 @100 at every noise level) and a sliver at noise .2. "
+                   "<b>Protocol rule adopted: warm for clean/low-noise runs, cold for noise ≥ .5</b>; equivalently, the R3-R5 linear observed rows underestimate the linear head by ~4-5 pts @1000 at noise ≥ .5. Full write-up in bayesian_coverage_DELTA_ROOTCAUSE.md (pitfall-3 addendum); per-seed truth in results/cifar100/warmcold_linear_replay/per_episode.csv.",
+        panels=lambda: [
+            panel("e17_n0", "linear head warm vs cold — noise 0 (warm +2.2 @1000)", warmcold_traces("0.0")),
+            panel("e17_n2", "linear head warm vs cold — noise 0.2 (tie @1000)", warmcold_traces("0.2")),
+            panel("e17_n5", "linear head warm vs cold — noise 0.5 (cold +4.5 @1000, beats the MLP)", warmcold_traces("0.5")),
+            panel("e17_n8", "linear head warm vs cold — noise 0.8 (cold +5.3 @1000, beats the MLP)", warmcold_traces("0.8")),
+        ]),
+
+    dict(
+        date="2026-07-26", verdict=V_NEU,
+        sweeps="31130233 (misp_pure, warm) + 31130234 (misp_pure, cold) + 31130235 (misp-hybrid, cold; task 1 rerun as 31130784) + 31150815 (probcover × PoE-pseudo, added 2026-07-29; ProbCoverPseudoAdapter wiring) — 12/12 each; pins 31116406 / 31048960",
+        title="misp_pure vs misp-hybrid vs probcover×PoE — separating the selection rule from the training-target family",
+        tested="The 07-23 grid's “misp + pseudo” arm is a <i>hybrid</i>: misp's categorical+Dirichlet machinery does the selection, but the PoE posterior manufactures the training targets. The pure-misp control — the categorical posterior for BOTH selection and training (<code>--combine additive</code> on the MispPosteriorEngine) — was never run, and it is exactly what separates “selection rule” from “training-posterior family”. Cold twins of both pseudo arms ride along, because the pitfall-3 addendum (previous entry) left open whether the warm-start noise poison also afflicts pseudo-label training.",
+        explain="misp selection never reads the classifier, so misp_pure reproduces the SAME lSets as the hybrid runs seed-for-seed — the arms differ only in the training-target family, with zero selection variance (misp_pure × observed needs no run: it is misp × observed exactly). All arms: pseudo-all targets, normalized inputs, linear head, δ=0.75 tophat, noise {0,.2,.5,.8} × seeds {1,2,3}. The cold twins (31130234/31130235) are NOT plotted — cold ≈ warm at every noise level for both pseudo arms (max |Δ| 0.2 @1000), so their curves just overlay the warm ones; see the conclusion. Added 2026-07-29 (Alon's ask): the complementary control — probcover selection × the SAME PoE pseudo targets (blue) — which swaps the selection axis instead of the target axis. Registered prediction: since misp ≡ probcover behaviorally at noise 0 (next entry), it should match the hybrid everywhere, with its conflict dust too weak (2.9% relative) to matter under noise.",
+        conclusion="<b>The PoE targets are the denoiser.</b> misp_pure ties the hybrid on clean (49.6 vs 49.9 @1000) and then loses progressively as noise grows — −0.7 @.2, −2.0 @.5, −4.5 @.8 (20.7 vs 25.2) — on identical lSets, so the gap is purely the training-posterior family: the categorical posterior's non-saturating averaging dilutes under label noise, while the PoE product concentrates past it. "
+                   "<b>The noise .8 ladder decomposes the misp-vs-product flip additively: product 29.2 &gt; hybrid 25.2 &gt; pure 20.7</b> — product's revisiting selection (76→95% revisits, entry e17) and the PoE training family are each worth ~4-5 pts, independently. "
+                   "<b>Cold ≈ warm at every noise level for BOTH pseudo arms (max |Δ| 0.2)</b> — the warm-start noise poison is an observed-label phenomenon; pseudo-labels denoise the training history itself, so the champion arms keep FINE_TUNE=True as-is and need no per-noise protocol split. "
+                   "<b>Recommended configs unchanged</b> (hybrid for clean/low noise, product for noise ≥ .5); categorical training targets not adopted. The noise-adaptive-acquisition candidate (§9) survives with sharper attribution: switch the <i>selection</i> rule, keep PoE targets always. "
+                   "<b>probcover × PoE control (2026-07-29): the registered prediction was RIGHT on clean, WRONG under noise.</b> Clean 49.7 ≈ hybrid 49.9 (misp ≡ probcover confirmed end-to-end) — but n.2 46.7 vs 47.5, n.5 38.5 vs 41.7, <b>n.8 18.1 vs 25.2, below even misp_pure's 20.7</b>. misp's conflict residuals — negligible dust on clean data — are noise-RESPONSIVE: noise mints conflicts, misp's revisits climb 57→62→69% while probcover stays at a label-blind 52.0% flat, and those repeated in-ball anchors are the raw material PoE denoising needs. The offline fold replay (eval_pc_vs_misp_pseudo_quality.py) shows the pseudo-target purity gap tracks the test-acc gap almost 1:1 (n.8: 22.9% vs 15.1% pseudo-acc → 25.2 vs 18.1 test; n.5: 42.8 vs 37.9 → 41.7 vs 38.5). Without revisits, PoE targets on single-anchor balls are confidently-wrong label propagation — worse under heavy noise than misp_pure's diluted categorical targets on better lSets (selection's denoising contribution ≥ target-family contribution at n.8). "
+                   "<b>Full n.8 ladder @1000: product 29.2 &gt; misp-hybrid 25.2 &gt; misp_pure 20.7 &gt; probcover×PoE 18.1</b> — a measured dose-response on ONE dial: revisit rate 52% (probcover, uncertainty weight 0) → 56-69% (misp, prior-damped weight, noise-responsive) → 76-95% (product, undamped). Each regime has its optimal weight: 0 on clean, high under noise — which is exactly the α / q̂-gate knob of the following entry.",
+        panels=lambda: [
+            panel("e18_n0", "pseudo all (norm), linear — noise 0 (pure 49.6 ≈ hybrid 49.9; both beat product 48.4)", [
+                arm_tr("misp-hybrid — PoE targets", "orange", "bayes_misp", "linear head", "pseudo (all)", "31116406", "0.0", width=3),
+                arm_tr("misp_pure — categorical targets", "yellow", "bayes_misp", "linear head", "pseudo (all)", "31130233", "0.0"),
+                arm_tr("probcover + PoE targets", "blue", "probcover", "linear head", "pseudo (all)", "31150815", "0.0"),
+                arm_tr("product champion (PoE both)", "red", "bayes_product", "linear head", "pseudo (all)", "31048960", "0.0", dash="longdash")]),
+            panel("e18_n2", "pseudo all (norm), linear — noise 0.2 (pure −0.7 vs hybrid @1000)", [
+                arm_tr("misp-hybrid — PoE targets", "orange", "bayes_misp", "linear head", "pseudo (all)", "31116406", "0.2", width=3),
+                arm_tr("misp_pure — categorical targets", "yellow", "bayes_misp", "linear head", "pseudo (all)", "31130233", "0.2"),
+                arm_tr("probcover + PoE targets", "blue", "probcover", "linear head", "pseudo (all)", "31150815", "0.2"),
+                arm_tr("product champion (PoE both)", "red", "bayes_product", "linear head", "pseudo (all)", "31048960", "0.2", dash="longdash")]),
+            panel("e18_n5", "pseudo all (norm), linear — noise 0.5 (pure −2.0 vs hybrid; product leads)", [
+                arm_tr("misp-hybrid — PoE targets", "orange", "bayes_misp", "linear head", "pseudo (all)", "31116406", "0.5", width=3),
+                arm_tr("misp_pure — categorical targets", "yellow", "bayes_misp", "linear head", "pseudo (all)", "31130233", "0.5"),
+                arm_tr("probcover + PoE targets", "blue", "probcover", "linear head", "pseudo (all)", "31150815", "0.5"),
+                arm_tr("product champion (PoE both)", "red", "bayes_product", "linear head", "pseudo (all)", "31048960", "0.5", dash="longdash")]),
+            panel("e18_n8", "pseudo all (norm), linear — noise 0.8 (ladder: product 29.2 > hybrid 25.2 > pure 20.7)", [
+                arm_tr("misp-hybrid — PoE targets", "orange", "bayes_misp", "linear head", "pseudo (all)", "31116406", "0.8", width=3),
+                arm_tr("misp_pure — categorical targets", "yellow", "bayes_misp", "linear head", "pseudo (all)", "31130233", "0.8"),
+                arm_tr("probcover + PoE targets", "blue", "probcover", "linear head", "pseudo (all)", "31150815", "0.8"),
+                arm_tr("product champion (PoE both)", "red", "bayes_product", "linear head", "pseudo (all)", "31048960", "0.8", dash="longdash")]),
+        ]),
+
+    dict(
+        date="2026-07-28", verdict=V_NEU,
+        sweeps="offline eval_clean_selection_geometry.py + eval_product_drift_replay.py on the recorded clean lSets (31048960 product/probcover/random, 31116406 misp; product-score replica fidelity 869/1000 + 855/1000 with mismatch score-gaps ≤ 0.001 = argmax ties)",
+        title="Why product loses on clean data — the label-conflict deficit is a built-in uncertainty sampler (and misp ≡ ProbCover at noise 0)",
+        tested="e18 isolated the clean gap to selection (same PoE targets: misp-hybrid 49.9 vs product 48.4 @1000). By the acquisition algebra all three rules should reduce to the SAME uncovered-count greedy at noise 0 under tophat — one clean in-ball label saturates the posterior in every mode. So what do product's picks actually do differently, and why does it also revisit 76% on clean where probcover sits at 52%?",
+        explain="Two offline studies on the recorded lSets in the selectors' true geometry (unit-L2 features, δ=0.75; selection is training-mode-independent — product pseudo-vs-observed lSets are identical — and seed-dependent only through the 5k valSet split). (1) Geometry: per-budget pool coverage, revisit rate, pick-ball density, class balance, plurality-pseudo accuracy, 1-NN proxy, plus an ideal uncovered-count greedy simulated on the same pools. (2) Exact fp32 replay of the product accumulator along the recorded pick sequence, decomposing every pick's score into uncovered mass vs covered-but-label-conflicted mass.",
+        conclusion="<b>misp's rule is ProbCover-equivalent at noise 0 — behaviorally indistinguishable from the ideal coverage greedy</b> (coverage 55.7% ≡ sim 55.7% ≡ probcover 55.7% @1000; revisits 52-56%; mean pick-ball 59-62 ≡ sim 59). Not because it fully retires conflicted points — misp's selection posterior is the <i>normalized additive-count</i> matrix, so a 2-class-conflicted point keeps a residual deficit too — but because the Dirichlet prior mass αL=50 crushes it: 0.00057 vs 0.0194 for an uncovered in-ball point (2.9% relative; ~34 conflicted ≈ 1 uncovered). "
+                   "<b>Product is not: a point covered by anchors of k different classes keeps a tied log-posterior, maxP = 1/k, deficit (k−1)/k ≈ 0.5 — so class-boundary overlap regions never retire.</b> From pick ~300 on, ~47%/48% (seeds 1/2) of each picked ball's acquisition score is this conflicted-covered mass; the conflict census grows 350 → ~1900 (new boundaries appear faster than re-anchoring resolves them); the price is 6-10 fresh points of count-regret per pick, compounding to <b>coverage 50.6% vs 55.7% @1000 = ~2,300 fewer pseudo-labels (−9%)</b>, denser picks (ball 115 vs 59), lower class entropy (4.41 vs 4.56) — and the clean revisit anomaly (76% vs 52%) is exactly this term. "
+                   "<b>So product = coverage greedy + implicit boundary-uncertainty sampling.</b> On clean data that trade buys +2.2 pseudo purity (66.8 vs 64.6) but volume beats purity (the δ-study lesson) → −1.5 test acc; under noise the SAME term is the revisit-denoising engine that wins n ≥ .5 (e17/e18 ladder). Nothing is broken — the two regimes price uncertainty differently. "
+                   "<b>Design consequence for the §9 noise-adaptive candidate: the conflict deficit is the exact knob — and misp already has a dial for it.</b> Gate product's residual by the estimated noise rate (treat conflicted-covered as covered when q̂ ≈ 0, keep it when q̂ > 0) and product interpolates to ProbCover on clean data by construction; equivalently, on the misp side the SAME term scales with 1/α (α→0 turns misp into a product-like boundary seeker; α=0.5 = αL=50 prior mass is what makes it a pure coverer). One family, one uncertainty weight.",
+        panels=lambda: [
+            panel("e19_cov", "pool coverage @δ=0.75 vs budget — product forfeits 5.1 pts (~2,300 pseudo-labels)", cleangeom_traces("coverage", [
+                ("misp", "misp", "orange", "solid", {"width": 3}),
+                ("probcover", "probcover", "blue", "solid", {}),
+                ("sim", "ideal uncovered-count greedy (sim)", "gray", "dot", {}),
+                ("product", "product", "red", "solid", {"width": 3}),
+                ("random", "random", "green", "dash", {"tint": True})]),
+                  ytitle="pool covered (%)"),
+            panel("e19_rev", "revisit rate vs budget — the 76%-clean anomaly is the conflict term", cleangeom_traces("revisit", [
+                ("misp", "misp", "orange", "solid", {"width": 3}),
+                ("probcover", "probcover", "blue", "solid", {}),
+                ("sim", "ideal greedy (sim)", "gray", "dot", {}),
+                ("product", "product", "red", "solid", {"width": 3})]),
+                  ytitle="picks within δ of an earlier pick (%)"),
+            panel("e19_confl", "share of the picked ball's score from covered-but-CONFLICTED points (product replay, seeds 1+2)",
+                  conflict_share_trace(), ytitle="conflicted share of pick score (%)",
+                  xtitle="pick index", xticks=[100, 300, 500, 700, 1000]),
+            panel("e19_mass", "pseudo-label mass (covered points) vs budget — the accuracy channel", cleangeom_traces("covered_n", [
+                ("misp", "misp", "orange", "solid", {"width": 3}),
+                ("sim", "ideal greedy (sim)", "gray", "dot", {}),
+                ("product", "product", "red", "solid", {"width": 3})]),
+                  ytitle="covered points (= pseudo-labels)"),
         ]),
 ]
 

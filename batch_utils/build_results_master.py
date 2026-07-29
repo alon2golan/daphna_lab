@@ -52,12 +52,24 @@ STUDY_SWEEPS = {
     "31088628",  # wd-fix rerun of the torch-MLP arms (WEIGHT_DECAY 3e-2 -> 1.5e-4) — the display pin for MLP-torch rows
     "31086759",  # rerun of 31085867 tasks 5+7 (hung at training start) — normalized below
     "31108061",  # §9.2 stage-2 δ sweep: champion arm (bayes_product + pseudo all + norm) at initial_delta {0.6, 0.9}; δ=0.75 baseline stays 31048960
+    "31116164",  # normalized-input twin of the wdfix torch-MLP pseudo-all arms (norm=1) — removes the raw-vs-norm confound vs the linear champion
+    "31116378",  # misp-vs-product grid fill: bayes_product x observed x sklearn-MLP (cold + best-val), raw features — mirrors 31085802's protocol
+    "31116406",  # misp-vs-product grid fill: bayes_misp x pseudo all (norm) x warm linear — misp twin of the champion arm 31048960 (MispPosteriorEngine wiring)
+    "31116418",  # misp-vs-product grid fill: bayes_misp x pseudo all (norm) x torch-MLP (cold + best-val, wdfix) — misp twin of 31116164
+    "31118649",  # rerun of 31116418 tasks 4+8 (hung at training start, hit the 10h wall) — normalized below
+    "31130233",  # misp_pure: bayes_misp selection + CATEGORICAL (additive-engine) training targets x pseudo all (norm) x warm linear — same lSets as 31116406, isolates the training-posterior family
+    "31130234",  # misp_pure cold twin of 31130233 (FINE_TUNE off)
+    "31130235",  # misp-hybrid cold twin of 31116406 (PoE-engine targets, FINE_TUNE off)
+    "31130784",  # rerun of 31130235 task 1 (noise 0 seed 2; preempted at episode 0) — normalized below
+    "31150815",  # probcover selection x PoE-engine pseudo all (norm) x warm linear — the e18 selection control (ProbCoverPseudoAdapter wiring)
 }
 
 # A rerun of individual hung/failed array tasks gets its own SLURM job id, but the
 # rows belong to the original sweep: normalize so downstream sweep pins stay single-id.
 RERUN_OF = {
     "31086759": "31085867",
+    "31118649": "31116418",
+    "31130784": "31130235",
 }
 
 # delta = the run's ProbCover/ball radius (initial_delta). Every arm before the

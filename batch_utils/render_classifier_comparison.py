@@ -56,6 +56,7 @@ BLOCKS = [
         spec("linear head (warm, norm), soft-CE", "bayes_product", "linear head", "pseudo (all)", "31048960", ref=True),
         spec("linear head (warm, norm), rKL", "bayes_product", "linear head", "pseudo (all), rkl", "31085854"),
         spec("MLP head torch (cold+best-val, raw), soft-CE", "bayes_product", "MLP head (torch)", "pseudo (all)", "31088628"),
+        spec("MLP head torch (cold+best-val, norm), soft-CE", "bayes_product", "MLP head (torch)", "pseudo (all)", "31116164"),
         spec("MLP head torch (cold+best-val, raw), rKL", "bayes_product", "MLP head (torch)", "pseudo (all), rkl", "31088628"),
         spec("1-NN on the pseudo-all target set", "bayes_product", "1-NN", "pseudo (all) targets", "30978366"),
     ]),

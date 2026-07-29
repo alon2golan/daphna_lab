@@ -72,6 +72,9 @@ ARMS = [
     arm("ps_mlp_ce", "pseudo", "bayes_product", "MLP head (torch)", "pseudo (all)", "31088628",
         "pseudo-all · MLP, soft-CE", "orange", markers=True, dash="dashdot", on=True,
         d_model="MLP torch (best-val, raw)"),
+    arm("ps_mlp_ce_norm", "pseudo", "bayes_product", "MLP head (torch)", "pseudo (all)", "31116164",
+        "pseudo-all · MLP norm, soft-CE", "orange", markers=True, dash="dashdot", tint=True, on=True,
+        d_model="MLP torch (best-val, norm)"),
     arm("ps_mlp_rkl", "pseudo", "bayes_product", "MLP head (torch)", "pseudo (all), rkl", "31088628",
         "pseudo-all · MLP, rKL", "violet", markers=True, dash="dashdot",
         d_model="MLP torch (best-val, raw)"),
@@ -206,7 +209,9 @@ mode-seeking, it lets the classifier commit to a single class inside a spread-ou
 instead of averaging over it (NEXT_STEPS §9.8) — potentially a better fit for impure balls at
 high noise. Both losses run on both heads of the <b>pseudo-all</b> arm (the recommended
 configuration): linear (warm, normalized inputs) and torch-MLP (cold + best-val, raw inputs,
-architecture-parity-checked against the sklearn head in the QA group). KL is skipped for
+architecture-parity-checked against the sklearn head in the QA group; a normalized-input
+soft-CE twin — sweep 31116164 — controls the raw-vs-norm confound and halves the clean
+deficit without changing any conclusion). KL is skipped for
 <code>bayes_misp</code>: it trains on hard observed labels, where soft-CE ≡ CE and reverse KL
 is degenerate.</p>
 <div class="chart"><div class="chart-title">pseudo-all: {linear, MLP} × {soft-CE, reverse KL}</div>
@@ -242,6 +247,7 @@ chart for exact mean±std of every visible arm. Values are test accuracy (%), me
 <tr><td>1-NN</td><td>sweep 31048649 + offline replays (<code>eval_1nn_all_arms.py</code>, <code>eval_heads_fill.py</code> — gate-checked to ≤0.05)</td><td>all four samplings + pseudo-all target set</td></tr>
 <tr><td>MLP (sklearn, cold+best-val)</td><td>sweeps 31085802 (misp) + 31085867 (random, probcover)</td><td>noise × 3 seeds</td></tr>
 <tr><td>MLP (torch twin) + rKL loss</td><td>sweep 31085854</td><td>pseudo-all × {LH,MLP} × {soft-CE,rKL} + parity gate</td></tr>
+<tr><td>MLP (torch twin), normalized inputs</td><td>sweep 31116164</td><td>pseudo-all × soft-CE, noise × 3 seeds (norm-control)</td></tr>
 </table>
 <p class="small" style="margin-top:12px">
 Single source of truth: <code>results/cifar100/results_master.csv</code>

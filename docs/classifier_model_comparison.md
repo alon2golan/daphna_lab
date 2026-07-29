@@ -79,6 +79,8 @@ converged — now has a third player: the cold+best-val MLP.
 | &nbsp;&nbsp;Δ vs linear† | +0.0 | -0.7 | -1.1 | -1.2 | -1.7 |
 | MLP head torch (cold+best-val, raw), soft-CE | 37.5±0.5 | 42.3±0.5 | 44.3±0.1 | 45.8±0.2 | 47.0±0.3 |
 | &nbsp;&nbsp;Δ vs linear† | -0.9 | -1.0 | -1.2 | -1.3 | -1.4 |
+| MLP head torch (cold+best-val, norm), soft-CE | 38.2±0.4 | 42.9±0.7 | 44.8±0.2 | 46.2±0.4 | 47.4±0.3 |
+| &nbsp;&nbsp;Δ vs linear† | -0.2 | -0.4 | -0.7 | -0.9 | -1.0 |
 | MLP head torch (cold+best-val, raw), rKL | 37.4±0.5 | 41.8±0.4 | 43.9±0.3 | 45.0±0.2 | 46.2±0.5 |
 | &nbsp;&nbsp;Δ vs linear† | -1.0 | -1.5 | -1.6 | -2.1 | -2.2 |
 | 1-NN on the pseudo-all target set | **38.4±0.5** | 42.4±0.6 | 43.8±0.4 | 45.0±0.2 | 45.7±0.3 |
@@ -126,6 +128,8 @@ converged — now has a third player: the cold+best-val MLP.
 | &nbsp;&nbsp;Δ vs linear† | -0.1 | -0.1 | +0.2 | +0.0 | -0.3 |
 | MLP head torch (cold+best-val, raw), soft-CE | 29.1±1.4 | 36.2±1.7 | 39.7±0.8 | 41.8±0.2 | 44.0±0.4 |
 | &nbsp;&nbsp;Δ vs linear† | -0.6 | -2.5 | -3.0 | -2.7 | -2.6 |
+| MLP head torch (cold+best-val, norm), soft-CE | 29.6±1.3 | 36.8±1.6 | 40.3±0.7 | 42.0±0.4 | 44.5±0.5 |
+| &nbsp;&nbsp;Δ vs linear† | -0.1 | -1.9 | -2.4 | -2.5 | -2.1 |
 | MLP head torch (cold+best-val, raw), rKL | 28.9±1.3 | 35.5±1.5 | 39.4±0.6 | 41.2±0.4 | 43.6±1.1 |
 | &nbsp;&nbsp;Δ vs linear† | -0.8 | -3.2 | -3.3 | -3.3 | -3.0 |
 | 1-NN on the pseudo-all target set | **29.8±1.8** | 37.1±1.6 | 39.6±1.2 | 40.9±0.4 | 42.7±0.2 |
@@ -173,6 +177,8 @@ converged — now has a third player: the cold+best-val MLP.
 | &nbsp;&nbsp;Δ vs linear† | +0.1 | -0.1 | -0.1 | +0.1 | -0.1 |
 | MLP head torch (cold+best-val, raw), soft-CE | 17.0±2.8 | 27.7±1.0 | 32.4±0.8 | 34.9±0.7 | 37.8±0.7 |
 | &nbsp;&nbsp;Δ vs linear† | -1.4 | -4.5 | -5.0 | -5.2 | -4.8 |
+| MLP head torch (cold+best-val, norm), soft-CE | 17.2±3.0 | 28.0±1.0 | 32.5±0.5 | 34.8±0.9 | 37.9±0.6 |
+| &nbsp;&nbsp;Δ vs linear† | -1.2 | -4.2 | -4.9 | -5.3 | -4.7 |
 | MLP head torch (cold+best-val, raw), rKL | 16.7±2.9 | 27.2±1.1 | 31.8±0.7 | 34.6±0.8 | 37.8±0.9 |
 | &nbsp;&nbsp;Δ vs linear† | -1.7 | -5.0 | -5.6 | -5.5 | -4.8 |
 | 1-NN on the pseudo-all target set | 17.7±3.0 | 27.9±1.2 | 31.7±0.5 | 33.6±0.8 | 35.8±0.5 |
@@ -220,6 +226,8 @@ converged — now has a third player: the cold+best-val MLP.
 | &nbsp;&nbsp;Δ vs linear† | -0.1 | -0.1 | +0.1 | +0.2 | +0.2 |
 | MLP head torch (cold+best-val, raw), soft-CE | 5.3±0.8 | 12.5±3.4 | 16.6±2.2 | 20.6±3.2 | 24.2±2.2 |
 | &nbsp;&nbsp;Δ vs linear† | -0.9 | -2.5 | -3.8 | -4.5 | -5.0 |
+| MLP head torch (cold+best-val, norm), soft-CE | 5.4±0.6 | 12.4±3.4 | 16.2±2.1 | 20.1±3.1 | 23.6±2.2 |
+| &nbsp;&nbsp;Δ vs linear† | -0.8 | -2.6 | -4.2 | -5.0 | -5.6 |
 | MLP head torch (cold+best-val, raw), rKL | 5.3±0.8 | 12.2±3.5 | 16.1±2.3 | 20.0±3.5 | 23.8±2.4 |
 | &nbsp;&nbsp;Δ vs linear† | -0.9 | -2.8 | -4.3 | -5.1 | -5.4 |
 | 1-NN on the pseudo-all target set | 5.5±0.6 | 11.9±3.0 | 15.5±1.7 | 18.7±2.8 | 21.9±2.0 |

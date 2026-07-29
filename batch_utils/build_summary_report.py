@@ -409,20 +409,28 @@ over the <em>C</em>=100 classes, <em>P</em>(<em>y<sub>u</sub></em>&nbsp;=&nbsp;�
 <p><b>Step A — annotator noise enters.</b> For a labeled point ℓ with observed label
 <em>ỹ</em><sub>ℓ</sub> from annotator <em>a</em> with confusion matrix
 <em>M<sup>a</sup></em>[<em>k</em>,<em>j</em>] = <em>P</em>(says <em>j</em> | true <em>k</em>),
-the belief about ℓ's <i>own</i> true label is Bayes' rule through the confusion matrix:</p>
-<div class="math"><em>b</em><sub>ℓ</sub>(<em>k</em>) <span class="op">∝</span> π(<em>k</em>) · <em>M<sup>a</sup></em>[<em>k</em>, <em>ỹ</em><sub>ℓ</sub>]
+the per-neighbor expert is the <i>likelihood</i> of that annotation under each
+true-class hypothesis (NO prior inside — see the fix note below):</p>
+<div class="math"><em>L</em><sub>ℓ</sub>(<em>k</em>) <span class="op">∝</span> <em>M<sup>a</sup></em>[<em>k</em>, <em>ỹ</em><sub>ℓ</sub>]
 &nbsp;&nbsp;&nbsp;<span style="color:var(--muted)">— symmetric annotator with accuracy ρ:&nbsp;</span>
-<em>b</em><sub>ℓ</sub>(<em>k</em>) = ρ <span style="color:var(--muted)">if</span> <em>k</em>=<em>ỹ</em><sub>ℓ</sub>,
+<em>L</em><sub>ℓ</sub>(<em>k</em>) = ρ <span style="color:var(--muted)">if</span> <em>k</em>=<em>ỹ</em><sub>ℓ</sub>,
 <span style="color:var(--muted)">else</span> (1−ρ)/(<em>C</em>−1)</div>
 
-<p><b>Step B — geometry enters.</b> The belief propagates to any point <em>u</em> through the
+<p><b>Step B — geometry enters.</b> The evidence propagates to any point <em>u</em> through the
 kernel <em>K</em>[<em>u</em>,ℓ] (tophat in all runs: 1 inside the δ-ball, 0 outside; δ=0.75),
-diluted toward the prior with distance:</p>
+diluted toward the uniform (know-nothing) constant with distance:</p>
 <div class="math"><em>q</em><sub>ℓ</sub>(<em>u</em>,<em>k</em>) <span class="op">=</span>
-<em>K</em>[<em>u</em>,ℓ] · <em>b</em><sub>ℓ</sub>(<em>k</em>)
-<span class="op">+</span> (1 − <em>K</em>[<em>u</em>,ℓ]) · π(<em>k</em>)</div>
+<em>K</em>[<em>u</em>,ℓ] · <em>L</em><sub>ℓ</sub>(<em>k</em>)
+<span class="op">+</span> (1 − <em>K</em>[<em>u</em>,ℓ]) · 1/<em>C</em></div>
 <p class="small">Read: with probability <em>K</em> "u and ℓ share a true label" (ProbCover's ball
-assumption) so ℓ's belief transfers as-is; otherwise ℓ says nothing and the message is the prior.</p>
+assumption) so ℓ's annotation evidence transfers as-is; otherwise ℓ says nothing — the message is
+constant across classes, and the final softmax removes it entirely.</p>
+<p class="small"><b>⚠ 2026-07-29 fix (prior double-count).</b> Steps A/B originally used the
+posterior <em>b</em><sub>ℓ</sub>(<em>k</em>) ∝ π(<em>k</em>)·<em>M<sup>a</sup></em>[<em>k</em>,<em>ỹ</em><sub>ℓ</sub>]
+as each expert and π as the out-of-ball fallback: a product of <em>N</em> experts then multiplies
+π up to <em>N</em>+1 times and collapses to argmax&nbsp;π under any non-uniform prior. The prior
+enters exactly once, in Step C. No run to date is affected — π has always been uniform and
+<em>K</em> tophat, under which both formulations are numerically identical.</p>
 
 <p><b>Step C — fuse all neighbors (product of experts).</b> All labeled neighbors combine in
 log space (naive Bayes over neighbors):</p>

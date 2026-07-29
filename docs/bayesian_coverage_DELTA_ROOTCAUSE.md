@@ -216,7 +216,8 @@ valSet, clean):
 5. **The noise tables (R3-R5) carry the same confound.** The large linear-over-MLP
    margins there (e.g. 31.2 vs 24.6 @noise .5 @1000) mix real noise-robustness with
    the protocol asymmetry; they should not be read as "MLP memorizes noise" until
-   the protocol-matched rerun lands.
+   the protocol-matched rerun lands. *(Landed 2026-07-26 — see the warm-vs-cold
+   addendum below; the confound also ran the other way.)*
 
 **Resolution (protocol decision, 2026-07-16, with Alon):** keep the linear head
 warm (established study protocol, genuine gain); keep the MLP cold but add
@@ -247,6 +248,53 @@ memorization. With each head at its own best protocol the best-val MLP now leads
 the warm linear probe at every noise level (42.5 vs 41.8 @.2; 35.0 vs 31.2 @.5;
 17.2 vs 13.6 @.8 @1000). Early stopping on a clean valSet = textbook
 noise-robustness, quantified.
+
+**Addendum 2026-07-26 — warm-vs-cold under noise, the controlled replay
+(warm wins clean, cold wins noise).** Finding 5's open question is now measured.
+Offline replay of the BAYES_MISP noise-sweep runs (31084429) with the exact
+pipeline linear protocol — same lSets in selection order, observed labels
+regenerated and asserted identical, same SGD/cos-200/batch-100/best-val-every-2
+loop — differing ONLY in warm (pipeline replica) vs cold (fresh model +
+optimizer per episode). Fidelity gate vs the runs' recorded per-episode test
+accs: mean |diff| 0.12, max 0.58, so the replica is trusted. Script
+`batch_utils/eval_warmcold_linear_replay.py`, per-seed truth in
+`results/cifar100/warmcold_linear_replay/per_episode.csv`. Mean over seeds
+{1,2,3}, test acc:
+
+| noise | protocol | 100 | 300 | 500 | 700 | 1000 | cold−warm @1000 |
+|---|---|---|---|---|---|---|---|
+| 0.0 | warm | 24.2 | **39.6** | **43.3** | **44.5** | **46.6** | −2.2 |
+| 0.0 | cold | 24.4 | 35.8 | 40.5 | 41.8 | 44.5 | |
+| 0.2 | warm | 20.2 | **33.8** | **37.5** | **39.6** | 41.9 | ±0.0 |
+| 0.2 | cold | 20.3 | 31.3 | 35.4 | 38.6 | 41.9 | |
+| 0.5 | warm | 13.6 | **21.5** | 25.8 | 28.9 | 31.1 | **+4.5** |
+| 0.5 | cold | 13.5 | 20.6 | 25.9 | **30.6** | **35.7** | |
+| 0.8 | warm | 5.9 | **8.7** | 11.0 | 12.1 | 13.4 | **+5.3** |
+| 0.8 | cold | 5.8 | 8.3 | **12.5** | **14.6** | **18.8** | |
+
+**The warm-start effect flips sign with noise.** Clean: warm +2.2..+3.9 (the
+known optimization-time gain, replicated to the decimal). Noise .2: warm helps
+mid-budget, ties @1000. Noise ≥.5: warm is *poison* from ~500 labels — the
+model enters each episode from weights that already spent thousands of epochs
+fitting wrong labels, and per-episode best-val checkpointing cannot undo an
+episode's *starting point*. Cold is +4.5 (35.7 vs 31.1, n.5) and +5.3 (18.8 vs
+13.4, n.8) @1000.
+
+**Consequence for the head comparison: the MLP's high-budget noise lead was
+this artifact.** Against the *cold* linear @1000, the sklearn best-val MLP no
+longer leads under noise: n.5 35.0 vs cold-linear **35.7**; n.8 17.2 vs
+**18.8**; n.2 42.5 vs 41.9; clean tie. The §9.7/§4.7 statement "the best-val
+MLP leads the linear probe at every noise level and budget" holds only against
+the warm linear; each-head-at-its-best-protocol under noise ≥.5 is **cold**
+linear ≥ MLP. What genuinely survives for the MLP: the low-budget
+learned-nonlinearity gain (~+10 @100, all noise levels) and a sliver @ n.2.
+
+**Protocol rule going forward: warm for clean/low-noise runs, cold for noise
+≥.5.** Equivalently: R3-R5 linear observed rows (all warm) *underestimate* the
+linear head at noise ≥.5 by ~4-5 pts @1000. `FINE_TUNE` deserves a per-noise
+decision, not a global default — same class of lesson as pitfall 2's "the probe
+measures the optimizer": here the probe measures the *training history*, and
+under noise that history is a liability.
 
 **Lessons to carry forward.**
 
