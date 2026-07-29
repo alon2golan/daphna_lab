@@ -49,8 +49,9 @@ ProbCover/NPC path is byte-untouched.
 | $M^a[k,j]$ | the annotator's **confusion matrix** ($C{\times}C$, rows sum to 1): $M^a[k,j] = P(\text{annotator says } j \mid \text{true class is } k)$. The entry $M^a[k,\tilde{y}_\ell]$ used in Step A reads: "if $\ell$'s true class were $k$, how likely was this annotator to answer $\tilde{y}_\ell$?" — the **likelihood** in Bayes' rule. Symmetric annotator: diagonal $=\rho_a$, off-diagonal $=(1-\rho_a)/(C-1)$; an asymmetric annotator just supplies a different matrix | `Annotator.confusion_matrix`, `_confusion_matrix()` |
 | $\pi(k)$ | the **class prior** — belief about any point's class before seeing labels; uniform $1/C$ in all runs | `self.pi` |
 | $K[u,\ell]$ | the **kernel**: the probability that $u$ shares $\ell$'s true label, from feature distance — ProbCover's "same $\delta$-ball $\Rightarrow$ same label" assumption made explicit. Tophat: $K[u,\ell]=1$ if $\lVert f_u - f_\ell\rVert \le \delta$, else $0$ | `self.K` (base class), $\delta=0.75$ |
-| $b_\ell(k)$ | **Step-A belief**: $P(y_\ell = k \mid \tilde{y}_\ell)$ — what we believe about $\ell$'s **own** true label after passing the annotation through the confusion matrix | `_belief()` |
-| $q_\ell(u,k)$ | **Step-B message**: the likelihood that neighbor $\ell$ contributes about **point $u$'s** label — $b_\ell$ diluted toward the prior by distance. See the "how to read $q_\ell$" box in Step B | `_neighbor_loglik()` |
+| $L_\ell(k)$ | **Step-A expert**: the (column-normalized) **likelihood** $\propto M^a[k, \tilde{y}_\ell]$ of the observed annotation under each true-class hypothesis — NO prior inside | `_likelihood()` |
+| $b_\ell(k)$ | **Step-A belief**: $P(y_\ell = k \mid \tilde{y}_\ell) \propto \pi(k) L_\ell(k)$ — $\ell$'s own-label posterior. Used ONLY where each point contributes once with mixture weights summing to 1 (§7.9 NW targets), never as a PoE expert (see the 2026-07-29 fix box) | `_belief()` |
+| $q_\ell(u,k)$ | **Step-B message**: the likelihood that neighbor $\ell$ contributes about **point $u$'s** label — $L_\ell$ diluted toward the uniform (know-nothing) constant by distance. See the "how to read $q_\ell$" box in Step B | `_neighbor_loglik()` |
 | $w_{u\ell}$ | per-neighbor **weight** on that message; default `kernel`: $w_{u\ell}=K[u,\ell]$ | `NEIGHBOR_WEIGHT` |
 | $\beta$ | global **tempering exponent** applied to every message (§1.4); default $1.0$ = off | `TEMPER_BETA` |
 | $C[u]$ | $u$'s row of the coverage accumulator = the **log unnormalized posterior** over classes (product mode) | `self.C` |
@@ -60,22 +61,36 @@ ProbCover/NPC path is byte-untouched.
 Every pool point $u$ carries a distribution $P(y_u = k)$ over all classes instead of a
 covered bit. It is built in three steps:
 
-### Step A — annotator noise enters (`_belief`, bayesian_coverage.py:171)
+### Step A — annotator noise enters (`_likelihood`)
 
-For a labeled point $\ell$ with observed label $\tilde{y}_\ell$ from annotator $a$, the belief over
-its **own true label** is Bayes' rule through the annotator's confusion matrix
+For a labeled point $\ell$ with observed label $\tilde{y}_\ell$ from annotator $a$, the
+per-neighbor **expert** is the likelihood of that annotation under each true-class
+hypothesis, read off the annotator's confusion matrix
 $M^a[k,j] = P(\text{observed } j \mid \text{true } k)$:
 
 $$
-b_\ell(k) \;\propto\; \pi(k)\cdot M^a[k,\, \tilde{y}_\ell]
+L_\ell(k) \;\propto\; M^a[k,\, \tilde{y}_\ell]
 $$
 
-- $\pi$ = the **class prior** (uniform, $1/C$). Terminology note: the prior is $\pi$, *not* the
-  annotator-confidence vector — $b_\ell$ is already a (Step-A) posterior on $\ell$'s own label.
-- Symmetric annotator with accuracy $\rho$:
+(column-normalized so it is scale-comparable with the $1/C$ neutral term of Step B —
+a per-$k$ constant, invisible to the final softmax).
+
+> **⚠ 2026-07-29 fix — the prior enters ONCE, in Step C.** The original formulation
+> used the Step-A *posterior* $b_\ell(k) \propto \pi(k) M^a[k,\tilde{y}_\ell]$ as each
+> expert **and** $\pi$ as the Step-B out-of-ball fallback. In a product of $N$ experts
+> that multiplies $\pi$ up to $N{+}1$ times, so under any non-uniform prior the
+> posterior collapses to $\arg\max_k \pi(k)$. The expert must be a **pure likelihood**;
+> $\pi$ appears exactly once, as the Step-C init. **No past result is affected**: all
+> runs to date have uniform $\pi$ (`PRIOR='empirical'` is unimplemented) and tophat
+> $K\in\{0,1\}$, under which old and new formulations are numerically identical.
+> The posterior form $b_\ell$ (`_belief`) survives only where it is correct: the §7.9
+> NW **mixture** ($\sum_\ell w_\ell b_\ell$, weights summing to 1 — prior enters once
+> per convex combination, no compounding).
+
+- Symmetric annotator with accuracy $\rho$ (columns already sum to 1):
 
 $$
-b_\ell(k) =
+L_\ell(k) =
 \begin{cases}
 \rho & k = \tilde{y}_\ell \\[2pt]
 \dfrac{1-\rho}{C-1} & k \neq \tilde{y}_\ell
@@ -83,15 +98,17 @@ b_\ell(k) =
 $$
 
   E.g. a 50%-noise annotator on CIFAR100: $0.5$ on the observed class, $0.5/99$ elsewhere.
+  (Under uniform $\pi$ this coincides with the old $b_\ell$ — why the fix is a no-op on
+  every existing run.)
 - The **full confusion matrix** is used, so asymmetric annotators work for free
   (commit `9b54ce0`; `Annotator.confusion_matrix`).
 
-### Step B — geometry enters (`_neighbor_loglik`, line 189)
+### Step B — geometry enters (`_neighbor_loglik`)
 
-The belief propagates to any other point $u$ through the kernel edge, diluted by distance:
+The expert propagates to any other point $u$ through the kernel edge, diluted by distance:
 
 $$
-q_\ell(u,k) \;=\; K[u,\ell]\cdot b_\ell(k) \;+\; \bigl(1-K[u,\ell]\bigr)\cdot \pi(k)
+q_\ell(u,k) \;=\; K[u,\ell]\cdot L_\ell(k) \;+\; \bigl(1-K[u,\ell]\bigr)\cdot \tfrac{1}{C}
 $$
 
 **How to read $q_\ell(u,k)$.** It answers: *"given only what neighbor $\ell$ knows, how
@@ -100,23 +117,28 @@ a full distribution over the $C$ classes (one $q_\ell(u,\cdot)$ vector per (neig
 pair). It is a **mixture of two hypotheses**, weighted by the kernel:
 
 - With probability $K[u,\ell]$: "$u$ and $\ell$ share the same true label" (the ProbCover
-  ball assumption holds) — then everything we believe about $\ell$'s label, $b_\ell$,
-  transfers to $u$ as-is.
+  ball assumption holds) — then $\ell$'s annotation evidence, $L_\ell$, transfers to $u$
+  as-is.
 - With probability $1-K[u,\ell]$: "$u$ is unrelated to $\ell$" — then $\ell$ tells us
-  nothing about $u$, and the message falls back to the prior $\pi$.
+  nothing about $u$, and the message falls back to the **uniform constant** $1/C$: constant
+  across $k$, so the softmax removes it and a far neighbor is exactly evidence-free.
+  (It must NOT fall back to $\pi$ — that is the double-count of the 2026-07-29 fix box.
+  $1/C$ rather than the scalar $1$ keeps a fading expert interpolating toward the
+  know-nothing distribution at the same scale as $L_\ell$; identical for tophat $K$,
+  the knob that matters if a smooth kernel is ever used.)
 
 Limit cases, with a 60%-accurate annotator on CIFAR100 that said class 7:
 
 | Situation | $K[u,\ell]$ | $q_\ell(u,\cdot)$ |
 |---|---|---|
-| $u$ right next to $\ell$ | $1$ | $= b_\ell$: $0.6$ on class 7, $0.4/99$ elsewhere |
-| $u$ far from $\ell$ | $0$ | $= \pi$: uniform $1/100$ — no information |
+| $u$ right next to $\ell$ | $1$ | $= L_\ell$: $0.6$ on class 7, $0.4/99$ elsewhere |
+| $u$ far from $\ell$ | $0$ | $= 1/C$: uniform $1/100$ — no information |
 | smooth kernel, mid-distance | $0.5$ | halfway: $0.303$ on class 7, ~$0.007$ elsewhere |
 
 Close neighbor + accurate annotator $\Rightarrow$ peaked toward $\tilde{y}_\ell$. Far neighbor **or** noisy
-annotator $\Rightarrow$ flat toward the prior. With the tophat kernel (what all our runs use),
+annotator $\Rightarrow$ flat toward uniform. With the tophat kernel (what all our runs use),
 $K \in \{0,1\}$ — inside/outside the $\delta$-ball — so distance acts as a gate: in-ball
-neighbors send $b_\ell$, out-of-ball neighbors send the (information-free) prior.
+neighbors send $L_\ell$, out-of-ball neighbors send the (information-free) uniform.
 
 ### Step C — fuse all labeled neighbors (product of experts)
 
@@ -136,7 +158,8 @@ P(y_u = k) \;\propto\; \pi(k)\, \prod_{\ell \in L} q_\ell(u,k)^{\,\beta\, w_{u\e
 $$
 
 (In the code, `_neighbor_loglik` returns exactly `temper_beta * w * log q`, accumulated
-into `self.C` by `_fold_neighbor`.)
+into `self.C` by `_fold_neighbor`. The $\log \pi$ init term is the prior's **only**
+appearance in the whole pipeline — see the Step-A fix box.)
 
 - **Product, not addition**: agreeing neighbors *sharpen* the posterior; a single
   confident-but-wrong neighbor is overridable. An **additive** rule

@@ -75,30 +75,42 @@ and (4) — the noisy-annotator regime this lab studies.
   not just a scalar accuracy, so asymmetric annotators work for free.
 - `π(k)` = class prior (uniform, or empirical).
 
-### Step A — posterior on the neighbor's own true label (point 2)
+### Step A — likelihood of the neighbor's annotation (point 2)
+
+> **⚠ CORRECTED 2026-07-29** (prior double-count): the expert is the pure
+> **likelihood**, NOT the posterior `b_ℓ(k) ∝ π(k)·M^a[k, ỹ_ℓ]` originally
+> written here. A product of N posterior-experts (plus the π out-of-ball
+> fallback of the original Step B) multiplies π up to N+1 times and collapses
+> to `argmax π` under any non-uniform prior. π enters ONCE, in Step C.
+> Identical numerics under uniform π + tophat K, so all runs to date stand.
+> Full derivation: bayesian_coverage_THEORY.md Step A fix box.
 
 Given the observation `ỹ_ℓ`:
 
 ```
-b_ℓ(k) := P(y_ℓ = k | ỹ_ℓ)  ∝  π(k) · M^a[k, ỹ_ℓ]
+L_ℓ(k) := P(ỹ_ℓ | y_ℓ = k)  ∝  M^a[k, ỹ_ℓ]      (column-normalized)
 ```
 
-For a symmetric annotator this is `b_ℓ(ỹ_ℓ) = ρ_a`, and `(1 − ρ_a)/(C − 1)`
+For a symmetric annotator this is `L_ℓ(ỹ_ℓ) = ρ_a`, and `(1 − ρ_a)/(C − 1)`
 elsewhere. **This is where annotator accuracy enters.** A near-oracle annotator
-gives a peaked `b_ℓ`; a 90%-noise annotator gives a nearly flat one.
+gives a peaked `L_ℓ`; a 90%-noise annotator gives a nearly flat one.
+(The posterior form `b_ℓ(k) ∝ π(k)·L_ℓ(k)` survives as `_belief`, used only by
+the §7.9 NW mixture, where each point enters once with weights summing to 1.)
 
-### Step B — propagate the neighbor's belief to `u` through the kernel
+### Step B — propagate the neighbor's evidence to `u` through the kernel
 
 Interpret `K[u, ℓ] ∈ [0,1]` as the probability that `u` shares `ℓ`'s true label
 (the ProbCover "same ball ⇒ same label" assumption, made soft). A single
 neighbor's likelihood for `u`'s class is a mixture:
 
 ```
-q_ℓ(u, k)  =  K[u, ℓ] · b_ℓ(k)  +  (1 − K[u, ℓ]) · π(k)
+q_ℓ(u, k)  =  K[u, ℓ] · L_ℓ(k)  +  (1 − K[u, ℓ]) · (1/C)
 ```
 
 - Near neighbor + accurate annotator ⇒ peaked toward `ỹ_ℓ`.
-- Far neighbor or noisy annotator ⇒ flat toward the prior `π`.
+- Far neighbor or noisy annotator ⇒ flat toward uniform — constant across `k`,
+  so a K=0 neighbor is exactly evidence-free after the softmax (the original
+  `π(k)` fallback re-multiplied the prior per far neighbor; see the Step-A box).
 
 This single line encodes points (1) and (2) together.
 

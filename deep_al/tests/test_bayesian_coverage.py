@@ -58,7 +58,7 @@ def entropy(p):
 
 def loglik(bc, k_row, label, r):
     """Per-point log-likelihood contribution of one symmetric-accuracy-r neighbor."""
-    return bc._neighbor_loglik(k_row, bc._neighbor_true_label_belief(label, r))
+    return bc._neighbor_loglik(k_row, bc._likelihood(label, bc._symmetric_confusion(r)))
 
 
 class TestPosteriorValid(unittest.TestCase):
@@ -396,6 +396,7 @@ class TestNWOutOfBall(unittest.TestCase):
         bc.out_of_ball = 'nw'
         bc.nw_m = 7
         bc.nw_kappa = 3.0
+        bc.oob_weight_mode = 'const'
         bc.oob_weight = 1.0
         # 1-D feature line: anchors at 0.0 (label 0), 10.0 (label 1),
         # 30.0 (label 2); uncovered points at 2.0 (near anchor A), 100.0
@@ -469,6 +470,58 @@ class TestNWOutOfBall(unittest.TestCase):
         self.assertEqual(set(out), {3, 4, 5})
         self.assertEqual(int(out[3].argmax()), 0)
         self.assertEqual(int(out[4].argmax()), 2)
+
+
+class TestNonUniformPriorNoCollapse(unittest.TestCase):
+    """
+    Regression for the 2026-07-29 PoE prior double-count bug: pi must enter
+    the product exactly once (via the C init), never per neighbor. The old
+    code used the Step-A posterior (pi inside) as each expert AND pi as the
+    out-of-ball neutral element, so N annotations multiplied pi^(N+1) and the
+    posterior collapsed to argmax pi under any non-uniform prior.
+    """
+
+    def _bc_with_prior(self, pi, **kw):
+        bc = make_bc(num_classes=len(pi), combine='product', **kw)
+        bc.pi = torch.tensor(pi, dtype=torch.float64)
+        return bc
+
+    def test_far_neighbors_are_evidence_free(self):
+        # 50 out-of-ball (K=0) annotations must leave the posterior AT the
+        # prior — under the old code it sharpened to argmax pi. equal
+        # weighting (w=1): kernel weighting already zeroes K=0 contributions,
+        # so it wouldn't exercise the neutral element.
+        bc = self._bc_with_prior([0.7, 0.2, 0.1], neighbor_weight='equal')
+        bc.C = init_C(bc, 1)
+        k_row = torch.zeros(1, dtype=torch.float64)
+        for _ in range(50):
+            bc.C = bc.C + loglik(bc, k_row, 1, 0.9)
+        self.assertTrue(torch.allclose(bc.posterior()[0], bc.pi, atol=1e-9))
+
+    def test_single_inball_label_is_one_bayes_update(self):
+        # One K=1 neighbor -> posterior = pi * M[:, label] / Z: the prior
+        # applied exactly once, not squared.
+        bc = self._bc_with_prior([0.7, 0.2, 0.1])
+        r, label = 0.9, 1
+        bc.C = init_C(bc, 1) + loglik(bc, torch.ones(1, dtype=torch.float64), label, r)
+        M = bc._symmetric_confusion(r)
+        expected = bc.pi * M[:, label]
+        expected = expected / expected.sum()
+        self.assertTrue(torch.allclose(bc.posterior()[0], expected, atol=1e-9))
+
+    def test_uniform_prior_unchanged_by_fix(self):
+        # Under uniform pi the likelihood expert equals the old posterior
+        # expert and 1/C equals the old pi neutral term, so the fix is a
+        # no-op: q(u,k) = K*b(k) + (1-K)*pi(k) reproduced exactly.
+        bc = make_bc(num_classes=4, combine='product')
+        k_row = torch.tensor([1.0, 0.6, 0.3, 0.0], dtype=torch.float64)
+        r, label = 0.8, 2
+        new = loglik(bc, k_row, label, r)
+        b_old = bc._neighbor_true_label_belief(label, r)      # pi * M / Z
+        q_old = (k_row.unsqueeze(1) * b_old.unsqueeze(0)
+                 + (1.0 - k_row.unsqueeze(1)) * bc.pi.unsqueeze(0))
+        old = bc.temper_beta * k_row.unsqueeze(1) * torch.log(q_old.clamp_min(bc.log_eps))
+        self.assertTrue(torch.allclose(new, old, atol=1e-12))
 
 
 if __name__ == '__main__':

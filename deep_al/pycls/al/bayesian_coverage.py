@@ -185,9 +185,28 @@ class BayesianCoverage(CoverageMatrixMethod):
         (design §2 Step A). General form: annotator accuracy enters through the
         confusion matrix M, so symmetric and asymmetric annotators are handled
         uniformly. Returns a normalized [C] tensor.
+
+        This is a POSTERIOR (prior included) — correct only where each
+        annotated point contributes it once with weights summing to 1, i.e.
+        the NW MIXTURE of §7.9 (_nw_targets). The PoE fold must use
+        _likelihood instead: multiplying per-neighbor posteriors compounds
+        pi once per neighbor and collapses to argmax pi under a non-uniform
+        prior (bug found 2026-07-29).
         """
         b = self.pi * M[:, chosen_label]                                # [C]
         return b / b.sum().clamp_min(self.log_eps)
+
+    def _likelihood(self, chosen_label, M):
+        """
+        L_l(k) = P(y~_l = chosen_label | y_l = k) = M[k, chosen_label] — the
+        PoE expert: a pure likelihood, NO prior. pi enters the product exactly
+        once, via the log-prior init of C. Column-normalized so it stays
+        scale-comparable with the uniform 1/C neutral term in _neighbor_loglik
+        (a per-k constant, softmax-invariant). Under a uniform prior this
+        equals _belief exactly, so all uniform-prior results are unchanged.
+        """
+        L = M[:, chosen_label]                                          # [C]
+        return L / L.sum().clamp_min(self.log_eps)
 
     def _neighbor_true_label_belief(self, chosen_label, r):
         """
@@ -197,16 +216,23 @@ class BayesianCoverage(CoverageMatrixMethod):
         """
         return self._belief(chosen_label, self._symmetric_confusion(r))
 
-    def _neighbor_loglik(self, k_row, b):
+    def _neighbor_loglik(self, k_row, lik):
         """
         Weighted log-likelihood contribution of one labeled neighbor to every
-        point (design §2 Steps B + C, §2.4 weighting), given its true-label
-        belief b (=[C], from `_belief`):
-            q(u,k) = K[u,l]*b(k) + (1-K[u,l])*pi(k)
+        point (design §2 Steps B + C, §2.4 weighting), given its label
+        likelihood lik (=[C], from `_likelihood`):
+            q(u,k) = K[u,l]*L(k) + (1-K[u,l])*(1/C)
             return w_u * log q(u,k)                       shape [M, num_classes]
+        The neutral element for a far neighbor (K→0) is the UNIFORM constant
+        1/C — constant across k, so the softmax removes it and a far neighbor
+        is exactly evidence-free. Using pi(k) here (pre-2026-07-29) made every
+        far neighbor multiply the prior in again. 1/C (not scalar 1) is chosen
+        so a fading expert interpolates toward the know-nothing distribution
+        at the same scale as lik — identical for tophat K∈{0,1}, and the knob
+        that matters if a soft kernel is ever used.
         """
         k = k_row.unsqueeze(1)                                          # [M,1]
-        q = k * b.unsqueeze(0) + (1.0 - k) * self.pi.unsqueeze(0)       # [M,C]
+        q = k * lik.unsqueeze(0) + (1.0 - k) / self.num_of_classes      # [M,C]
         logq = torch.log(q.clamp_min(self.log_eps))
         if self.neighbor_weight == 'kernel':
             w = k_row.unsqueeze(1)
@@ -272,8 +298,8 @@ class BayesianCoverage(CoverageMatrixMethod):
         """
         k_row = self.K[local_idx].to_dense().squeeze()
         if self.combine == 'product':
-            b = self._belief(chosen_label, self._confusion_matrix(annotator_id))
-            self.C += self._neighbor_loglik(k_row, b)
+            lik = self._likelihood(chosen_label, self._confusion_matrix(annotator_id))
+            self.C += self._neighbor_loglik(k_row, lik)
         else:  # additive (Itai's rule, clean-label baseline)
             self.C[:, chosen_label] += k_row
         del k_row
@@ -343,9 +369,9 @@ class BayesianCoverage(CoverageMatrixMethod):
             c = int(am.annotated_labels[g])
             if self.combine == 'product':
                 # self-term = temper_beta * w_ll * log q_ll; the self-loop has
-                # K[l,l]=1 (distance 0, tophat or rbf) so q_ll=b_l and w_ll=1.
-                b = self._belief(c, self._confusion_matrix(am.get_annotator_for_sample(g)))
-                rows[i] -= self.temper_beta * torch.log(b.clamp_min(self.log_eps))
+                # K[l,l]=1 (distance 0, tophat or rbf) so q_ll=L_l and w_ll=1.
+                lik = self._likelihood(c, self._confusion_matrix(am.get_annotator_for_sample(g)))
+                rows[i] -= self.temper_beta * torch.log(lik.clamp_min(self.log_eps))
             else:
                 rows[i, c] -= 1.0                                 # additive: drop one count
         if self.combine == 'product':
