@@ -79,6 +79,7 @@ COLD_START_AL_METHODS = {
     "typiclust", "typiclust_rp", "typiclust_dc",
     "probcover", "prob_cover", "probcover_orig", "prob_cover_orig",
     "npc_probcover_crossval", "npc_probcover_knn", "npc_probcover_aum", "npc_probcover_oracle",
+    "npc_maxherding_crossval", "npc_maxherding_knn", "npc_maxherding_aum", "npc_maxherding_oracle",
     "dcom",
     "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
     "misp", "mispc", "misp_plus", "all_misp",
@@ -260,7 +261,11 @@ def apply_paper_hparams(cfg: Any, pipeline: Dict[str, Any]) -> Dict[str, Dict[st
     elif al_name in MODEL_DEPENDENT_AL_METHODS:
         _set_default_run_arg(pipeline, applied, "initial_size", int(pipeline["active_learning"].get("budget") or budget), "model-dependent AL needs an initial labeled pool")
 
-    if al_name in {"maxherding", "max_herding", "maxherding_orig", "max_herding_orig"}:
+    if al_name in {
+        "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
+        "npc_maxherding_crossval", "npc_maxherding_knn",
+        "npc_maxherding_aum", "npc_maxherding_oracle",
+    }:
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.MAX_ITER", 5 if _is_imagenet_family(ds_key) else 10, "MaxHerding experiments", active_arg="max_iter")
     else:
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.MAX_ITER", 5, "TypiClust/ProbCover/DCoM default AL rounds", active_arg="max_iter")
@@ -285,7 +290,11 @@ def apply_paper_hparams(cfg: Any, pipeline: Dict[str, Any]) -> Dict[str, Dict[st
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.K_LOGISTIC", 30, "DCoM competence-score logistic parameter", run_arg="k_logistic")
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.A_LOGISTIC", 0.9 if budget <= 10 else 0.8, "DCoM competence-score logistic parameter", run_arg="a_logistic")
 
-    elif al_name in {"maxherding", "max_herding", "maxherding_orig", "max_herding_orig"}:
+    elif al_name in {
+        "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
+        "npc_maxherding_crossval", "npc_maxherding_knn",
+        "npc_maxherding_aum", "npc_maxherding_oracle",
+    }:
         _set_default_cfg(cfg, pipeline, applied, "KERNEL_TYPE", "rbf", "MaxHerding uses Gaussian/RBF kernel", run_arg="kernel_type")
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_SIGMA", 1.0, "MaxHerding lengthscale for normalized features", run_arg="initial_sigma")
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_DELTA", 1.0, "MaxHerding original code uses delta/lengthscale=1", run_arg="initial_delta")
@@ -777,7 +786,12 @@ def _method_runtime_details(cfg: Any, pipeline: Dict[str, Any], lSet: Optional[n
         if lSet is not None:
             details['expected_num_clusters_this_round'] = int(min(len(lSet) + budget, 500))
 
-    elif al_name in {'probcover', 'prob_cover', 'probcover_orig', 'prob_cover_orig', 'maxherding', 'max_herding'}:
+    elif al_name in {
+        'probcover', 'prob_cover', 'probcover_orig', 'prob_cover_orig',
+        'npc_probcover_crossval', 'npc_probcover_knn', 'npc_probcover_aum', 'npc_probcover_oracle',
+        'maxherding', 'max_herding',
+        'npc_maxherding_crossval', 'npc_maxherding_knn', 'npc_maxherding_aum', 'npc_maxherding_oracle',
+    }:
         details.update({
             'family': 'CoverageMatrixMethod',
             'features': 'ds_utils.load_features(..., normalized=True)',
@@ -824,11 +838,22 @@ def _method_runtime_details(cfg: Any, pipeline: Dict[str, Any], lSet: Optional[n
         })
 
     elif al_name == 'coreset':
+        linear_from_features = bool(_cfg_get(cfg, 'MODEL.LINEAR_FROM_FEATURES', False))
         details.update({
-            'family': 'CoreSet/k-center',
-            'features': 'model penultimate features from current checkpoint',
+            'family': 'CoreSet/k-center-greedy',
+            'features': (
+                'frozen input SSL features (FeaturesNet penultimate output equals x)'
+                if linear_from_features
+                else 'model penultimate features from current checkpoint'
+            ),
             'distance': 'squared L2 in Sampling.py',
-            'explicit_feature_l2_norm': False,
+            'solver': 'greedy 2-approximation only; no robust MIP/outlier solver',
+            'explicit_feature_l2_norm_inside_coreset': False,
+            'input_feature_normalization_expected': (
+                'precomputed feature pipeline; verify ds_utils/load path'
+                if linear_from_features
+                else 'not enforced by CoreSetMIPSampling'
+            ),
         })
 
     elif al_name in {'uncertainty', 'entropy', 'margin'}:
@@ -1246,14 +1271,12 @@ def evaluate_final_knn(
 
 def _nas_filter_from_al_method(al_method: Optional[str]) -> Optional[str]:
     name = "" if al_method is None else str(al_method).lower().replace("-", "_")
-    if name == "npc_probcover_crossval":
-        return "crossval"
-    if name == "npc_probcover_knn":
-        return "knn"
-    if name == "npc_probcover_aum":
-        return "aum"
-    if name == "npc_probcover_oracle":
-        return "oracle"
+    npc_prefixes = ("npc_probcover_", "npc_maxherding_")
+    for prefix in npc_prefixes:
+        if name.startswith(prefix):
+            detector = name[len(prefix):]
+            if detector in {"crossval", "knn", "aum", "oracle"}:
+                return detector
     return None
 
 

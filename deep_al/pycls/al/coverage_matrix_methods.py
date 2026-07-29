@@ -30,7 +30,10 @@ class CoverageMatrixMethod:
         self.budgetSize = cfg.ACTIVE_LEARNING.BUDGET_SIZE
         self.sigma = cfg.ACTIVE_LEARNING.INITIAL_SIGMA if 'INITIAL_SIGMA' in cfg.ACTIVE_LEARNING else 1.0
         self.sampling_fn = str(cfg.ACTIVE_LEARNING.SAMPLING_FN).lower().replace('-', '_')
-        self.is_npc = self.sampling_fn.startswith('npc_probcover')
+        self.is_npc = (
+            self.sampling_fn.startswith('npc_probcover')
+            or self.sampling_fn.startswith('npc_maxherding')
+        )
         self.nas_filter_method = str(getattr(cfg.ACTIVE_LEARNING, 'NAS_FILTER_METHOD', 'none')).lower()
         self.last_npc_filter_stats = None
         self.npc_filter_history = []

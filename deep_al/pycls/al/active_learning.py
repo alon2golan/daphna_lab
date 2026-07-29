@@ -113,11 +113,22 @@ class ActiveLearning:
             return MaxHerding(self.cfg, lset if lset is not None else [], np.array([]),
                               self.cfg.ACTIVE_LEARNING.BUDGET_SIZE, delta=delta)
 
-        elif sampling_fn in ["maxherding", "max_herding"]:
+        elif sampling_fn in [
+            "maxherding", "max_herding",
+            "npc_maxherding_crossval", "npc_maxherding_knn",
+            "npc_maxherding_aum", "npc_maxherding_oracle",
+        ]:
             if getattr(self.cfg, 'KERNEL_TYPE', None) != 'rbf':
-                logger.info('Warning!! for MaxHerding the Kernel must be RBF. Changing KERNEL_TYPE to rbf')
-                print('Warning!! for MaxHerding the Kernel must be TopHat. Changing KERNEL_TYPE to rbf')
+                logger.info('Warning!! for MaxHerding/NPC-MaxHerding the kernel must be RBF. Changing KERNEL_TYPE to rbf')
+                print('Warning!! for MaxHerding/NPC-MaxHerding the kernel must be RBF. Changing KERNEL_TYPE to rbf')
                 self.cfg['KERNEL_TYPE'] = 'rbf'
+
+            if sampling_fn.startswith("npc_maxherding_"):
+                detector = sampling_fn.removeprefix("npc_maxherding_")
+                if detector not in {"crossval", "knn", "aum", "oracle"}:
+                    raise ValueError(f"Unsupported NPC-MaxHerding detector: {detector}")
+                self.cfg.ACTIVE_LEARNING.NAS_FILTER_METHOD = detector
+
             cmm = CoverageMatrixMethod(self.cfg, train_labels=train_labels)
             return cmm
 
