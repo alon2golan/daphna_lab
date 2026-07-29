@@ -16,14 +16,23 @@ Section numbering is preserved from the original file — §7 lives here, §1–
 night — **verdict ❌ NOT ADOPTED, see §9.1**: clean/.2 negative again (−1.35/−0.43 @100),
 so the out-of-ball direction is closed for good; recommended config unchanged.
 
-### ▶ RESUME HERE (updated 2026-07-14)
+### ▶ RESUME HERE (updated 2026-07-29)
 
-**9.4 noise-rate bake-off is DONE (measurement only — see §9.4 "Bake-off DONE" block).**
-Headline: impurity-corrected LOO most accurate (but needs a clean anchor); Dawid–Skene EM
-best assumption-free (separates clean-vs-.2 at every budget, +~0.25 low-noise bias); raw-LOO
-saturates; Netta's q̂ under-estimates at low budget. **Nothing wired into production and no
-estimator adopted yet — Alon deferred the "which one / how to estimate correctly" decision
-to a future session.** Next up per the §9 execution order:
+**Top item — the q̂-gated conflict deficit ("one-knob noise-adaptive acquisition"),
+endorsed by Alon 2026-07-29.** The §4.8 mechanism work (readings 7b/8) showed misp and
+product are the SAME score — coverage greedy + w·(label-conflict deficit) — differing only
+in the weight w (misp's Dirichlet mass αL=50 damps the deficit ~900×; the n.8 ladder
+pc×PoE 18.1 < pure 20.7 < hybrid 25.2 < product 29.2 is a monotone dose-response on w,
+revisits 52→56-69→76-95%). The conflict term is waste on clean data (volume beats purity)
+but IS the revisit-denoiser under noise. So no rule switch: **gate the conflict deficit by
+the estimated noise rate** — score = uncovered mass + g(q̂)·conflict deficit; product →
+ProbCover/misp by construction as q̂→0, today's product as q̂ grows. q̂ = §9.4's DS-EM
+(best assumption-free; this is also the deferred §9.4 adoption decision). PoE training
+targets stay in every regime (misp_pure: targets are half the noise win; cold twins:
+no warm-start issue for pseudo arms). Open design details: shape of g(q̂) (hard gate vs
+linear vs misp-equivalent α damping) and q̂ refresh point (per episode on the current lSet).
+
+Then, per the §9 execution order:
 
 1. ~~**9.2 δ sweep**~~ ✅ CLOSED 2026-07-22 (stage 1 replay + stage 2 paired training,
    job 31108061): **δ=0.75 confirmed at every noise level and budget** — 0.6 loses on

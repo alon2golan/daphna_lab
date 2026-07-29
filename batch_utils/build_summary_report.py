@@ -663,6 +663,16 @@ the MLP head + pseudo-stack (§8 — does not stack, config unchanged), the δ c
 (§9 — 0.75 confirmed end-to-end), and the KL loss (§10 — soft-CE ≡ forward KL; reverse KL
 never wins). What remains:</p>
 <ol class="next">
+  <li><b>The q̂-gated conflict deficit — one-knob noise-adaptive acquisition (top pick,
+      endorsed 2026-07-29).</b> The §4.8 mechanism study showed misp and product are the
+      <i>same</i> selection score — coverage greedy + w·(label-conflict deficit) — differing
+      only in the weight w (misp's Dirichlet mass damps the deficit ~900×; the noise-.8
+      ladder 18.1 &lt; 20.7 &lt; 25.2 &lt; 29.2 is a monotone dose-response on w). The
+      conflict term wastes picks on clean data but is the revisit-denoiser under noise, so
+      no rule switch is needed: gate it by the estimated noise rate — score = uncovered mass
+      + g(q̂)·conflict deficit. Product → ProbCover/misp by construction as q̂→0, today's
+      noise champion as q̂ grows; q̂ comes from the §9.4 bake-off winner (DS-EM), and PoE
+      training targets stay in every regime.</li>
   <li><b>Different kernels for covering vs training.</b> The tophat gate is right for
       <i>selection</i>, but the training targets could use a smooth in-ball kernel: RBF-weighted
       product exponents already replay to 87→96.7 labeled-set denoising @100 clean —
