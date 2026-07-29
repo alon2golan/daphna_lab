@@ -51,8 +51,8 @@ class BayesianCoverage(CoverageMatrixMethod):
                       update: C[:, label] += K_row;  posterior = C / C.sum(1).
     """
 
-    def __init__(self, cfg, annotator_manager=None):
-        super().__init__(cfg, annotator_manager=annotator_manager)
+    def __init__(self, cfg, annotator_manager=None, build_kernel=True):
+        super().__init__(cfg, annotator_manager=annotator_manager, build_kernel=build_kernel)
 
         bc = getattr(cfg, 'BAYES_COVERAGE', None)
 
@@ -591,6 +591,80 @@ class BayesianCoverage(CoverageMatrixMethod):
         raise ValueError(
             f"Unknown TRAIN_LABEL_MODE={mode!r}. Expected one of: observed, "
             "map_posterior, filtered, soft_posterior, reweighted, pseudo.")
+
+
+class MispPosteriorEngine(BayesianCoverage):
+    """
+    Training-target engine for BAYES_MISP runs (§9.x misp × pseudo wiring).
+
+    BAYES_MISP owns acquisition; this engine owns ONLY the design-§5 training
+    targets (soft_posterior / pseudo / ...). It replicates the exact posterior a
+    BayesianCoverage run would hold at training time: both combine folds are
+    order-independent sums over annotated points (product: log-space sum of
+    per-annotation log-likelihoods; additive: linear sum of per-annotation
+    counts), so the posterior depends only on the SET of annotated points and
+    their observed labels — not on how or in what order they were selected —
+    and re-folding the full annotated lSet at sync time is exact, not an
+    approximation.
+
+    COMBINE='product' is the misp-hybrid arm (§4.8: misp selection + PoE
+    training targets). COMBINE='additive' is the misp_pure arm (2026-07-26,
+    Alon): categorical count accumulation for the training targets too, the
+    same posterior family as misp's own selection scores — isolating the
+    training-posterior family under identical (misp) selection.
+
+    Never selects. Never materializes the [N, N] kernel: folding needs only the
+    kernel ROWS of labeled points ([L, M], L = |lSet| ≤ budget·episodes), which
+    are recomputed per sync with the same float32-cdist strict-< tophat rule as
+    build_K_general_matrix's dense path.
+    """
+
+    def __init__(self, cfg, annotator_manager=None):
+        super().__init__(cfg, annotator_manager=annotator_manager, build_kernel=False)
+
+    def init_sampling_loop(self, lset, uset):
+        # No K_general to slice — build only the labeled-point kernel rows.
+        torch.cuda.empty_cache()
+        self.set_rel_features(lset, uset)
+        M = len(self.relevant_indices)
+        if self.combine == 'product':
+            self.C = torch.log(self.pi.clamp_min(self.log_eps)).repeat(M, 1)
+        else:  # additive — same Dirichlet-style prior-pseudocount init as the dense path
+            self.C = self.pi.unsqueeze(0).repeat(M, 1).clone()
+        L = len(self.lSet)
+        feats32 = self.rel_features.to(torch.float32)
+        self._K_labeled_rows = self.kernel_fn.compute_kernel(
+            feats32[:L], feats32, h=self.delta,
+            batch_size=self.kernel_build_batch_size,
+            matrices_type=self.matrices_type,
+        ).to(self.device)                                       # [L, M]
+        self._fold_labeled_set()
+
+    def _fold_neighbor(self, local_idx, chosen_label, annotator_id):
+        if local_idx >= self._K_labeled_rows.shape[0]:
+            raise IndexError(
+                "MispPosteriorEngine only folds labeled-set points; got local "
+                f"index {local_idx} >= L={self._K_labeled_rows.shape[0]}.")
+        k_row = self._K_labeled_rows[local_idx].squeeze()
+        if self.combine == 'product':
+            lik = self._likelihood(chosen_label, self._confusion_matrix(annotator_id))
+            self.C += self._neighbor_loglik(k_row, lik)
+        else:  # additive — mirrors the dense path's count accumulation exactly
+            self.C[:, chosen_label] += k_row
+
+    def sync(self, lset, uset):
+        """Rebuild the posterior from the current annotated labeled set and
+        persist it into C_general so training_targets/posterior_for work."""
+        self.init_sampling_loop(np.asarray(lset, dtype=int), np.asarray(uset, dtype=int))
+        self.C_general[self.relevant_indices] = self.C
+        self._selection_done = True
+        del self.C, self._K_labeled_rows
+        torch.cuda.empty_cache()
+
+    def select_samples(self, *args, **kwargs):
+        raise NotImplementedError(
+            "MispPosteriorEngine is a training-target engine; selection is done "
+            "by BAYES_MISP.")
 
 
 class NoiseAwareBayesianCoverage(BayesianCoverage, NoiseAwareCoverage):

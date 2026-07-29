@@ -10,7 +10,7 @@ torch.cuda.empty_cache()
 
 
 class   CoverageMatrixMethod:
-    def __init__(self, cfg, annotator_manager=None):
+    def __init__(self, cfg, annotator_manager=None, build_kernel=True):
         self.cfg = cfg
         self.ds_name = self.cfg['DATASET']['NAME']
         self.seed = self.cfg['RNG_SEED']
@@ -59,18 +59,24 @@ class   CoverageMatrixMethod:
             self.kernel_fn = RBFKernel('cuda')
             initial_threshold = np.exp(-1.0 * (self.delta / self.sigma) ** 2) if self.use_sparse else 0.0
 
-        self.K_general = build_K_general_matrix(
-            self.all_features,
-            threshold=initial_threshold,
-            use_sparse=self.use_sparse,
-            kernel_type=self.kernel_type,
-            delta=self.delta,
-            sigma=self.sigma,
-            kernel_build_batch_size=self.kernel_build_batch_size,
-            matrices_type=self.matrices_type,
-            kernel_fn=self.kernel_fn,
-            zero_indices=None,
-        )
+        if build_kernel:
+            self.K_general = build_K_general_matrix(
+                self.all_features,
+                threshold=initial_threshold,
+                use_sparse=self.use_sparse,
+                kernel_type=self.kernel_type,
+                delta=self.delta,
+                sigma=self.sigma,
+                kernel_build_batch_size=self.kernel_build_batch_size,
+                matrices_type=self.matrices_type,
+                kernel_fn=self.kernel_fn,
+                zero_indices=None,
+            )
+        else:
+            # Posterior-engine mode (bayesian_coverage.MispPosteriorEngine): only
+            # labeled-point kernel ROWS are ever needed, computed lazily per sync;
+            # the full [N, N] K_general is never materialized.
+            self.K_general = None
 
         self.C_general = torch.full((self.all_features.shape[0], self.num_of_classes), self.alpha, device=self.device,
                                         dtype=self.matrices_type)

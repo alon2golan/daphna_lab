@@ -71,6 +71,16 @@ def argparser():
     parser.add_argument('--max_iter', default=32, type=int)
     parser.add_argument('--initial_sigma', default=1.0, type=float)
     parser.add_argument('--sparse_K', action='store_true')
+    parser.add_argument('--combine', default=None, choices=['product', 'additive'],
+                        help="BAYES_COVERAGE.COMBINE override. For bayes_misp runs this "
+                             "selects the MispPosteriorEngine's training-target posterior "
+                             "family (misp_pure = additive); ignored by bayes_product/"
+                             "bayes_additive, whose alias pins COMBINE.")
+    parser.add_argument('--fine_tune', default=None, choices=['on', 'off'],
+                        help="ACTIVE_LEARNING.FINE_TUNE override: warm-start the classifier "
+                             "across episodes (on) or cold-start every episode (off). "
+                             "DELTA_ROOTCAUSE pitfall-3 addendum: warm wins clean, cold wins "
+                             "noise >= .5. Applied after eval-model aliases, so it wins.")
     parser.add_argument('--matrix_dtype', type=str, default=None, choices=['float32', 'float16'], help="Choose torch dtype: float32 or float16")
     parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
     # Equilibrium noise rate (nu') / single noisy annotator strategy
@@ -817,7 +827,12 @@ def _bayes_training_loader(cfg, data_obj, train_idx, train_data_wrapped, al_obj)
     std = lambda idx, data: data_obj.getIndexesDataLoader(indexes=np.asarray(idx, dtype=int),
                                                           batch_size=bs, data=data)
 
-    if (not isinstance(alg, BayesianCoverage) or mode == 'observed'
+    # A bayes_misp run carries the same training-target API through its adapter's
+    # posterior_engine (active_learning.BayesMispAdapter); treat it like a
+    # BayesianCoverage so its non-'observed' arms don't silently fall back.
+    has_targets = (isinstance(alg, BayesianCoverage)
+                   or getattr(alg, 'posterior_engine', None) is not None)
+    if (not has_targets or mode == 'observed'
             or not getattr(alg, '_selection_done', False) or len(train_idx) == 0):
         return std(train_idx, train_data_wrapped), train_idx
 
@@ -1262,6 +1277,10 @@ if __name__ == "__main__":
     # BayesianCoverage §5 training-target policy (CLI overrides the cfg default).
     if getattr(args, 'train_label_mode', None):
         cfg_instance.BAYES_COVERAGE.TRAIN_LABEL_MODE = args.train_label_mode
+    if getattr(args, 'combine', None):
+        cfg_instance.BAYES_COVERAGE.COMBINE = args.combine
+    if getattr(args, 'fine_tune', None):
+        cfg_instance.ACTIVE_LEARNING.FINE_TUNE = (args.fine_tune == 'on')
     # §7.5 curriculum pseudo-labeling knobs (only read when the mode is 'pseudo').
     if getattr(args, 'pseudo_scope', None):
         cfg_instance.BAYES_COVERAGE.PSEUDO_SCOPE = args.pseudo_scope

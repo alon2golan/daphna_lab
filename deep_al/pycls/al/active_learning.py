@@ -58,10 +58,20 @@ class BayesMispAdapter:
     it was constructed with (the annotator's precomputed noisy_labels), so the
     orchestrator's post-hoc annotate_samples() call assigns the exact same
     labels and only settles the cost accounting.
+
+    posterior_engine (optional, MispPosteriorEngine): supplies the design-§5
+    training targets (TRAIN_LABEL_MODE != 'observed', e.g. pseudo) that
+    BAYES_MISP itself has no notion of. The adapter mirrors the
+    BayesianCoverage training-target API (_selection_done / pseudo_scope /
+    training_targets) so train_al._bayes_training_loader treats a misp run
+    exactly like a bayes_product one; the engine is re-synced from the
+    annotated labeled set on every training_targets call.
     """
 
-    def __init__(self, misp):
+    def __init__(self, misp, posterior_engine=None):
         self.misp = misp
+        self.posterior_engine = posterior_engine
+        self._post_selection_sets = None
 
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
                          checkpoint_file=None, num_samples=None, **kwargs):
@@ -69,7 +79,70 @@ class BayesMispAdapter:
             self.misp.budgetSize = int(num_samples)
         activeSet, remainSet = self.misp.select_samples(
             np.asarray(lSet, dtype=int), np.asarray(uSet, dtype=int))
+        if self.posterior_engine is not None:
+            lset_after = np.concatenate([np.asarray(lSet, dtype=int),
+                                         np.asarray(activeSet, dtype=int)])
+            self._post_selection_sets = (lset_after, np.asarray(remainSet, dtype=int))
         return activeSet, remainSet
+
+    # --- BayesianCoverage training-target API (train_al._bayes_training_loader) ---
+    @property
+    def _selection_done(self):
+        return self.posterior_engine is not None and self._post_selection_sets is not None
+
+    @property
+    def pseudo_scope(self):
+        return self.posterior_engine.pseudo_scope
+
+    def training_targets(self, global_indices, mode=None, pseudo_k=None):
+        if self.posterior_engine is None:
+            raise RuntimeError(
+                "bayes_misp run requested TRAIN_LABEL_MODE != 'observed' but no "
+                "posterior engine was constructed — training targets unavailable.")
+        lset, uset = self._post_selection_sets
+        self.posterior_engine.sync(lset, uset)
+        return self.posterior_engine.training_targets(global_indices, mode=mode,
+                                                      pseudo_k=pseudo_k)
+
+
+class ProbCoverPseudoAdapter:
+    """ProbCover selection + posterior-engine training targets (the §4.8
+    probcover × pseudo control arm). Same shape as BayesMispAdapter: the inner
+    CoverageMatrixMethod owns selection, the MispPosteriorEngine (product
+    combine by default) manufactures TRAIN_LABEL_MODE != 'observed' targets,
+    and this adapter exposes the BayesianCoverage training-target API so
+    train_al._bayes_training_loader treats the run like a bayes_product one."""
+
+    def __init__(self, cmm, posterior_engine):
+        self.cmm = cmm
+        self.posterior_engine = posterior_engine
+        self._post_selection_sets = None
+
+    def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
+                         checkpoint_file=None, num_samples=None, annotator_id=None, **kwargs):
+        activeSet, remainSet = self.cmm.sample_from_uSet(
+            clf_model, lSet, uSet, trainDataset, supportingModels=supportingModels,
+            checkpoint_file=checkpoint_file, num_samples=num_samples,
+            annotator_id=annotator_id)
+        if self.posterior_engine is not None:
+            lset_after = np.concatenate([np.asarray(lSet, dtype=int),
+                                         np.asarray(activeSet, dtype=int)])
+            self._post_selection_sets = (lset_after, np.asarray(remainSet, dtype=int))
+        return activeSet, remainSet
+
+    @property
+    def _selection_done(self):
+        return self.posterior_engine is not None and self._post_selection_sets is not None
+
+    @property
+    def pseudo_scope(self):
+        return self.posterior_engine.pseudo_scope
+
+    def training_targets(self, global_indices, mode=None, pseudo_k=None):
+        lset, uset = self._post_selection_sets
+        self.posterior_engine.sync(lset, uset)
+        return self.posterior_engine.training_targets(global_indices, mode=mode,
+                                                      pseudo_k=pseudo_k)
 
 
 class ActiveLearning:
@@ -167,6 +240,22 @@ class ActiveLearning:
                 self.cfg['KERNEL_TYPE'] = 'tophat'
                 self.cfg['K_SPARSE'] = True
             cmm = CoverageMatrixMethod(self.cfg, annotator_manager=self.annotator_manager)
+            # TRAIN_LABEL_MODE != 'observed' (§4.8 probcover × pseudo control):
+            # ProbCover has no posterior, so attach the same MispPosteriorEngine
+            # used for bayes_misp (combine follows BAYES_COVERAGE.COMBINE,
+            # 'product' by default = PoE training targets).
+            train_label_mode = str(getattr(
+                getattr(self.cfg, 'BAYES_COVERAGE', None), 'TRAIN_LABEL_MODE',
+                'observed'))
+            if train_label_mode != 'observed':
+                import copy as _copy
+                from .bayesian_coverage import MispPosteriorEngine
+                eng_cfg = _copy.deepcopy(self.cfg)
+                eng_cfg['SPARSE_K'] = False
+                eng_cfg['K_SPARSE'] = False
+                engine = MispPosteriorEngine(eng_cfg,
+                                             annotator_manager=self.annotator_manager)
+                return ProbCoverPseudoAdapter(cmm, engine)
             return cmm
 
         # NPC — Noise-aware ProbCover (Netta's thesis). Same coverage graph as
@@ -236,7 +325,26 @@ class ActiveLearning:
                 lset=np.asarray(lset if lset is not None else [], dtype=int),
                 delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA,
             )
-            return BayesMispAdapter(misp)
+            # TRAIN_LABEL_MODE != 'observed' (e.g. the §7.5 pseudo arm) needs the
+            # BayesianCoverage posterior machinery, which BAYES_MISP doesn't have.
+            # Attach a MispPosteriorEngine (dense-free) built on a cfg copy with
+            # the sparse flags off — the engine path is dense-row. The engine's
+            # combine follows BAYES_COVERAGE.COMBINE (CLI --combine): 'product'
+            # = the §4.8 misp-hybrid arm, 'additive' = the misp_pure arm
+            # (categorical training targets matching misp's own posterior family).
+            engine = None
+            train_label_mode = str(getattr(
+                getattr(self.cfg, 'BAYES_COVERAGE', None), 'TRAIN_LABEL_MODE',
+                'observed'))
+            if train_label_mode != 'observed':
+                import copy as _copy
+                from .bayesian_coverage import MispPosteriorEngine
+                eng_cfg = _copy.deepcopy(self.cfg)
+                eng_cfg['SPARSE_K'] = False
+                eng_cfg['K_SPARSE'] = False
+                engine = MispPosteriorEngine(eng_cfg,
+                                             annotator_manager=self.annotator_manager)
+            return BayesMispAdapter(misp, posterior_engine=engine)
 
         elif sampling_fn.startswith("typiclust"):
             is_scan = sampling_fn.endswith('dc')
