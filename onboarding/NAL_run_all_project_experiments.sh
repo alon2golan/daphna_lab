@@ -10,113 +10,161 @@
 set -euo pipefail
 export PYTHONUNBUFFERED=1
 
-# One entry point for every unique scientific run in the current project.
-# Smoke tests, missing-run repair scripts, rerun-only scripts, and the earlier
-# partial Netta script are excluded because they are subsets, duplicates, or
-# superseded by the suites below.
+# One entry point for all 610 unique scientific runs. The launcher creates four
+# balanced workers. Each worker receives one regular-grid noise type (112
+# runs), 28 asymmetric-0.3 runs, and 12 or 13 Netta-aligned runs:
 #
-# Default total:
-#   448 regular main-grid runs
-#   112 additional asymmetric-noise=0.3 runs
-#    50 Netta-aligned cold-start/Framework-2 AUM runs
-#   610 unique planned runs
+#   shard 0: clean regular grid      112 + 28 + 13 = 153
+#   shard 1: symmetric regular grid  112 + 28 + 13 = 153
+#   shard 2: asymmetric regular grid 112 + 28 + 12 = 152
+#   shard 3: CIFAR-100N regular grid 112 + 28 + 12 = 152
 #
-# By default this lightweight launcher splits each suite by final-label budget
-# and submits six independent GPU jobs for more parallelism:
-#   regular 400 (224), regular 800 (224), asymmetric 0.3 400 (56),
-#   asymmetric 0.3 800 (56), Netta 400 (25), and Netta 800 (25).
-# Use LAUNCH_MODE=sequential to execute the same six shards in this process.
+# Smoke tests and repair/rerun-only scripts are excluded because they duplicate
+# configurations in these three complete suites.
 
 REPO_DIR="/cs/labs/daphna/$USER/projects/daphna_lab"
+MASTER_SCRIPT="$REPO_DIR/onboarding/NAL_run_all_project_experiments.sh"
 RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
-export RUN_TIMESTAMP
-
 RUN_REGULAR_GRID="${RUN_REGULAR_GRID:-1}"
 RUN_ASYM_03_GRID="${RUN_ASYM_03_GRID:-1}"
 RUN_NETTA_ALIGNED_GRID="${RUN_NETTA_ALIGNED_GRID:-1}"
 LAUNCH_MODE="${LAUNCH_MODE:-submit}"
+PROJECT_SHARD_INDEX="${PROJECT_SHARD_INDEX:-}"
 
+for FLAG_NAME in RUN_REGULAR_GRID RUN_ASYM_03_GRID RUN_NETTA_ALIGNED_GRID; do
+  FLAG_VALUE="${!FLAG_NAME}"
+  if [[ "$FLAG_VALUE" != "0" && "$FLAG_VALUE" != "1" ]]; then
+    echo "$FLAG_NAME must be 0 or 1; got: $FLAG_VALUE" >&2
+    exit 2
+  fi
+done
 if [[ "$LAUNCH_MODE" != "submit" && "$LAUNCH_MODE" != "sequential" ]]; then
   echo "LAUNCH_MODE must be submit or sequential; got: $LAUNCH_MODE" >&2
   exit 2
 fi
+if [[ -n "$PROJECT_SHARD_INDEX" && ! "$PROJECT_SHARD_INDEX" =~ ^[0-3]$ ]]; then
+  echo "PROJECT_SHARD_INDEX must be empty or an integer from 0 to 3" >&2
+  exit 2
+fi
+
+SHARD_NOISE_TYPES=(clean sym asym cifar100n)
+SHARD_NETTA_RUNS=(13 13 12 12)
+
+worker_run_count () {
+  local SHARD_INDEX="$1"
+  local COUNT=0
+  if [[ "$RUN_REGULAR_GRID" == "1" ]]; then
+    COUNT=$((COUNT + 112))
+  fi
+  if [[ "$RUN_ASYM_03_GRID" == "1" ]]; then
+    COUNT=$((COUNT + 28))
+  fi
+  if [[ "$RUN_NETTA_ALIGNED_GRID" == "1" ]]; then
+    COUNT=$((COUNT + SHARD_NETTA_RUNS[SHARD_INDEX]))
+  fi
+  echo "$COUNT"
+}
+
+run_worker () {
+  local SHARD_INDEX="$1"
+  local SHARD_NOISE="${SHARD_NOISE_TYPES[$SHARD_INDEX]}"
+  local SHARD_RUNS
+  SHARD_RUNS="$(worker_run_count "$SHARD_INDEX")"
+
+  echo "Starting balanced worker $SHARD_INDEX/3"
+  echo "Planned runs: $SHARD_RUNS"
+  echo "Regular noise type: $SHARD_NOISE"
+  echo "Timestamp: $RUN_TIMESTAMP"
+
+  if [[ "$RUN_REGULAR_GRID" == "1" ]]; then
+    env \
+      RUN_TIMESTAMP="$RUN_TIMESTAMP" \
+      PROJECT_SHARD_INDEX="$SHARD_INDEX" \
+      GRID_NOISE_TYPES="$SHARD_NOISE" \
+      RUN_FINAL_400=1 \
+      RUN_FINAL_800=1 \
+      bash "$REPO_DIR/onboarding/NAL_grid_448_runs.sh"
+  fi
+
+  if [[ "$RUN_ASYM_03_GRID" == "1" ]]; then
+    env \
+      RUN_TIMESTAMP="$RUN_TIMESTAMP" \
+      PROJECT_SHARD_INDEX="$SHARD_INDEX" \
+      RUN_FINAL_400=1 \
+      RUN_FINAL_800=1 \
+      bash "$REPO_DIR/onboarding/NAL_grid_script_all_asym_03_400_800_seed42.sh"
+  fi
+
+  if [[ "$RUN_NETTA_ALIGNED_GRID" == "1" ]]; then
+    env \
+      RUN_TIMESTAMP="$RUN_TIMESTAMP" \
+      PROJECT_SHARD_INDEX="$SHARD_INDEX" \
+      RUN_FINAL_400=1 \
+      RUN_FINAL_800=1 \
+      bash "$REPO_DIR/onboarding/NAL_grid_netta_aligned_aum_400_800.sh"
+  fi
+
+  echo "Balanced worker $SHARD_INDEX finished $SHARD_RUNS planned runs at $(date)"
+}
+
+# A submitted worker re-enters this script with its shard index and executes
+# its three assigned portions sequentially on one GPU.
+if [[ -n "$PROJECT_SHARD_INDEX" ]]; then
+  run_worker "$PROJECT_SHARD_INDEX"
+  exit 0
+fi
 
 TOTAL_RUNS=0
-TOTAL_LAUNCHES=0
 if [[ "$RUN_REGULAR_GRID" == "1" ]]; then
   TOTAL_RUNS=$((TOTAL_RUNS + 448))
-  TOTAL_LAUNCHES=$((TOTAL_LAUNCHES + 2))
 fi
 if [[ "$RUN_ASYM_03_GRID" == "1" ]]; then
   TOTAL_RUNS=$((TOTAL_RUNS + 112))
-  TOTAL_LAUNCHES=$((TOTAL_LAUNCHES + 2))
 fi
 if [[ "$RUN_NETTA_ALIGNED_GRID" == "1" ]]; then
   TOTAL_RUNS=$((TOTAL_RUNS + 50))
-  TOTAL_LAUNCHES=$((TOTAL_LAUNCHES + 2))
+fi
+if [[ "$TOTAL_RUNS" -eq 0 ]]; then
+  echo "No experiment suites are enabled" >&2
+  exit 2
 fi
 
 echo "Starting all project experiments"
 echo "Planned runs: $TOTAL_RUNS"
-echo "Planned launches: $TOTAL_LAUNCHES"
-echo "Regular 448 grid enabled: $RUN_REGULAR_GRID"
-echo "Asymmetric 0.3 grid enabled: $RUN_ASYM_03_GRID"
-echo "Netta-aligned 50-run grid enabled: $RUN_NETTA_ALIGNED_GRID"
+echo "Balanced launches: 4"
 echo "Launch mode: $LAUNCH_MODE"
 echo "Timestamp: $RUN_TIMESTAMP"
 
-run_suite () {
-  local LABEL="$1"
-  local SCRIPT_PATH="$2"
-  local RUN_400="$3"
-  local RUN_800="$4"
+for SHARD_INDEX in 0 1 2 3; do
+  SHARD_RUNS="$(worker_run_count "$SHARD_INDEX")"
+  SHARD_NOISE="${SHARD_NOISE_TYPES[$SHARD_INDEX]}"
   if [[ "$LAUNCH_MODE" == "submit" ]]; then
-    echo "Submitting $LABEL"
+    echo "Submitting shard $SHARD_INDEX: $SHARD_RUNS runs, regular noise=$SHARD_NOISE"
     sbatch \
-      --export=ALL,RUN_TIMESTAMP="$RUN_TIMESTAMP",RUN_FINAL_400="$RUN_400",RUN_FINAL_800="$RUN_800" \
-      "$SCRIPT_PATH"
+      --job-name="noisy_al_${SHARD_INDEX}" \
+      --mem=40g \
+      --cpus-per-task=8 \
+      --time=96:00:00 \
+      --gres=gg:g0:1,vmem:40g \
+      --output="gpu_all_noisy_al_shard_${SHARD_INDEX}_%j.log" \
+      --error="gpu_all_noisy_al_shard_${SHARD_INDEX}_%j.log" \
+      --export=ALL,RUN_TIMESTAMP="$RUN_TIMESTAMP",PROJECT_SHARD_INDEX="$SHARD_INDEX",RUN_REGULAR_GRID="$RUN_REGULAR_GRID",RUN_ASYM_03_GRID="$RUN_ASYM_03_GRID",RUN_NETTA_ALIGNED_GRID="$RUN_NETTA_ALIGNED_GRID" \
+      "$MASTER_SCRIPT"
   else
-    echo "Running $LABEL sequentially"
+    echo "Running shard $SHARD_INDEX sequentially: $SHARD_RUNS runs"
     env \
       RUN_TIMESTAMP="$RUN_TIMESTAMP" \
-      RUN_FINAL_400="$RUN_400" \
-      RUN_FINAL_800="$RUN_800" \
-      bash "$SCRIPT_PATH"
+      PROJECT_SHARD_INDEX="$SHARD_INDEX" \
+      RUN_REGULAR_GRID="$RUN_REGULAR_GRID" \
+      RUN_ASYM_03_GRID="$RUN_ASYM_03_GRID" \
+      RUN_NETTA_ALIGNED_GRID="$RUN_NETTA_ALIGNED_GRID" \
+      bash "$MASTER_SCRIPT"
   fi
-}
+done
 
-if [[ "$RUN_REGULAR_GRID" == "1" ]]; then
-  echo
-  run_suite "regular grid, final size 400 (224 runs)" \
-    "$REPO_DIR/onboarding/NAL_grid_448_runs.sh" 1 0
-  run_suite "regular grid, final size 800 (224 runs)" \
-    "$REPO_DIR/onboarding/NAL_grid_448_runs.sh" 0 1
-fi
-
-if [[ "$RUN_ASYM_03_GRID" == "1" ]]; then
-  echo
-  run_suite "asymmetric-noise=0.3 grid, final size 400 (56 runs)" \
-    "$REPO_DIR/onboarding/NAL_grid_script_all_asym_03_400_800_seed42.sh" 1 0
-  run_suite "asymmetric-noise=0.3 grid, final size 800 (56 runs)" \
-    "$REPO_DIR/onboarding/NAL_grid_script_all_asym_03_400_800_seed42.sh" 0 1
-fi
-
-if [[ "$RUN_NETTA_ALIGNED_GRID" == "1" ]]; then
-  echo
-  run_suite "Netta-aligned grid, final size 400 (25 runs)" \
-    "$REPO_DIR/onboarding/NAL_grid_netta_aligned_aum_400_800.sh" 1 0
-  run_suite "Netta-aligned grid, final size 800 (25 runs)" \
-    "$REPO_DIR/onboarding/NAL_grid_netta_aligned_aum_400_800.sh" 0 1
-fi
-
-echo
 if [[ "$LAUNCH_MODE" == "submit" ]]; then
-  echo "All enabled experiment suites were submitted"
-  echo "Submitted planned configurations: $TOTAL_RUNS"
-  echo "Submitted jobs: $TOTAL_LAUNCHES"
+  echo "Submitted four balanced jobs containing $TOTAL_RUNS configurations"
 else
-  echo "All enabled experiment suites finished"
-  echo "Executed planned configurations: $TOTAL_RUNS"
-  echo "Executed shards: $TOTAL_LAUNCHES"
+  echo "Finished four sequential shards containing $TOTAL_RUNS configurations"
 fi
 echo "Finished at $(date)"

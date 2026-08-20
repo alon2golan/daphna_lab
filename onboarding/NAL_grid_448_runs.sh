@@ -42,6 +42,7 @@ RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 DEBUG_JSON="${DEBUG_JSON:-1}"
 RUN_FINAL_400="${RUN_FINAL_400:-1}"
 RUN_FINAL_800="${RUN_FINAL_800:-1}"
+PROJECT_SHARD_INDEX="${PROJECT_SHARD_INDEX:-}"
 
 if [[ "$RUN_FINAL_400" != "0" && "$RUN_FINAL_400" != "1" ]] || \
    [[ "$RUN_FINAL_800" != "0" && "$RUN_FINAL_800" != "1" ]]; then
@@ -49,16 +50,27 @@ if [[ "$RUN_FINAL_400" != "0" && "$RUN_FINAL_400" != "1" ]] || \
   exit 2
 fi
 
+if [[ -n "$PROJECT_SHARD_INDEX" && ! "$PROJECT_SHARD_INDEX" =~ ^[0-3]$ ]]; then
+  echo "PROJECT_SHARD_INDEX must be empty or an integer from 0 to 3" >&2
+  exit 2
+fi
+
+# The full suite uses four noise types. Parallel workers override this with
+# one noise type, which gives 56 runs per budget and 112 across both budgets.
+GRID_NOISE_TYPES="${GRID_NOISE_TYPES:-clean,sym,asym,cifar100n}"
+IFS=',' read -ra REGULAR_NOISE_ARRAY <<< "$GRID_NOISE_TYPES"
+REGULAR_NOISE_COUNT="${#REGULAR_NOISE_ARRAY[@]}"
+RUNS_PER_BUDGET=$((REGULAR_NOISE_COUNT * 56))
+
 TOTAL_PLANNED_RUNS=0
 if [[ "$RUN_FINAL_400" == "1" ]]; then
-  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + 224))
+  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + RUNS_PER_BUDGET))
 fi
 if [[ "$RUN_FINAL_800" == "1" ]]; then
-  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + 224))
+  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + RUNS_PER_BUDGET))
 fi
 
 # ---------------- Shared experiment setup ----------------
-GRID_NOISE_TYPES="clean,sym,asym,cifar100n"
 BASE_AL_METHODS="typiclust,probcover,maxherding,margin,coreset,random"
 
 NPC_PROBCOVER_METHODS="npc_probcover_crossval,npc_probcover_knn,npc_probcover_aum,npc_probcover_oracle"
@@ -121,6 +133,10 @@ run_budget () {
 
   local EXP_NAME="total_framework2_${FINAL_SIZE}"
   local BASE_GRID_OUT_DIR="$REPO_DIR/grid_outputs/total_framework2_seed42_${FINAL_SIZE}"
+  if [[ -n "$PROJECT_SHARD_INDEX" ]]; then
+    BASE_GRID_OUT_DIR="$BASE_GRID_OUT_DIR/parallel_shard_${PROJECT_SHARD_INDEX}"
+    EXP_NAME="${EXP_NAME}_shard_${PROJECT_SHARD_INDEX}"
+  fi
   local GRID_JSON_PATH="$BASE_GRID_OUT_DIR/aggregate_results_${RUN_TIMESTAMP}.json"
 
   mkdir -p "$BASE_GRID_OUT_DIR"
@@ -183,7 +199,7 @@ run_budget () {
   mkdir -p "$CE_GRID_OUT_DIR"
 
   echo "============================================================"
-  echo "[$FINAL_SIZE] Block 1: CE baselines + noise handling: 120 runs"
+  echo "[$FINAL_SIZE] Block 1: CE baselines + noise handling: $((REGULAR_NOISE_COUNT * 30)) runs"
   echo "Started at $(date)"
   echo "============================================================"
 
@@ -216,7 +232,7 @@ run_budget () {
 
     echo
     echo "============================================================"
-    echo "[$FINAL_SIZE] Block 2: robust loss=$LOSS_FUN: 24 runs"
+    echo "[$FINAL_SIZE] Block 2: robust loss=$LOSS_FUN: $((REGULAR_NOISE_COUNT * 6)) runs"
     echo "Started at $(date)"
     echo "============================================================"
 
@@ -244,7 +260,7 @@ run_budget () {
 
   echo
   echo "============================================================"
-  echo "[$FINAL_SIZE] Block 3: NPC-ProbCover: 16 runs"
+  echo "[$FINAL_SIZE] Block 3: NPC-ProbCover: $((REGULAR_NOISE_COUNT * 4)) runs"
   echo "Started at $(date)"
   echo "============================================================"
 
@@ -278,7 +294,7 @@ run_budget () {
 
   echo
   echo "============================================================"
-  echo "[$FINAL_SIZE] Block 4: NPC-MaxHerding: 16 runs"
+  echo "[$FINAL_SIZE] Block 4: NPC-MaxHerding: $((REGULAR_NOISE_COUNT * 4)) runs"
   echo "Started at $(date)"
   echo "============================================================"
 
@@ -300,7 +316,7 @@ run_budget () {
   echo
   echo "============================================================"
   echo "Finished final size $FINAL_SIZE at $(date)"
-  echo "Runs for this final size: 224"
+  echo "Runs for this final size: $RUNS_PER_BUDGET"
   echo "Aggregate JSON: $GRID_JSON_PATH"
   echo "============================================================"
 }
@@ -310,8 +326,8 @@ echo "Starting selected regular experiment budgets"
 echo "Seed: $SEED"
 echo "Noise types: $GRID_NOISE_TYPES"
 echo "Total UNIQUE runs planned: $TOTAL_PLANNED_RUNS"
-echo "  400 labels enabled: $RUN_FINAL_400 (224 runs)"
-echo "  800 labels enabled: $RUN_FINAL_800 (224 runs)"
+echo "  400 labels enabled: $RUN_FINAL_400 ($RUNS_PER_BUDGET runs)"
+echo "  800 labels enabled: $RUN_FINAL_800 ($RUNS_PER_BUDGET runs)"
 echo "Started at $(date)"
 echo "============================================================"
 

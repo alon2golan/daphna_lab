@@ -42,6 +42,7 @@ RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 DEBUG_JSON="${DEBUG_JSON:-1}"
 RUN_FINAL_400="${RUN_FINAL_400:-1}"
 RUN_FINAL_800="${RUN_FINAL_800:-1}"
+PROJECT_SHARD_INDEX="${PROJECT_SHARD_INDEX:-}"
 
 if [[ "$RUN_FINAL_400" != "0" && "$RUN_FINAL_400" != "1" ]] || \
    [[ "$RUN_FINAL_800" != "0" && "$RUN_FINAL_800" != "1" ]]; then
@@ -49,12 +50,24 @@ if [[ "$RUN_FINAL_400" != "0" && "$RUN_FINAL_400" != "1" ]] || \
   exit 2
 fi
 
+if [[ -n "$PROJECT_SHARD_INDEX" && ! "$PROJECT_SHARD_INDEX" =~ ^[0-3]$ ]]; then
+  echo "PROJECT_SHARD_INDEX must be empty or an integer from 0 to 3" >&2
+  exit 2
+fi
+
+# In four-way mode every shard receives exactly 14 of the 56 configurations
+# at each budget: 12 standard/robust configurations and two NPC variants.
+ASYM_RUNS_PER_BUDGET=56
+if [[ -n "$PROJECT_SHARD_INDEX" ]]; then
+  ASYM_RUNS_PER_BUDGET=14
+fi
+
 TOTAL_PLANNED_RUNS=0
 if [[ "$RUN_FINAL_400" == "1" ]]; then
-  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + 56))
+  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + ASYM_RUNS_PER_BUDGET))
 fi
 if [[ "$RUN_FINAL_800" == "1" ]]; then
-  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + 56))
+  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + ASYM_RUNS_PER_BUDGET))
 fi
 
 # ---------------- Shared experiment setup ----------------
@@ -121,6 +134,10 @@ run_budget () {
 
   local EXP_NAME="total_framework2_asym03_${FINAL_SIZE}"
   local BASE_GRID_OUT_DIR="$REPO_DIR/grid_outputs/total_framework2_asym03_seed42_${FINAL_SIZE}"
+  if [[ -n "$PROJECT_SHARD_INDEX" ]]; then
+    BASE_GRID_OUT_DIR="$BASE_GRID_OUT_DIR/parallel_shard_${PROJECT_SHARD_INDEX}"
+    EXP_NAME="${EXP_NAME}_shard_${PROJECT_SHARD_INDEX}"
+  fi
   local GRID_JSON_PATH="$BASE_GRID_OUT_DIR/aggregate_results_${RUN_TIMESTAMP}.json"
 
   mkdir -p "$BASE_GRID_OUT_DIR"
@@ -183,24 +200,56 @@ run_budget () {
   mkdir -p "$CE_GRID_OUT_DIR"
 
   echo "============================================================"
-  echo "[$FINAL_SIZE] Block 1: CE baselines + noise handling: 30 runs"
+  if [[ -z "$PROJECT_SHARD_INDEX" ]]; then
+    BLOCK_1_RUNS=30
+  elif [[ "$PROJECT_SHARD_INDEX" -lt 2 ]]; then
+    BLOCK_1_RUNS=8
+  else
+    BLOCK_1_RUNS=7
+  fi
+  echo "[$FINAL_SIZE] Block 1: CE baselines + noise handling: $BLOCK_1_RUNS runs"
   echo "Started at $(date)"
   echo "============================================================"
 
-  python3 -u run_noise_al_pipeline.py \
-    "${COMMON_ARGS[@]}" \
-    --grid_al_methods "$BASE_AL_METHODS" \
-    --grid_noise_methods "none,label_cleaning,crossval,temporal,aum" \
-    --exp_name "${EXP_NAME}_block_1_ce_cleaning" \
-    --grid_out_dir "$CE_GRID_OUT_DIR" \
-    --loss_fun cross_entropy \
-    --cleaning_conf_threshold "$LABEL_CLEANING_CONF_THRESHOLD" \
-    --cleaning_pred_source checkpoint \
-    --crossval_folds 5 \
-    --crossval_max_iter 300 \
-    --temporal_momentum 0.8 \
-    --temporal_min_seen "$TEMPORAL_MIN_SEEN" \
+  BLOCK_1_COMMON=(
+    --loss_fun cross_entropy
+    --cleaning_conf_threshold "$LABEL_CLEANING_CONF_THRESHOLD"
+    --cleaning_pred_source checkpoint
+    --crossval_folds 5
+    --crossval_max_iter 300
+    --temporal_momentum 0.8
+    --temporal_min_seen "$TEMPORAL_MIN_SEEN"
     --temporal_conf_threshold "$TEMPORAL_CONF_THRESHOLD"
+  )
+
+  if [[ -z "$PROJECT_SHARD_INDEX" ]]; then
+    python3 -u run_noise_al_pipeline.py \
+      "${COMMON_ARGS[@]}" \
+      --grid_al_methods "$BASE_AL_METHODS" \
+      --grid_noise_methods "none,label_cleaning,crossval,temporal,aum" \
+      --exp_name "${EXP_NAME}_block_1_ce_cleaning" \
+      --grid_out_dir "$CE_GRID_OUT_DIR" \
+      "${BLOCK_1_COMMON[@]}"
+  else
+    PRIMARY_NOISE_METHODS=(none label_cleaning crossval temporal)
+    AUM_METHOD_GROUPS=("coreset,margin" "maxherding,probcover" "random" "typiclust")
+
+    python3 -u run_noise_al_pipeline.py \
+      "${COMMON_ARGS[@]}" \
+      --grid_al_methods "$BASE_AL_METHODS" \
+      --grid_noise_methods "${PRIMARY_NOISE_METHODS[$PROJECT_SHARD_INDEX]}" \
+      --exp_name "${EXP_NAME}_block_1_primary" \
+      --grid_out_dir "$CE_GRID_OUT_DIR/primary" \
+      "${BLOCK_1_COMMON[@]}"
+
+    python3 -u run_noise_al_pipeline.py \
+      "${COMMON_ARGS[@]}" \
+      --grid_al_methods "${AUM_METHOD_GROUPS[$PROJECT_SHARD_INDEX]}" \
+      --grid_noise_methods "aum" \
+      --exp_name "${EXP_NAME}_block_1_aum" \
+      --grid_out_dir "$CE_GRID_OUT_DIR/aum" \
+      "${BLOCK_1_COMMON[@]}"
+  fi
 
   echo "Finished [$FINAL_SIZE] Block 1 at $(date)"
 
@@ -216,13 +265,31 @@ run_budget () {
 
     echo
     echo "============================================================"
-    echo "[$FINAL_SIZE] Block 2: robust loss=$LOSS_FUN: 6 runs"
+    ROBUST_AL_METHODS="$BASE_AL_METHODS"
+    if [[ -n "$PROJECT_SHARD_INDEX" ]]; then
+      case "${LOSS_FUN}:${PROJECT_SHARD_INDEX}" in
+        gce:0) ROBUST_AL_METHODS="coreset,margin" ;;
+        gce:1) ROBUST_AL_METHODS="maxherding,probcover" ;;
+        gce:2) ROBUST_AL_METHODS="random" ;;
+        gce:3) ROBUST_AL_METHODS="typiclust" ;;
+        bootstrap_soft:0) ROBUST_AL_METHODS="coreset" ;;
+        bootstrap_soft:1) ROBUST_AL_METHODS="margin" ;;
+        bootstrap_soft:2) ROBUST_AL_METHODS="maxherding,probcover" ;;
+        bootstrap_soft:3) ROBUST_AL_METHODS="random,typiclust" ;;
+        bootstrap_hard:0) ROBUST_AL_METHODS="maxherding" ;;
+        bootstrap_hard:1) ROBUST_AL_METHODS="probcover" ;;
+        bootstrap_hard:2) ROBUST_AL_METHODS="coreset,margin" ;;
+        bootstrap_hard:3) ROBUST_AL_METHODS="random,typiclust" ;;
+      esac
+    fi
+    IFS=',' read -ra ROBUST_METHOD_ARRAY <<< "$ROBUST_AL_METHODS"
+    echo "[$FINAL_SIZE] Block 2: robust loss=$LOSS_FUN: ${#ROBUST_METHOD_ARRAY[@]} runs"
     echo "Started at $(date)"
     echo "============================================================"
 
     python3 -u run_noise_al_pipeline.py \
       "${COMMON_ARGS[@]}" \
-      --grid_al_methods "$BASE_AL_METHODS" \
+      --grid_al_methods "$ROBUST_AL_METHODS" \
       --grid_noise_methods "none" \
       --exp_name "${EXP_NAME}_block_2_robust_${LOSS_FUN}" \
       --grid_out_dir "$ROBUST_GRID_OUT_DIR" \
@@ -244,13 +311,22 @@ run_budget () {
 
   echo
   echo "============================================================"
-  echo "[$FINAL_SIZE] Block 3: NPC-ProbCover: 4 runs"
+  SHARD_DETECTORS=(crossval knn aum oracle)
+  NPC_PROBCOVER_RUN_METHODS="$NPC_PROBCOVER_METHODS"
+  NPC_MAXHERDING_RUN_METHODS="$NPC_MAXHERDING_METHODS"
+  NPC_RUNS_PER_SELECTOR=4
+  if [[ -n "$PROJECT_SHARD_INDEX" ]]; then
+    NPC_PROBCOVER_RUN_METHODS="npc_probcover_${SHARD_DETECTORS[$PROJECT_SHARD_INDEX]}"
+    NPC_MAXHERDING_RUN_METHODS="npc_maxherding_${SHARD_DETECTORS[$PROJECT_SHARD_INDEX]}"
+    NPC_RUNS_PER_SELECTOR=1
+  fi
+  echo "[$FINAL_SIZE] Block 3: NPC-ProbCover: $NPC_RUNS_PER_SELECTOR runs"
   echo "Started at $(date)"
   echo "============================================================"
 
   python3 -u run_noise_al_pipeline.py \
     "${COMMON_ARGS[@]}" \
-    --grid_al_methods "$NPC_PROBCOVER_METHODS" \
+    --grid_al_methods "$NPC_PROBCOVER_RUN_METHODS" \
     --grid_noise_methods "none" \
     --exp_name "${EXP_NAME}_block_3_npc_probcover" \
     --grid_out_dir "$NPC_PROBCOVER_OUT_DIR" \
@@ -278,13 +354,13 @@ run_budget () {
 
   echo
   echo "============================================================"
-  echo "[$FINAL_SIZE] Block 4: NPC-MaxHerding: 4 runs"
+  echo "[$FINAL_SIZE] Block 4: NPC-MaxHerding: $NPC_RUNS_PER_SELECTOR runs"
   echo "Started at $(date)"
   echo "============================================================"
 
   python3 -u run_noise_al_pipeline.py \
     "${COMMON_ARGS[@]}" \
-    --grid_al_methods "$NPC_MAXHERDING_METHODS" \
+    --grid_al_methods "$NPC_MAXHERDING_RUN_METHODS" \
     --grid_noise_methods "none" \
     --exp_name "${EXP_NAME}_block_4_npc_maxherding" \
     --grid_out_dir "$NPC_MAXHERDING_OUT_DIR" \
@@ -300,7 +376,7 @@ run_budget () {
   echo
   echo "============================================================"
   echo "Finished final size $FINAL_SIZE at $(date)"
-  echo "Runs for this final size: 56"
+  echo "Runs for this final size: $ASYM_RUNS_PER_BUDGET"
   echo "Aggregate JSON: $GRID_JSON_PATH"
   echo "============================================================"
 }
@@ -310,8 +386,8 @@ echo "Starting selected ASYMMETRIC-NOISE 0.3 budgets"
 echo "Seed: $SEED"
 echo "Noise types: $GRID_NOISE_TYPES"
 echo "Total UNIQUE runs planned: $TOTAL_PLANNED_RUNS"
-echo "  400 labels enabled: $RUN_FINAL_400 (56 runs)"
-echo "  800 labels enabled: $RUN_FINAL_800 (56 runs)"
+echo "  400 labels enabled: $RUN_FINAL_400 ($ASYM_RUNS_PER_BUDGET runs)"
+echo "  800 labels enabled: $RUN_FINAL_800 ($ASYM_RUNS_PER_BUDGET runs)"
 echo "Started at $(date)"
 echo "============================================================"
 

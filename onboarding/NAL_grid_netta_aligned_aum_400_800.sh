@@ -48,6 +48,7 @@ RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 DEBUG_JSON="${DEBUG_JSON:-1}"
 RUN_FINAL_400="${RUN_FINAL_400:-1}"
 RUN_FINAL_800="${RUN_FINAL_800:-1}"
+PROJECT_SHARD_INDEX="${PROJECT_SHARD_INDEX:-}"
 
 if [[ "$RUN_FINAL_400" != "0" && "$RUN_FINAL_400" != "1" ]] || \
    [[ "$RUN_FINAL_800" != "0" && "$RUN_FINAL_800" != "1" ]]; then
@@ -55,12 +56,46 @@ if [[ "$RUN_FINAL_400" != "0" && "$RUN_FINAL_400" != "1" ]] || \
   exit 2
 fi
 
+if [[ -n "$PROJECT_SHARD_INDEX" && ! "$PROJECT_SHARD_INDEX" =~ ^[0-3]$ ]]; then
+  echo "PROJECT_SHARD_INDEX must be empty or an integer from 0 to 3" >&2
+  exit 2
+fi
+
+IFS=',' read -ra NETTA_SEEDS <<< "$GRID_SEEDS"
+IFS=',' read -ra NETTA_METHODS <<< "$GRID_AL_METHODS"
+
+count_budget_runs () {
+  local FINAL_SIZE="$1"
+  if [[ -z "$PROJECT_SHARD_INDEX" ]]; then
+    echo $((${#NETTA_SEEDS[@]} * ${#NETTA_METHODS[@]}))
+    return
+  fi
+
+  local OFFSET=0
+  if [[ "$FINAL_SIZE" == "800" ]]; then
+    OFFSET=1
+  fi
+  local COUNT=0
+  local SEED_POS METHOD_POS ASSIGNED_SHARD
+  for SEED_POS in "${!NETTA_SEEDS[@]}"; do
+    for METHOD_POS in "${!NETTA_METHODS[@]}"; do
+      ASSIGNED_SHARD=$(((SEED_POS * ${#NETTA_METHODS[@]} + METHOD_POS + OFFSET) % 4))
+      if [[ "$ASSIGNED_SHARD" == "$PROJECT_SHARD_INDEX" ]]; then
+        COUNT=$((COUNT + 1))
+      fi
+    done
+  done
+  echo "$COUNT"
+}
+
+NETTA_RUNS_400="$(count_budget_runs 400)"
+NETTA_RUNS_800="$(count_budget_runs 800)"
 TOTAL_PLANNED_RUNS=0
 if [[ "$RUN_FINAL_400" == "1" ]]; then
-  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + 25))
+  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + NETTA_RUNS_400))
 fi
 if [[ "$RUN_FINAL_800" == "1" ]]; then
-  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + 25))
+  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + NETTA_RUNS_800))
 fi
 
 NAS_AUM_EPOCHS="${NAS_AUM_EPOCHS:-40}"
@@ -77,6 +112,10 @@ run_budget () {
   local MAX_ITER="$2"
   local EXP_NAME="netta_aligned_aum_cold_start_framework2_${FINAL_SIZE}"
   local BASE_GRID_OUT_DIR="$REPO_DIR/grid_outputs/$EXP_NAME"
+  if [[ -n "$PROJECT_SHARD_INDEX" ]]; then
+    BASE_GRID_OUT_DIR="$BASE_GRID_OUT_DIR/parallel_shard_${PROJECT_SHARD_INDEX}"
+    EXP_NAME="${EXP_NAME}_shard_${PROJECT_SHARD_INDEX}"
+  fi
   local GRID_JSON_PATH="$BASE_GRID_OUT_DIR/aggregate_results_${RUN_TIMESTAMP}.json"
 
   mkdir -p "$BASE_GRID_OUT_DIR"
@@ -86,17 +125,39 @@ run_budget () {
     JSON_ARGS+=(--debug_json)
   fi
 
-  IFS=',' read -ra SEEDS <<< "$GRID_SEEDS"
-  for SEED in "${SEEDS[@]}"; do
+  local OFFSET=0
+  if [[ "$FINAL_SIZE" == "800" ]]; then
+    OFFSET=1
+  fi
+
+  local SEED_POS METHOD_POS ASSIGNED_SHARD SELECTED_METHODS
+  local SELECTED_METHOD_ARRAY=()
+  for SEED_POS in "${!NETTA_SEEDS[@]}"; do
+    SEED="${NETTA_SEEDS[$SEED_POS]}"
     SEED="$(echo "$SEED" | xargs)"
+    SELECTED_METHOD_ARRAY=()
+    for METHOD_POS in "${!NETTA_METHODS[@]}"; do
+      if [[ -z "$PROJECT_SHARD_INDEX" ]]; then
+        SELECTED_METHOD_ARRAY+=("${NETTA_METHODS[$METHOD_POS]}")
+        continue
+      fi
+      ASSIGNED_SHARD=$(((SEED_POS * ${#NETTA_METHODS[@]} + METHOD_POS + OFFSET) % 4))
+      if [[ "$ASSIGNED_SHARD" == "$PROJECT_SHARD_INDEX" ]]; then
+        SELECTED_METHOD_ARRAY+=("${NETTA_METHODS[$METHOD_POS]}")
+      fi
+    done
+    if [[ "${#SELECTED_METHOD_ARRAY[@]}" -eq 0 ]]; then
+      continue
+    fi
+    SELECTED_METHODS="$(IFS=','; echo "${SELECTED_METHOD_ARRAY[*]}")"
     echo
-    echo "Netta-aligned runs: final_size=$FINAL_SIZE seed=$SEED"
+    echo "Netta-aligned runs: final_size=$FINAL_SIZE seed=$SEED methods=$SELECTED_METHODS"
     echo "Started at $(date)"
 
     python3 -u run_noise_al_pipeline.py \
       --cfg "$CFG_PATH" \
       --grid_noise_types "$GRID_NOISE_TYPES" \
-      --grid_al_methods "$GRID_AL_METHODS" \
+      --grid_al_methods "$SELECTED_METHODS" \
       --grid_noise_methods "$GRID_NOISE_METHODS" \
       --noise_rate "$NOISE_RATE" \
       --seed "$SEED" \
@@ -128,7 +189,11 @@ run_budget () {
   done
 
   echo "Finished Netta-aligned final size $FINAL_SIZE"
-  echo "Runs: 25"
+  if [[ "$FINAL_SIZE" == "400" ]]; then
+    echo "Runs: $NETTA_RUNS_400"
+  else
+    echo "Runs: $NETTA_RUNS_800"
+  fi
   echo "Aggregate JSON: $GRID_JSON_PATH"
 }
 
@@ -138,8 +203,8 @@ echo "Methods: $GRID_AL_METHODS"
 echo "Training profile: $TRAINING_PROFILE"
 echo "Initial labeled size: $INITIAL_SIZE"
 echo "Total runs planned: $TOTAL_PLANNED_RUNS"
-echo "400 labels enabled: $RUN_FINAL_400 (25 runs)"
-echo "800 labels enabled: $RUN_FINAL_800 (25 runs)"
+echo "400 labels enabled: $RUN_FINAL_400 ($NETTA_RUNS_400 runs)"
+echo "800 labels enabled: $RUN_FINAL_800 ($NETTA_RUNS_800 runs)"
 
 # Empty initial set + four rounds of 100 = 400.
 if [[ "$RUN_FINAL_400" == "1" ]]; then
