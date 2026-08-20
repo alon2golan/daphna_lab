@@ -19,7 +19,7 @@ cd "$REPO_DIR/deep_al/tools"
 CFG_PATH="../configs/cifar100/al/RESNET18.yaml"
 SEED=42
 
-EXP_NAME="total_framework2_seed42"
+EXP_NAME="total_framework2_800"
 BASE_GRID_OUT_DIR="$REPO_DIR/grid_outputs/total_framework2_seed42"
 RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 DEBUG_JSON="${DEBUG_JSON:-1}"

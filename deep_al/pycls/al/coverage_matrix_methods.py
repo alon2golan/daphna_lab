@@ -86,8 +86,24 @@ class CoverageMatrixMethod:
             zero_indices=None,
         )
 
-        self.C_general = torch.full((self.all_features.shape[0], unique_labels.size), self.alpha, device=self.device,
-                                    dtype=self.matrices_type)
+        # Coverage is rebuilt from the current labeled set at every AL episode.
+        # Keeping a persistent coverage matrix made standard MaxHerding/ProbCover
+        # behave differently from their NPC variants even when NPC filtered nothing.
+
+    def _get_dense_kernel_row(self, position):
+        row = self.K[int(position)]
+        if self.use_sparse:
+            row = row.to_dense()
+        return row.squeeze().to(device=self.device, dtype=self.matrices_type)
+
+    def _update_class_agnostic_coverage(self, kernel_row):
+        """Update coverage without using the unknown label of an unlabeled point.
+
+        The selection objective depends only on the maximum coverage over classes.
+        We therefore store all class-agnostic coverage in column 0. This preserves
+        the previous score computation while removing label leakage.
+        """
+        self.C[:, 0] = torch.maximum(self.C[:, 0], kernel_row)
 
     def init_sampling_loop(self, lset, uset, clean_lset_pos=None):
         torch.cuda.empty_cache()
@@ -113,25 +129,31 @@ class CoverageMatrixMethod:
         self.K = self.K.to(self.device) if self.K is not None else None
         self.train_labels = self.train_labels_general[self.relevant_indices]
 
-        if self.is_npc:
-            # NAS/NPC: recompute the coverage state from scratch each episode.
-            # Clean labeled points cover their neighborhoods; suspected noisy points do not.
-            self.C = torch.full(
-                (len(self.relevant_indices), self.num_of_classes),
-                self.alpha,
-                device=self.device,
-                dtype=self.matrices_type,
-            )
-            if clean_lset_pos is not None and len(clean_lset_pos) > 0:
-                clean_lset_pos = np.asarray(clean_lset_pos, dtype=int)
-                for pos in clean_lset_pos:
-                    label = int(self.train_labels[int(pos)])
-                    K_row_dense = self.K[int(pos)].to_dense().squeeze() if self.use_sparse else self.K[
-                        int(pos)].squeeze()
-                    self.C[:, label] = torch.maximum(self.C[:, label], K_row_dense)
-                    del K_row_dense
+        # Rebuild coverage from scratch for both the baseline and NPC paths.
+        # relevant_indices starts with lSet, so labeled positions are 0..len(lSet)-1.
+        self.C = torch.full(
+            (len(self.relevant_indices), self.num_of_classes),
+            self.alpha,
+            device=self.device,
+            dtype=self.matrices_type,
+        )
+
+        if clean_lset_pos is None:
+            # Standard ProbCover/MaxHerding: every labeled sample contributes.
+            covering_lset_pos = np.arange(len(self.lSet), dtype=int)
         else:
-            self.C = self.C_general[self.relevant_indices]
+            # NPC: only samples predicted as clean contribute.
+            covering_lset_pos = np.asarray(clean_lset_pos, dtype=int)
+
+        if covering_lset_pos.size:
+            if np.any(covering_lset_pos < 0) or np.any(covering_lset_pos >= len(self.lSet)):
+                raise ValueError(
+                    "clean_lset_pos must contain positions inside the current labeled set"
+                )
+            for pos in covering_lset_pos:
+                kernel_row = self._get_dense_kernel_row(int(pos))
+                self._update_class_agnostic_coverage(kernel_row)
+                del kernel_row
 
     def set_rel_features(self, lset, uset):
         self.lSet = lset
@@ -564,34 +586,41 @@ class CoverageMatrixMethod:
         for i in tqdm(range(self.budgetSize), desc="Selecting Samp"):
             curr_l_set = np.concatenate((np.arange(len(self.lSet)), selected)).astype(int)
 
-            max_vals, indices = torch.max(self.C, dim=1)
+            # Coverage is class-agnostic and stored in column 0.
+            current_coverage = self.C[:, 0]
             if self.use_sparse:
-                point_total_contribution = batched_diffs_sparse(self.K, max_vals, 0, self.num_of_classes,
-                                                                diff_method="abs_diff")
+                point_total_contribution = batched_diffs_sparse(
+                    self.K,
+                    current_coverage,
+                    0,
+                    self.num_of_classes,
+                    diff_method="abs_diff",
+                )
             else:
-                point_total_contribution = batched_diffs(self.K, max_vals, 0, self.num_of_classes,
-                                                         diff_method="abs_diff")
+                point_total_contribution = batched_diffs(
+                    self.K,
+                    current_coverage,
+                    0,
+                    self.num_of_classes,
+                    diff_method="abs_diff",
+                )
 
             point_total_contribution[curr_l_set] = -np.inf
 
             sampled_point = torch.argmax(point_total_contribution).item()
-            # sampled_point = np.argsort(-point_total_contribution.cpu().numpy(), kind='stable')[0].item()
-            chosen_label = self.train_labels[sampled_point].item()
-
-            K_row_dense = self.K[sampled_point].to_dense().squeeze() if self.use_sparse else self.K[
-                sampled_point].squeeze()
-
-            self.C[:, chosen_label] = torch.maximum(self.C[:, chosen_label], K_row_dense)
+            # Do not read the label of sampled_point here: it is still unlabeled.
+            kernel_row = self._get_dense_kernel_row(sampled_point)
+            self._update_class_agnostic_coverage(kernel_row)
 
             assert sampled_point not in selected, 'sample was already selected'
             selected.append(sampled_point)
-            del K_row_dense
+            del kernel_row
 
         assert len(selected) == self.budgetSize, 'added a different number of samples'
         activeSet = self.relevant_indices[selected]
 
-        if not self.is_npc:
-            self.C_general[self.relevant_indices] = self.C
+        # Coverage is intentionally not persisted between episodes. It is rebuilt
+        # from the current labeled set so baseline and NPC use identical state logic.
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
         self.activeSet = activeSet
         print(f'Finished the selection of {len(activeSet)} samples.')

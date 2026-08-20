@@ -74,7 +74,7 @@ class ActiveLearning:
         Factory method to create the appropriate AL algorithm instance.
         Passes data_obj and plotting_manager to each algorithm.
         """
-        sampling_fn = self.cfg.ACTIVE_LEARNING.SAMPLING_FN.lower()
+        sampling_fn = str(self.cfg.ACTIVE_LEARNING.SAMPLING_FN).lower().replace('-', '_')
 
         if sampling_fn in ["prob_cover_orig", "probcover_orig"]:
             return ProbCover(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
@@ -83,16 +83,18 @@ class ActiveLearning:
         elif sampling_fn in ["prob_cover", "probcover", "npc_probcover_crossval", "npc_probcover_knn",
                              "npc_probcover_aum", "npc_probcover_oracle"]:
             if getattr(self.cfg, 'KERNEL_TYPE', None) != 'tophat':
-                logger.info('Warning!! for ProbCover/NPC the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
-                print('Warning!! for ProbCover/NPC the Kernel must be TopHat. Changing KERNEL_TYPE to tophat')
-
-                logger.info('Warning!! Running ProbCover/NPC as Sparse. Changing SPARSE_K to True')
-                print('Warning!! Running ProbCover/NPC as Sparse. Changing SPARSE_K to True')
-
+                logger.info('Warning!! for ProbCover/NPC the kernel must be TopHat. Changing KERNEL_TYPE to tophat')
+                print('Warning!! for ProbCover/NPC the kernel must be TopHat. Changing KERNEL_TYPE to tophat')
                 self.cfg['KERNEL_TYPE'] = 'tophat'
+
+            if not bool(getattr(self.cfg, 'SPARSE_K', False)):
+                logger.info('Warning!! Running ProbCover/NPC as sparse. Changing SPARSE_K to True')
+                print('Warning!! Running ProbCover/NPC as sparse. Changing SPARSE_K to True')
                 self.cfg['SPARSE_K'] = True
 
-            if sampling_fn == "npc_probcover_crossval":
+            if sampling_fn in {"prob_cover", "probcover"}:
+                self.cfg.ACTIVE_LEARNING.NAS_FILTER_METHOD = "none"
+            elif sampling_fn == "npc_probcover_crossval":
                 self.cfg.ACTIVE_LEARNING.NAS_FILTER_METHOD = "crossval"
             elif sampling_fn == "npc_probcover_knn":
                 self.cfg.ACTIVE_LEARNING.NAS_FILTER_METHOD = "knn"
@@ -123,7 +125,9 @@ class ActiveLearning:
                 print('Warning!! for MaxHerding/NPC-MaxHerding the kernel must be RBF. Changing KERNEL_TYPE to rbf')
                 self.cfg['KERNEL_TYPE'] = 'rbf'
 
-            if sampling_fn.startswith("npc_maxherding_"):
+            if sampling_fn in {"maxherding", "max_herding"}:
+                self.cfg.ACTIVE_LEARNING.NAS_FILTER_METHOD = "none"
+            else:
                 detector = sampling_fn.removeprefix("npc_maxherding_")
                 if detector not in {"crossval", "knn", "aum", "oracle"}:
                     raise ValueError(f"Unsupported NPC-MaxHerding detector: {detector}")
