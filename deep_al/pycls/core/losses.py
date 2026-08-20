@@ -55,7 +55,7 @@ class BootstrapSoftLoss(nn.Module):
     def forward(self, logits, targets):
         num_classes = logits.shape[1]
         log_probs = F.log_softmax(logits, dim=1)
-        model_probs = F.softmax(logits, dim=1).detach()
+        model_probs = F.softmax(logits, dim=1)
         hard_targets = F.one_hot(targets, num_classes=num_classes).float()
         soft_targets = self.beta * hard_targets + (1.0 - self.beta) * model_probs
         return -(soft_targets * log_probs).sum(dim=1).mean()

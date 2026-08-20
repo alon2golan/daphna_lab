@@ -8,6 +8,7 @@ from collections import Counter
 from tqdm import tqdm
 import deep_al.pycls.datasets.utils as ds_utils
 from deep_al.pycls.al.kernel_utils import build_K_general_matrix, RBFKernel, TopHatKernel
+from deep_al.pycls.al.lowbudget_aum import lowbudget_aum_noisy_mask
 
 torch.cuda.empty_cache()
 
@@ -30,10 +31,7 @@ class CoverageMatrixMethod:
         self.budgetSize = cfg.ACTIVE_LEARNING.BUDGET_SIZE
         self.sigma = cfg.ACTIVE_LEARNING.INITIAL_SIGMA if 'INITIAL_SIGMA' in cfg.ACTIVE_LEARNING else 1.0
         self.sampling_fn = str(cfg.ACTIVE_LEARNING.SAMPLING_FN).lower().replace('-', '_')
-        self.is_npc = (
-            self.sampling_fn.startswith('npc_probcover')
-            or self.sampling_fn.startswith('npc_maxherding')
-        )
+        self.is_npc = self.sampling_fn.startswith('npc_probcover')
         self.nas_filter_method = str(getattr(cfg.ACTIVE_LEARNING, 'NAS_FILTER_METHOD', 'none')).lower()
         self.last_npc_filter_stats = None
         self.npc_filter_history = []
@@ -86,24 +84,8 @@ class CoverageMatrixMethod:
             zero_indices=None,
         )
 
-        # Coverage is rebuilt from the current labeled set at every AL episode.
-        # Keeping a persistent coverage matrix made standard MaxHerding/ProbCover
-        # behave differently from their NPC variants even when NPC filtered nothing.
-
-    def _get_dense_kernel_row(self, position):
-        row = self.K[int(position)]
-        if self.use_sparse:
-            row = row.to_dense()
-        return row.squeeze().to(device=self.device, dtype=self.matrices_type)
-
-    def _update_class_agnostic_coverage(self, kernel_row):
-        """Update coverage without using the unknown label of an unlabeled point.
-
-        The selection objective depends only on the maximum coverage over classes.
-        We therefore store all class-agnostic coverage in column 0. This preserves
-        the previous score computation while removing label leakage.
-        """
-        self.C[:, 0] = torch.maximum(self.C[:, 0], kernel_row)
+        self.C_general = torch.full((self.all_features.shape[0], unique_labels.size), self.alpha, device=self.device,
+                                    dtype=self.matrices_type)
 
     def init_sampling_loop(self, lset, uset, clean_lset_pos=None):
         torch.cuda.empty_cache()
@@ -129,31 +111,25 @@ class CoverageMatrixMethod:
         self.K = self.K.to(self.device) if self.K is not None else None
         self.train_labels = self.train_labels_general[self.relevant_indices]
 
-        # Rebuild coverage from scratch for both the baseline and NPC paths.
-        # relevant_indices starts with lSet, so labeled positions are 0..len(lSet)-1.
-        self.C = torch.full(
-            (len(self.relevant_indices), self.num_of_classes),
-            self.alpha,
-            device=self.device,
-            dtype=self.matrices_type,
-        )
-
-        if clean_lset_pos is None:
-            # Standard ProbCover/MaxHerding: every labeled sample contributes.
-            covering_lset_pos = np.arange(len(self.lSet), dtype=int)
+        if self.is_npc:
+            # NAS/NPC: recompute the coverage state from scratch each episode.
+            # Clean labeled points cover their neighborhoods; suspected noisy points do not.
+            self.C = torch.full(
+                (len(self.relevant_indices), self.num_of_classes),
+                self.alpha,
+                device=self.device,
+                dtype=self.matrices_type,
+            )
+            if clean_lset_pos is not None and len(clean_lset_pos) > 0:
+                clean_lset_pos = np.asarray(clean_lset_pos, dtype=int)
+                for pos in clean_lset_pos:
+                    label = int(self.train_labels[int(pos)])
+                    K_row_dense = self.K[int(pos)].to_dense().squeeze() if self.use_sparse else self.K[
+                        int(pos)].squeeze()
+                    self.C[:, label] = torch.maximum(self.C[:, label], K_row_dense)
+                    del K_row_dense
         else:
-            # NPC: only samples predicted as clean contribute.
-            covering_lset_pos = np.asarray(clean_lset_pos, dtype=int)
-
-        if covering_lset_pos.size:
-            if np.any(covering_lset_pos < 0) or np.any(covering_lset_pos >= len(self.lSet)):
-                raise ValueError(
-                    "clean_lset_pos must contain positions inside the current labeled set"
-                )
-            for pos in covering_lset_pos:
-                kernel_row = self._get_dense_kernel_row(int(pos))
-                self._update_class_agnostic_coverage(kernel_row)
-                del kernel_row
+            self.C = self.C_general[self.relevant_indices]
 
     def set_rel_features(self, lset, uset):
         self.lSet = lset
@@ -352,113 +328,25 @@ class CoverageMatrixMethod:
         }
 
     def _lowbudget_aum_noisy_mask(self, trainDataset, lset, uset):
-        """Low-budget AUM-style filter on frozen SSL features with a fake class.
-
-        The raw fake-class threshold can be extremely aggressive when there are
-        about one labeled example per class. To avoid collapsing NPC coverage,
-        NAS_AUM_MAX_PRED_NOISY_RATE caps the fraction of labeled samples that
-        AUM may mark as noisy before noise dropout. Set the cap to 1.0 to recover
-        the uncapped fake-percentile rule.
-        """
+        """Netta LowBudgetAUM detector; NAS dropout is applied later."""
         lset = np.asarray(lset, dtype=int)
         uset = np.asarray(uset, dtype=int)
-        y_all = self._get_current_labels_from_dataset(trainDataset)
-        y_l = y_all[lset]
-        x_l = self._l2_normalize_np(self.all_features[lset])
-
-        n = len(lset)
-        if n < 2 or len(np.unique(y_l)) < 2 or len(uset) == 0:
-            return np.zeros(n, dtype=bool), {"reason": "too_few_samples_classes_or_unlabeled"}
-
-        fake_ratio = float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_RATIO", 1.0))
-        fake_ratio = max(0.0, fake_ratio)
-        n_fake = int(max(1, min(len(uset), round(fake_ratio * n))))
-        rng = np.random.default_rng(int(self.seed or 0) + 1337 + n)
-        fake_idx = rng.choice(uset, size=n_fake, replace=False)
-        x_fake = self._l2_normalize_np(self.all_features[fake_idx])
-
-        num_classes = int(self.cfg.MODEL.NUM_CLASSES)
-        fake_class = num_classes
-
-        x = np.concatenate([x_l, x_fake], axis=0).astype(np.float32)
-        y = np.concatenate([y_l, np.full(n_fake, fake_class, dtype=np.int64)], axis=0)
-
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        epochs = int(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_EPOCHS", 40))
-        aum_seed = int(self.seed or 0) + 4242 + n
-
-        # select_samples() intentionally runs under torch.inference_mode().
-        # LowBudgetAUM is the one part that must train a linear classifier, so
-        # gradients are locally re-enabled without changing the rest of sampling.
-        fork_devices = [torch.cuda.current_device()] if device.type == "cuda" else []
-        with torch.inference_mode(False), torch.enable_grad(), torch.random.fork_rng(devices=fork_devices):
-            torch.manual_seed(aum_seed)
-            if device.type == "cuda":
-                torch.cuda.manual_seed_all(aum_seed)
-
-            xt = torch.from_numpy(x).to(device)
-            yt = torch.from_numpy(y).to(device)
-
-            model = nn.Linear(xt.shape[1], num_classes + 1).to(device)
-            opt = torch.optim.SGD(
-                model.parameters(),
-                lr=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_LR", 0.1)),
-                weight_decay=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_WEIGHT_DECAY", 0.0)),
-            )
-            margin_sum = torch.zeros(xt.shape[0], device=device)
-
-            for _ in range(max(1, epochs)):
-                logits = model(xt)
-                with torch.no_grad():
-                    true_logits = logits.gather(1, yt.view(-1, 1)).squeeze(1)
-                    other_logits = logits.detach().clone()
-                    other_logits[torch.arange(yt.numel(), device=device), yt] = -float("inf")
-                    max_other = other_logits.max(dim=1).values
-                    margin_sum += (true_logits.detach() - max_other)
-
-                loss = F.cross_entropy(logits, yt)
-                opt.zero_grad(set_to_none=True)
-                loss.backward()
-                opt.step()
-
-            aum = (margin_sum / float(max(1, epochs))).detach().cpu().numpy()
-
-        labeled_aum = aum[:n]
-        fake_aum = aum[n:]
-        percentile = float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_PERCENTILE", 80.0))
-        raw_threshold = float(np.percentile(fake_aum, percentile))
-
-        max_rate = float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_MAX_PRED_NOISY_RATE", 1.0))
-        max_rate = float(np.clip(max_rate, 0.0, 1.0))
-        if max_rate < 1.0:
-            cap_threshold = float(np.percentile(labeled_aum, 100.0 * max_rate))
-            threshold = float(min(raw_threshold, cap_threshold))
-            threshold_was_capped = threshold < raw_threshold
-        else:
-            cap_threshold = None
-            threshold = raw_threshold
-            threshold_was_capped = False
-
-        noisy_uncapped = labeled_aum <= raw_threshold
-        noisy = labeled_aum <= threshold
-
-        return noisy.astype(bool), {
-            "epochs": int(epochs),
-            "n_fake": int(n_fake),
-            "fake_ratio": float(fake_ratio),
-            "fake_percentile": float(percentile),
-            "threshold_raw_fake": raw_threshold,
-            "threshold_cap_labeled": None if cap_threshold is None else float(cap_threshold),
-            "threshold": float(threshold),
-            "threshold_was_capped": bool(threshold_was_capped),
-            "aum_max_pred_noisy_rate": float(max_rate),
-            "aum_uncapped_pred_noisy": int(noisy_uncapped.sum()),
-            "aum_uncapped_predicted_noise_rate": float(noisy_uncapped.mean()),
-            "labeled_aum_mean": float(labeled_aum.mean()),
-            "labeled_aum_std": float(labeled_aum.std()),
-            "fake_aum_mean": float(fake_aum.mean()),
-            "fake_aum_std": float(fake_aum.std()),
-        }
+        labels = self._get_current_labels_from_dataset(trainDataset)
+        noisy, info = lowbudget_aum_noisy_mask(
+            self.all_features, labels, lset, uset,
+            num_classes=int(self.cfg.MODEL.NUM_CLASSES),
+            seed=int(self.seed or 0),
+            epochs=int(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_EPOCHS", 40)),
+            fake_ratio=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_RATIO", 1.0)),
+            fake_percentile=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_PERCENTILE", 80.0)),
+            lr=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_LR", 0.1)),
+            weight_decay=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_WEIGHT_DECAY", 0.0)),
+            device=("cuda" if torch.cuda.is_available() else "cpu"),
+        )
+        # The old project-specific 50% cap is intentionally removed.
+        info["aum_max_pred_noisy_rate"] = 1.0
+        info["threshold_was_capped"] = False
+        return noisy.astype(bool), info
 
     def _add_oracle_quality_stats(self, stats, raw_noisy_mask, effective_noisy_mask, true_noisy):
         """Add precision/recall/F1 diagnostics for detector masks."""
@@ -586,41 +474,34 @@ class CoverageMatrixMethod:
         for i in tqdm(range(self.budgetSize), desc="Selecting Samp"):
             curr_l_set = np.concatenate((np.arange(len(self.lSet)), selected)).astype(int)
 
-            # Coverage is class-agnostic and stored in column 0.
-            current_coverage = self.C[:, 0]
+            max_vals, indices = torch.max(self.C, dim=1)
             if self.use_sparse:
-                point_total_contribution = batched_diffs_sparse(
-                    self.K,
-                    current_coverage,
-                    0,
-                    self.num_of_classes,
-                    diff_method="abs_diff",
-                )
+                point_total_contribution = batched_diffs_sparse(self.K, max_vals, 0, self.num_of_classes,
+                                                                diff_method="abs_diff")
             else:
-                point_total_contribution = batched_diffs(
-                    self.K,
-                    current_coverage,
-                    0,
-                    self.num_of_classes,
-                    diff_method="abs_diff",
-                )
+                point_total_contribution = batched_diffs(self.K, max_vals, 0, self.num_of_classes,
+                                                         diff_method="abs_diff")
 
             point_total_contribution[curr_l_set] = -np.inf
 
             sampled_point = torch.argmax(point_total_contribution).item()
-            # Do not read the label of sampled_point here: it is still unlabeled.
-            kernel_row = self._get_dense_kernel_row(sampled_point)
-            self._update_class_agnostic_coverage(kernel_row)
+            # sampled_point = np.argsort(-point_total_contribution.cpu().numpy(), kind='stable')[0].item()
+            chosen_label = self.train_labels[sampled_point].item()
+
+            K_row_dense = self.K[sampled_point].to_dense().squeeze() if self.use_sparse else self.K[
+                sampled_point].squeeze()
+
+            self.C[:, chosen_label] = torch.maximum(self.C[:, chosen_label], K_row_dense)
 
             assert sampled_point not in selected, 'sample was already selected'
             selected.append(sampled_point)
-            del kernel_row
+            del K_row_dense
 
         assert len(selected) == self.budgetSize, 'added a different number of samples'
         activeSet = self.relevant_indices[selected]
 
-        # Coverage is intentionally not persisted between episodes. It is rebuilt
-        # from the current labeled set so baseline and NPC use identical state logic.
+        if not self.is_npc:
+            self.C_general[self.relevant_indices] = self.C
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
         self.activeSet = activeSet
         print(f'Finished the selection of {len(activeSet)} samples.')

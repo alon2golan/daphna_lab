@@ -79,7 +79,6 @@ COLD_START_AL_METHODS = {
     "typiclust", "typiclust_rp", "typiclust_dc",
     "probcover", "prob_cover", "probcover_orig", "prob_cover_orig",
     "npc_probcover_crossval", "npc_probcover_knn", "npc_probcover_aum", "npc_probcover_oracle",
-    "npc_maxherding_crossval", "npc_maxherding_knn", "npc_maxherding_aum", "npc_maxherding_oracle",
     "dcom",
     "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
     "misp", "mispc", "misp_plus", "all_misp",
@@ -261,11 +260,7 @@ def apply_paper_hparams(cfg: Any, pipeline: Dict[str, Any]) -> Dict[str, Dict[st
     elif al_name in MODEL_DEPENDENT_AL_METHODS:
         _set_default_run_arg(pipeline, applied, "initial_size", int(pipeline["active_learning"].get("budget") or budget), "model-dependent AL needs an initial labeled pool")
 
-    if al_name in {
-        "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
-        "npc_maxherding_crossval", "npc_maxherding_knn",
-        "npc_maxherding_aum", "npc_maxherding_oracle",
-    }:
+    if al_name in {"maxherding", "max_herding", "maxherding_orig", "max_herding_orig"}:
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.MAX_ITER", 5 if _is_imagenet_family(ds_key) else 10, "MaxHerding experiments", active_arg="max_iter")
     else:
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.MAX_ITER", 5, "TypiClust/ProbCover/DCoM default AL rounds", active_arg="max_iter")
@@ -290,11 +285,7 @@ def apply_paper_hparams(cfg: Any, pipeline: Dict[str, Any]) -> Dict[str, Dict[st
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.K_LOGISTIC", 30, "DCoM competence-score logistic parameter", run_arg="k_logistic")
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.A_LOGISTIC", 0.9 if budget <= 10 else 0.8, "DCoM competence-score logistic parameter", run_arg="a_logistic")
 
-    elif al_name in {
-        "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
-        "npc_maxherding_crossval", "npc_maxherding_knn",
-        "npc_maxherding_aum", "npc_maxherding_oracle",
-    }:
+    elif al_name in {"maxherding", "max_herding", "maxherding_orig", "max_herding_orig"}:
         _set_default_cfg(cfg, pipeline, applied, "KERNEL_TYPE", "rbf", "MaxHerding uses Gaussian/RBF kernel", run_arg="kernel_type")
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_SIGMA", 1.0, "MaxHerding lengthscale for normalized features", run_arg="initial_sigma")
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_DELTA", 1.0, "MaxHerding original code uses delta/lengthscale=1", run_arg="initial_delta")
@@ -520,20 +511,8 @@ def _load_cifar_n_labels(pt_path: str, variant: str) -> np.ndarray:
 
 
 def _get_targets(dataset: Any) -> Optional[np.ndarray]:
-    """Return the currently active labels used for training/evaluation."""
     if hasattr(dataset, "noisy_labels"):
         return np.asarray(dataset.noisy_labels, dtype=np.int64)
-    if hasattr(dataset, "targets"):
-        return np.asarray(dataset.targets, dtype=np.int64)
-    if hasattr(dataset, "dataset") and hasattr(dataset.dataset, "targets"):
-        return np.asarray(dataset.dataset.targets, dtype=np.int64)
-    return None
-
-
-def _get_clean_targets(dataset: Any) -> Optional[np.ndarray]:
-    """Return the original clean labels; never prefer .noisy_labels here."""
-    if hasattr(dataset, "clean_labels"):
-        return np.asarray(dataset.clean_labels, dtype=np.int64)
     if hasattr(dataset, "targets"):
         return np.asarray(dataset.targets, dtype=np.int64)
     if hasattr(dataset, "dataset") and hasattr(dataset.dataset, "targets"):
@@ -557,10 +536,8 @@ def _set_targets(dataset: Any, labels: np.ndarray) -> None:
 def _ensure_noisy_dataset_label_attrs(dataset: Any, clean_labels: np.ndarray) -> Any:
     """Make noisy/clean label fields consistent for wrappers and DCoM."""
     clean_labels = np.asarray(clean_labels, dtype=np.int64)
-
-    # Always force the clean reference. Do not trust an existing clean_labels
-    # field from a wrapper or previous object.
-    dataset.clean_labels = clean_labels.copy()
+    if not hasattr(dataset, "clean_labels"):
+        dataset.clean_labels = clean_labels.copy()
 
     labels = _get_targets(dataset)
     if labels is None:
@@ -660,7 +637,7 @@ def apply_noise(clean_train_data: Any, cfg: Any, pipeline: Dict[str, Any]) -> tu
         return clean_train_data, False
 
     noise_type = str(noise_type).lower()
-    clean_labels = _get_clean_targets(clean_train_data)
+    clean_labels = _get_targets(clean_train_data)
     if clean_labels is None:
         raise RuntimeError("Could not read clean labels from train dataset")
 
@@ -786,12 +763,7 @@ def _method_runtime_details(cfg: Any, pipeline: Dict[str, Any], lSet: Optional[n
         if lSet is not None:
             details['expected_num_clusters_this_round'] = int(min(len(lSet) + budget, 500))
 
-    elif al_name in {
-        'probcover', 'prob_cover', 'probcover_orig', 'prob_cover_orig',
-        'npc_probcover_crossval', 'npc_probcover_knn', 'npc_probcover_aum', 'npc_probcover_oracle',
-        'maxherding', 'max_herding',
-        'npc_maxherding_crossval', 'npc_maxherding_knn', 'npc_maxherding_aum', 'npc_maxherding_oracle',
-    }:
+    elif al_name in {'probcover', 'prob_cover', 'probcover_orig', 'prob_cover_orig', 'maxherding', 'max_herding'}:
         details.update({
             'family': 'CoverageMatrixMethod',
             'features': 'ds_utils.load_features(..., normalized=True)',
@@ -838,22 +810,11 @@ def _method_runtime_details(cfg: Any, pipeline: Dict[str, Any], lSet: Optional[n
         })
 
     elif al_name == 'coreset':
-        linear_from_features = bool(_cfg_get(cfg, 'MODEL.LINEAR_FROM_FEATURES', False))
         details.update({
-            'family': 'CoreSet/k-center-greedy',
-            'features': (
-                'frozen input SSL features (FeaturesNet penultimate output equals x)'
-                if linear_from_features
-                else 'model penultimate features from current checkpoint'
-            ),
+            'family': 'CoreSet/k-center',
+            'features': 'model penultimate features from current checkpoint',
             'distance': 'squared L2 in Sampling.py',
-            'solver': 'greedy 2-approximation only; no robust MIP/outlier solver',
-            'explicit_feature_l2_norm_inside_coreset': False,
-            'input_feature_normalization_expected': (
-                'precomputed feature pipeline; verify ds_utils/load path'
-                if linear_from_features
-                else 'not enforced by CoreSetMIPSampling'
-            ),
+            'explicit_feature_l2_norm': False,
         })
 
     elif al_name in {'uncertainty', 'entropy', 'margin'}:
@@ -1096,18 +1057,10 @@ def run_label_cleaning(train_data: Any, lSet: np.ndarray, cfg: Any, checkpoint_f
     )
 
 
-def run_aum(train_data: Any, lSet: np.ndarray, cfg: Any, checkpoint_file: Optional[str], train_al_module: Any,
+def run_aum(train_data: Any, lSet: np.ndarray, uSet: np.ndarray, cfg: Any, checkpoint_file: Optional[str], train_al_module: Any,
             pipeline: Dict[str, Any]) -> Dict[str, Any]:
-    state = pipeline.setdefault("_runtime_cleaning_state", {})
     return noise_cleaning.run_aum_cleaning(
-        train_data,
-        lSet,
-        cfg,
-        checkpoint_file,
-        train_al_module,
-        state,
-        percentile=float(pipeline["noise_handling"].get("aum_percentile", 10.0)),
-        confidence_threshold=float(pipeline["noise_handling"].get("aum_conf_threshold", 0.8)),
+        train_data, lSet, uSet, cfg, checkpoint_file=checkpoint_file, train_al_module=train_al_module
     )
 
 
@@ -1127,7 +1080,30 @@ def run_temporal(train_data: Any, lSet: np.ndarray, cfg: Any, checkpoint_file: O
     )
 
 
-def run_noise_method(method: Optional[str], train_data: Any, lSet: np.ndarray, cfg: Any, checkpoint_file: Optional[str],
+def _al_uses_lowbudget_aum(al_method: Optional[str]) -> bool:
+    name = "" if al_method is None else str(al_method).lower().replace("-", "_")
+    return name in {"npc_probcover_aum", "npc_maxherding_aum"}
+
+
+def _needs_lowbudget_aum_training_filter(pipeline: Dict[str, Any]) -> bool:
+    noise_method = str(pipeline.get("noise_handling", {}).get("method") or "none").lower()
+    return noise_method in {"aum", "aum_relabel"} or _al_uses_lowbudget_aum(
+        pipeline.get("active_learning", {}).get("method")
+    )
+
+
+def _build_lowbudget_filtered_loader(data_obj, cfg, train_data, lSet, uSet, train_al_module, pipeline, checkpoint_file):
+    result = run_aum(train_data, lSet, uSet, cfg, checkpoint_file, train_al_module, pipeline)
+    clean_indices = np.asarray(result.get("clean_indices", []), dtype=int)
+    if len(clean_indices) == 0:
+        raise RuntimeError("LowBudgetAUM predicted zero clean samples; refusing to silently train on all labels.")
+    loader = data_obj.getIndexesDataLoader(indexes=clean_indices, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
+    result["training_lset_size"] = int(len(clean_indices))
+    result["full_lset_size"] = int(len(lSet))
+    return loader, result
+
+
+def run_noise_method(method: Optional[str], train_data: Any, lSet: np.ndarray, uSet: np.ndarray, cfg: Any, checkpoint_file: Optional[str],
                      train_al_module: Any, cur_episode: int, final_val_acc: float, pipeline: Dict[str, Any]) -> Dict[str, Any]:
     method = "none" if method in [None, ""] else str(method).lower()
     if method not in SUPPORTED_NOISE_METHODS:
@@ -1164,7 +1140,7 @@ def run_noise_method(method: Optional[str], train_data: Any, lSet: np.ndarray, c
         )
 
     if method in {"aum", "aum_relabel"}:
-        return run_aum(train_data, lSet, cfg, checkpoint_file, train_al_module, pipeline)
+        return {"status": "handled_pre_training", "method": "lowbudget_aum"}
 
     if method == "temporal":
         return run_temporal(train_data, lSet, cfg, checkpoint_file, train_al_module, pipeline)
@@ -1271,12 +1247,14 @@ def evaluate_final_knn(
 
 def _nas_filter_from_al_method(al_method: Optional[str]) -> Optional[str]:
     name = "" if al_method is None else str(al_method).lower().replace("-", "_")
-    npc_prefixes = ("npc_probcover_", "npc_maxherding_")
-    for prefix in npc_prefixes:
-        if name.startswith(prefix):
-            detector = name[len(prefix):]
-            if detector in {"crossval", "knn", "aum", "oracle"}:
-                return detector
+    if name == "npc_probcover_crossval":
+        return "crossval"
+    if name == "npc_probcover_knn":
+        return "knn"
+    if name == "npc_probcover_aum":
+        return "aum"
+    if name == "npc_probcover_oracle":
+        return "oracle"
     return None
 
 
@@ -1432,29 +1410,10 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
     train_data, noisy_applied = apply_noise(clean_train_data, cfg, pipeline)
     train_labels = get_current_train_labels(train_data)
 
-    clean_labels = _get_clean_targets(clean_train_data)
+    clean_labels = _get_targets(clean_train_data)
     noisy_rate_actual = None
-    initial_lset_noisy_rate_actual = None
-    initial_lset_noisy_count_actual = None
-
     if clean_labels is not None and train_labels is not None:
-        clean_labels_np = np.asarray(clean_labels, dtype=np.int64)
-        train_labels_np = np.asarray(train_labels, dtype=np.int64)
-
-        noisy_mask_actual = clean_labels_np != train_labels_np
-        noisy_rate_actual = float(noisy_mask_actual.mean())
-
-        lset_np = np.asarray(lSet, dtype=int)
-        initial_lset_noisy_count_actual = int(noisy_mask_actual[lset_np].sum())
-        initial_lset_noisy_rate_actual = float(noisy_mask_actual[lset_np].mean())
-
-        print(
-            f"NOISE_DEBUG noise_type={pipeline['noise']['type']} "
-            f"full_noisy_rate={noisy_rate_actual:.4f} "
-            f"initial_lset_noisy_count={initial_lset_noisy_count_actual}/{len(lset_np)} "
-            f"initial_lset_noisy_rate={initial_lset_noisy_rate_actual:.4f}",
-            flush=True,
-        )
+        noisy_rate_actual = float(np.mean(np.asarray(clean_labels) != np.asarray(train_labels)))
 
     run_extra = {
         "train_size": int(train_size),
@@ -1466,8 +1425,6 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         "uSet_path": uSet_path,
         "valSet_path": valSet_path,
         "initial_label_noise_rate_actual": noisy_rate_actual,
-        "initial_lset_noisy_rate_actual": initial_lset_noisy_rate_actual,
-        "initial_lset_noisy_count_actual": initial_lset_noisy_count_actual,
         "noisy_wrapper_applied": bool(noisy_applied),
         "method_details_with_initial_pool": _method_runtime_details(cfg, pipeline, lSet=lSet, uSet=uSet),
     }
@@ -1487,6 +1444,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
     episode_al_times = []
     noise_method_results = []
     npc_filter_results = []
+    training_filter_results = []
     final_train_acc = final_val_acc = final_test_acc = 0.0
     final_knn_eval = None
     checkpoint_file = None
@@ -1498,6 +1456,15 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         cfg.EPISODE_DIR = os.path.join(cfg.EXP_DIR, f"episode_{cur_episode}")
         os.makedirs(cfg.EPISODE_DIR, exist_ok=True)
         episode_states.append(log_episode_state(cfg, pipeline, cur_episode, lSet, uSet, valSet, "episode_start"))
+
+        # Netta: raw LowBudgetAUM filtering is applied before supervised training.
+        # NAS noise dropout is NOT used here; it is only for query selection.
+        if len(lSet) > 0 and _needs_lowbudget_aum_training_filter(pipeline):
+            lSet_loader, training_filter_result = _build_lowbudget_filtered_loader(
+                data_obj, cfg, train_data, lSet, uSet, train_al_module, pipeline, checkpoint_file
+            )
+            training_filter_results.append({"episode": int(cur_episode), "result": training_filter_result})
+            append_to_single_run_log(cfg, f"LOWBUDGET_AUM_TRAINING_FILTER_EPISODE_{cur_episode}", training_filter_result)
 
         if cur_episode == 0 and len(lSet) == 0:
             logger.info("Cold start with 0 labels: skipping episode-0 training")
@@ -1551,6 +1518,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
                 pipeline["noise_handling"].get("method"),
                 train_data,
                 lSet,
+                uSet,
                 cfg,
                 checkpoint_file,
                 train_al_module,
@@ -1594,9 +1562,6 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         "final_uSet_len": int(len(uSet)),
         "final_valSet_len": int(len(valSet)),
         "noisy_wrapper_applied": bool(noisy_applied),
-        "initial_label_noise_rate_actual": noisy_rate_actual,
-        "initial_lset_noisy_rate_actual": initial_lset_noisy_rate_actual,
-        "initial_lset_noisy_count_actual": initial_lset_noisy_count_actual,
         "final_train_acc": float(final_train_acc),
         "final_val_acc": float(final_val_acc),
         "final_test_acc": float(final_test_acc),
@@ -1608,6 +1573,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
         "episode_al_times": episode_al_times,
         "noise_method_results": noise_method_results,
         "npc_filter_results": npc_filter_results,
+        "training_filter_results": training_filter_results,
         "episode_states": episode_states,
     }
     log_run_summary(cfg, pipeline, "FINAL RUN SUMMARY", extra=final_extra)
@@ -1622,9 +1588,6 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
             "final_uSet_len": int(len(uSet)),
             "final_valSet_len": int(len(valSet)),
             "noisy_wrapper_applied": bool(noisy_applied),
-            "initial_label_noise_rate_actual": noisy_rate_actual,
-            "initial_lset_noisy_rate_actual": initial_lset_noisy_rate_actual,
-            "initial_lset_noisy_count_actual": initial_lset_noisy_count_actual,
             "final_train_acc": float(final_train_acc),
             "final_val_acc": float(final_val_acc),
             "final_test_acc": float(final_test_acc),
@@ -1636,6 +1599,7 @@ def run_one(pipeline: Dict[str, Any]) -> Dict[str, Any]:
             "episode_al_times": episode_al_times,
             "noise_method_results": noise_method_results,
             "npc_filter_results": npc_filter_results,
+            "training_filter_results": training_filter_results,
             "episode_states": episode_states,
             "paper_hparams_applied": pipeline.get("paper_hparams_applied", {}),
         },
@@ -1733,7 +1697,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--nas_aum_fake_percentile", default=80.0, type=float)
     parser.add_argument("--nas_aum_lr", default=0.1, type=float)
     parser.add_argument("--nas_aum_weight_decay", default=0.0, type=float)
-    parser.add_argument("--nas_aum_max_pred_noisy_rate", default=0.5, type=float,
+    parser.add_argument("--nas_aum_max_pred_noisy_rate", default=1.0, type=float,
                         help="Cap the fraction of labeled samples that AUM can mark noisy before dropout. Use 1.0 for uncapped fake-threshold AUM.")
     parser.add_argument("--nas_min_labeled_size", default=0, type=int,
                         help="Apply NPC filtering only once |L| reaches this size. 0 keeps the original behavior.")

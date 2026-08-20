@@ -204,16 +204,15 @@ _C.ACTIVE_LEARNING.NAS_FILTER_METHOD = 'none'  # none/crossval/knn/aum/oracle
 _C.ACTIVE_LEARNING.NAS_CV_FOLDS = 3
 _C.ACTIVE_LEARNING.NAS_CV_MAX_ITER = 300
 _C.ACTIVE_LEARNING.NAS_KNN_K = -1  # -1 means max(1, |L| / num_classes)
+# LowBudgetAUM choices explicitly specified by Shafir et al.
 _C.ACTIVE_LEARNING.NAS_AUM_EPOCHS = 40
-_C.ACTIVE_LEARNING.NAS_AUM_FAKE_RATIO = 1.0
 _C.ACTIVE_LEARNING.NAS_AUM_FAKE_PERCENTILE = 80.0
+# Paper-unspecified detector details: preserve existing project defaults.
+_C.ACTIVE_LEARNING.NAS_AUM_FAKE_RATIO = 1.0
 _C.ACTIVE_LEARNING.NAS_AUM_LR = 0.1
 _C.ACTIVE_LEARNING.NAS_AUM_WEIGHT_DECAY = 0.0
-# Safety cap for LowBudgetAUM: the fake-class threshold can be too aggressive
-# in the 100-label / 100-class regime. Values in (0, 1) cap the fraction of
-# labeled samples that AUM may mark as noisy before NAS noise dropout.
-# Set to 1.0 to recover the uncapped fake-percentile rule.
-_C.ACTIVE_LEARNING.NAS_AUM_MAX_PRED_NOISY_RATE = 0.5
+# Old local 50% cap removed; 1.0 = uncapped.
+_C.ACTIVE_LEARNING.NAS_AUM_MAX_PRED_NOISY_RATE = 1.0
 # Delay NPC filtering until there are enough labels. 0 keeps the original
 # behavior and applies NPC from the first AL episode.
 _C.ACTIVE_LEARNING.NAS_MIN_LABELED_SIZE = 0

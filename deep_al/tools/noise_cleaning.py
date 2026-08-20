@@ -18,6 +18,9 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
+import deep_al.pycls.datasets.utils as ds_utils
+from deep_al.pycls.al.lowbudget_aum import lowbudget_aum_noisy_mask
+
 
 def get_current_labels(train_data: Any) -> np.ndarray:
     if hasattr(train_data, "noisy_labels"):
@@ -166,6 +169,7 @@ def predict_with_crossval(
         clf = LogisticRegression(
             max_iter=int(max_iter),
             solver="lbfgs",
+            multi_class="auto",
             n_jobs=-1,
         )
         clf.fit(x[train_pos], y_train)
@@ -370,85 +374,51 @@ def run_temporal_cleaning(
 def run_aum_cleaning(
     train_data: Any,
     lSet: np.ndarray,
+    uSet: np.ndarray,
     cfg: Any,
-    checkpoint_file: Optional[str],
-    train_al_module: Any,
-    state: Dict[str, Any],
-    *,
-    percentile: float,
-    confidence_threshold: float,
+    checkpoint_file: Optional[str] = None,
+    train_al_module: Any = None,
+    state: Optional[Dict[str, Any]] = None,
+    **_ignored,
 ) -> Dict[str, Any]:
-    """Online AUM-style cleaning.
-
-    We accumulate the margin:
-        logit(current_label) - max logit(other classes)
-    across AL episodes. Low average margin means the current label is suspicious.
-    Then we relabel only low-AUM samples where the model is confident in a different class.
-    """
-    if checkpoint_file is None:
-        return {"status": "skipped", "reason": "no checkpoint", "method": "aum"}
-
-    import torch
-
+    """LowBudgetAUM filtering. Does not relabel; returns clean/noisy indices."""
+    lSet = np.asarray(lSet, dtype=int)
+    uSet = np.asarray(uSet, dtype=int)
+    if len(lSet) == 0:
+        return {"status": "skipped", "method": "lowbudget_aum", "reason": "empty_labeled_set", "clean_indices": [], "noisy_indices": []}
     labels = get_current_labels(train_data)
-    model = train_al_module.mh.get_model(cfg, checkpoint_file)
-    device = "cuda" if (getattr(cfg, "NUM_GPUS", 0) > 0 and torch.cuda.is_available()) else "cpu"
-    model.to(device)
-    model.eval()
-
-    indices = np.asarray(lSet, dtype=int)
-    logits_all = []
-    with torch.no_grad():
-        for start in range(0, len(indices), cfg.TRAIN.BATCH_SIZE):
-            batch_indices = indices[start:start + cfg.TRAIN.BATCH_SIZE]
-            samples = [train_data[int(idx)][0] for idx in batch_indices]
-            try:
-                inputs = torch.stack([x if isinstance(x, torch.Tensor) else torch.tensor(x) for x in samples]).to(device)
-            except Exception:
-                inputs = torch.tensor(np.stack([np.asarray(x) for x in samples])).to(device)
-            logits_all.append(model(inputs).detach().cpu().numpy())
-
-    logits = np.concatenate(logits_all, axis=0)
-    probs = np.exp(logits - logits.max(axis=1, keepdims=True))
-    probs = probs / probs.sum(axis=1, keepdims=True)
-
-    cur = labels[indices]
-    true_logits = logits[np.arange(len(indices)), cur]
-    masked = logits.copy()
-    masked[np.arange(len(indices)), cur] = -np.inf
-    other_max = masked.max(axis=1)
-    margins = true_logits - other_max
-
-    sum_state = state.setdefault("aum_margin_sum", {})
-    count_state = state.setdefault("aum_margin_count", {})
-    avg_margins = np.zeros(len(indices), dtype=np.float32)
-
-    for pos, idx in enumerate(indices):
-        key = str(int(idx))
-        sum_state[key] = float(sum_state.get(key, 0.0)) + float(margins[pos])
-        count_state[key] = int(count_state.get(key, 0)) + 1
-        avg_margins[pos] = float(sum_state[key]) / float(count_state[key])
-
-    threshold_value = float(np.percentile(avg_margins, float(percentile)))
-    suspicious_mask = avg_margins <= threshold_value
-
-    pred_pack = {
-        "indices": indices,
-        "probs": probs,
-        "preds": probs.argmax(axis=1).astype(np.int64),
-        "confs": probs.max(axis=1).astype(np.float32),
-        "current_labels": cur,
-    }
-
-    result = apply_relabels_from_predictions(
-        train_data,
-        pred_pack,
-        threshold=confidence_threshold,
-        method_name="aum",
-        extra_mask=suspicious_mask,
+    all_features = ds_utils.load_features(
+        cfg.DATASET.NAME, train=True, features_tag=cfg.DATASET.get("FEATURES_TAG", None)
     )
-    result["aum_percentile"] = float(percentile)
-    result["aum_threshold_value"] = threshold_value
-    result["suspicious_count"] = int(suspicious_mask.sum())
-    result["confidence_threshold"] = float(confidence_threshold)
+    noisy_mask, stats = lowbudget_aum_noisy_mask(
+        all_features, labels, lSet, uSet,
+        num_classes=int(cfg.MODEL.NUM_CLASSES),
+        seed=int(getattr(cfg, "RNG_SEED", 0) or 0),
+        epochs=int(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_EPOCHS", 40)),
+        fake_ratio=float(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_RATIO", 1.0)),
+        fake_percentile=float(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_PERCENTILE", 80.0)),
+        lr=float(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_LR", 0.1)),
+        weight_decay=float(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_WEIGHT_DECAY", 0.0)),
+    )
+    clean_indices = lSet[~noisy_mask]
+    noisy_indices = lSet[noisy_mask]
+    result = {
+        "status": "completed", "method": "lowbudget_aum",
+        "clean_indices": clean_indices.astype(int).tolist(),
+        "noisy_indices": noisy_indices.astype(int).tolist(),
+        "pred_clean": int(len(clean_indices)), "pred_noisy": int(len(noisy_indices)),
+        **stats,
+    }
+    clean_labels = get_clean_labels(train_data)
+    if clean_labels is not None and len(lSet):
+        true_noisy = labels[lSet] != clean_labels[lSet]
+        tp = int(np.sum(noisy_mask & true_noisy)); fp = int(np.sum(noisy_mask & (~true_noisy)))
+        fn = int(np.sum((~noisy_mask) & true_noisy))
+        precision = float(tp / max(1, tp + fp)); recall = float(tp / max(1, tp + fn))
+        result.update({
+            "oracle_true_noisy": int(true_noisy.sum()), "oracle_correctly_flagged": tp,
+            "oracle_clean_flagged": fp, "oracle_missed_noisy": fn,
+            "oracle_precision": precision, "oracle_recall": recall,
+            "oracle_f1": float(2.0 * precision * recall / max(1e-12, precision + recall)),
+        })
     return result
