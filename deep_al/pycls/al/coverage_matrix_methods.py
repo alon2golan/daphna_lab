@@ -31,7 +31,10 @@ class CoverageMatrixMethod:
         self.budgetSize = cfg.ACTIVE_LEARNING.BUDGET_SIZE
         self.sigma = cfg.ACTIVE_LEARNING.INITIAL_SIGMA if 'INITIAL_SIGMA' in cfg.ACTIVE_LEARNING else 1.0
         self.sampling_fn = str(cfg.ACTIVE_LEARNING.SAMPLING_FN).lower().replace('-', '_')
-        self.is_npc = self.sampling_fn.startswith('npc_probcover')
+        # NAS is shared by the ProbCover and MaxHerding coverage selectors.
+        # Previously only npc_probcover_* activated the query-side filter, so
+        # npc_maxherding_* silently behaved like ordinary MaxHerding selection.
+        self.is_npc = self.sampling_fn.startswith(('npc_probcover', 'npc_maxherding'))
         self.nas_filter_method = str(getattr(cfg.ACTIVE_LEARNING, 'NAS_FILTER_METHOD', 'none')).lower()
         self.last_npc_filter_stats = None
         self.npc_filter_history = []
@@ -340,7 +343,10 @@ class CoverageMatrixMethod:
             fake_ratio=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_RATIO", 1.0)),
             fake_percentile=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_PERCENTILE", 80.0)),
             lr=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_LR", 0.1)),
-            weight_decay=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_WEIGHT_DECAY", 0.0)),
+            weight_decay=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_WEIGHT_DECAY", 1e-4)),
+            momentum=float(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_MOMENTUM", 0.9)),
+            nesterov=bool(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_NESTEROV", True)),
+            batch_size=int(getattr(self.cfg.ACTIVE_LEARNING, "NAS_AUM_BATCH_SIZE", 64)),
             device=("cuda" if torch.cuda.is_available() else "cpu"),
         )
         # The old project-specific 50% cap is intentionally removed.

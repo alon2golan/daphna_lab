@@ -1,0 +1,4 @@
+aum_asym_comparison/*.csv text eol=lf
+noisy_al_report_448/data/*.csv text eol=lf
+*.pdf binary
+*.png binary

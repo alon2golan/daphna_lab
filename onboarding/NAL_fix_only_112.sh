@@ -78,10 +78,13 @@ SUPERCLASS_GROUPS_PATH=""
 NAS_AUM_EPOCHS="${NAS_AUM_EPOCHS:-40}"
 NAS_AUM_FAKE_PERCENTILE="${NAS_AUM_FAKE_PERCENTILE:-80}"
 
-# Not explicitly specified by Netta; retain the project's assumptions:
+# Netta's implementation uses ceil(|L| / C) fake samples. The ratio below is
+# a multiplier on that count, so 1.0 reproduces the original count.
 NAS_AUM_FAKE_RATIO="${NAS_AUM_FAKE_RATIO:-1.0}"
 NAS_AUM_LR="${NAS_AUM_LR:-0.1}"
-NAS_AUM_WEIGHT_DECAY="${NAS_AUM_WEIGHT_DECAY:-0.0}"
+NAS_AUM_WEIGHT_DECAY="${NAS_AUM_WEIGHT_DECAY:-0.0001}"
+NAS_AUM_MOMENTUM="${NAS_AUM_MOMENTUM:-0.9}"
+NAS_AUM_BATCH_SIZE="${NAS_AUM_BATCH_SIZE:-64}"
 
 NAS_MIN_LABELED_SIZE="${NAS_MIN_LABELED_SIZE:-0}"
 
@@ -142,6 +145,8 @@ run_budget () {
     --nas_aum_fake_percentile "$NAS_AUM_FAKE_PERCENTILE"
     --nas_aum_lr "$NAS_AUM_LR"
     --nas_aum_weight_decay "$NAS_AUM_WEIGHT_DECAY"
+    --nas_aum_momentum "$NAS_AUM_MOMENTUM"
+    --nas_aum_batch_size "$NAS_AUM_BATCH_SIZE"
     --nas_aum_max_pred_noisy_rate "$NAS_AUM_MAX_PRED_NOISY_RATE"
     --nas_min_labeled_size "$NAS_MIN_LABELED_SIZE"
 

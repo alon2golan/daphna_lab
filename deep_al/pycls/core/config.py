@@ -207,10 +207,13 @@ _C.ACTIVE_LEARNING.NAS_KNN_K = -1  # -1 means max(1, |L| / num_classes)
 # LowBudgetAUM choices explicitly specified by Shafir et al.
 _C.ACTIVE_LEARNING.NAS_AUM_EPOCHS = 40
 _C.ACTIVE_LEARNING.NAS_AUM_FAKE_PERCENTILE = 80.0
-# Paper-unspecified detector details: preserve existing project defaults.
+# Netta implementation details. fake_ratio=1 keeps ceil(|L| / C) fake samples.
 _C.ACTIVE_LEARNING.NAS_AUM_FAKE_RATIO = 1.0
 _C.ACTIVE_LEARNING.NAS_AUM_LR = 0.1
-_C.ACTIVE_LEARNING.NAS_AUM_WEIGHT_DECAY = 0.0
+_C.ACTIVE_LEARNING.NAS_AUM_WEIGHT_DECAY = 1e-4
+_C.ACTIVE_LEARNING.NAS_AUM_MOMENTUM = 0.9
+_C.ACTIVE_LEARNING.NAS_AUM_NESTEROV = True
+_C.ACTIVE_LEARNING.NAS_AUM_BATCH_SIZE = 64
 # Old local 50% cap removed; 1.0 = uncapped.
 _C.ACTIVE_LEARNING.NAS_AUM_MAX_PRED_NOISY_RATE = 1.0
 # Delay NPC filtering until there are enough labels. 0 keeps the original
@@ -549,4 +552,3 @@ def setup_cfg(args):
     normalize_cfg_paths(cfg_instance)
 
     return cfg_instance
-

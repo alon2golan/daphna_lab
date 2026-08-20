@@ -40,6 +40,22 @@ SEED="${SEED:-42}"
 
 RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 DEBUG_JSON="${DEBUG_JSON:-1}"
+RUN_FINAL_400="${RUN_FINAL_400:-1}"
+RUN_FINAL_800="${RUN_FINAL_800:-1}"
+
+if [[ "$RUN_FINAL_400" != "0" && "$RUN_FINAL_400" != "1" ]] || \
+   [[ "$RUN_FINAL_800" != "0" && "$RUN_FINAL_800" != "1" ]]; then
+  echo "RUN_FINAL_400 and RUN_FINAL_800 must be 0 or 1" >&2
+  exit 2
+fi
+
+TOTAL_PLANNED_RUNS=0
+if [[ "$RUN_FINAL_400" == "1" ]]; then
+  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + 56))
+fi
+if [[ "$RUN_FINAL_800" == "1" ]]; then
+  TOTAL_PLANNED_RUNS=$((TOTAL_PLANNED_RUNS + 56))
+fi
 
 # ---------------- Shared experiment setup ----------------
 GRID_NOISE_TYPES="asym"
@@ -69,11 +85,13 @@ TEMPORAL_MIN_SEEN="${TEMPORAL_MIN_SEEN:-1}"
 NAS_AUM_EPOCHS="${NAS_AUM_EPOCHS:-40}"
 NAS_AUM_FAKE_PERCENTILE="${NAS_AUM_FAKE_PERCENTILE:-80}"
 
-# These detector details are NOT explicitly specified in Netta's paper.
-# Keep the same project assumptions unless deliberately overridden.
+# Netta's implementation uses ceil(|L| / C) fake samples. The ratio below is
+# a multiplier on that count, so 1.0 reproduces the original count.
 NAS_AUM_FAKE_RATIO="${NAS_AUM_FAKE_RATIO:-1.0}"
 NAS_AUM_LR="${NAS_AUM_LR:-0.1}"
-NAS_AUM_WEIGHT_DECAY="${NAS_AUM_WEIGHT_DECAY:-0.0}"
+NAS_AUM_WEIGHT_DECAY="${NAS_AUM_WEIGHT_DECAY:-0.0001}"
+NAS_AUM_MOMENTUM="${NAS_AUM_MOMENTUM:-0.9}"
+NAS_AUM_BATCH_SIZE="${NAS_AUM_BATCH_SIZE:-64}"
 
 NAS_MIN_LABELED_SIZE="${NAS_MIN_LABELED_SIZE:-0}"
 
@@ -135,6 +153,8 @@ run_budget () {
     --nas_aum_fake_percentile "$NAS_AUM_FAKE_PERCENTILE"
     --nas_aum_lr "$NAS_AUM_LR"
     --nas_aum_weight_decay "$NAS_AUM_WEIGHT_DECAY"
+    --nas_aum_momentum "$NAS_AUM_MOMENTUM"
+    --nas_aum_batch_size "$NAS_AUM_BATCH_SIZE"
     --nas_aum_max_pred_noisy_rate "$NAS_AUM_MAX_PRED_NOISY_RATE"
     --nas_min_labeled_size "$NAS_MIN_LABELED_SIZE"
 
@@ -286,24 +306,28 @@ run_budget () {
 }
 
 echo "============================================================"
-echo "Starting complete ASYMMETRIC-NOISE 0.3 suite for 400 + 800 labels"
+echo "Starting selected ASYMMETRIC-NOISE 0.3 budgets"
 echo "Seed: $SEED"
 echo "Noise types: $GRID_NOISE_TYPES"
-echo "Total UNIQUE runs planned: 112"
-echo "  400 labels: 56 runs"
-echo "  800 labels: 56 runs"
+echo "Total UNIQUE runs planned: $TOTAL_PLANNED_RUNS"
+echo "  400 labels enabled: $RUN_FINAL_400 (56 runs)"
+echo "  800 labels enabled: $RUN_FINAL_800 (56 runs)"
 echo "Started at $(date)"
 echo "============================================================"
 
 # 100 initial labels + 3 * 100 queried = 400 final labels
-run_budget 400 3
+if [[ "$RUN_FINAL_400" == "1" ]]; then
+  run_budget 400 3
+fi
 
 # 100 initial labels + 7 * 100 queried = 800 final labels
-run_budget 800 7
+if [[ "$RUN_FINAL_800" == "1" ]]; then
+  run_budget 800 7
+fi
 
 echo
 echo "################################################################"
 echo "# ALL EXPERIMENTS FINISHED"
-echo "# Total unique runs executed: 112"
+echo "# Total unique runs executed: $TOTAL_PLANNED_RUNS"
 echo "# Finished at $(date)"
 echo "################################################################"

@@ -79,6 +79,7 @@ COLD_START_AL_METHODS = {
     "typiclust", "typiclust_rp", "typiclust_dc",
     "probcover", "prob_cover", "probcover_orig", "prob_cover_orig",
     "npc_probcover_crossval", "npc_probcover_knn", "npc_probcover_aum", "npc_probcover_oracle",
+    "npc_maxherding_crossval", "npc_maxherding_knn", "npc_maxherding_aum", "npc_maxherding_oracle",
     "dcom",
     "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
     "misp", "mispc", "misp_plus", "all_misp",
@@ -212,6 +213,45 @@ def _delta_from_table(cfg: Any, *, prefer_dcom_table: bool = True) -> tuple[Opti
     return None, "no sourced delta found"
 
 
+def _apply_explicit_training_profile(
+    cfg: Any,
+    pipeline: Dict[str, Any],
+    applied: Dict[str, Dict[str, Any]],
+) -> None:
+    """Apply an explicitly requested training profile before method defaults."""
+    profile = str(pipeline.get("run_args", {}).get("training_profile") or "default").lower()
+    if profile == "default":
+        return
+    if profile != "netta_framework2":
+        raise ValueError(f"Unknown training_profile={profile}")
+
+    # Shafir thesis, Appendix C: Framework 2 uses the Framework-1 optimizer
+    # settings, except that its linear classifier is trained for 500 epochs.
+    settings = (
+        ("OPTIM.MAX_EPOCH", 500, "max_epoch"),
+        ("OPTIM.BASE_LR", 0.025, "base_lr"),
+        ("OPTIM.WEIGHT_DECAY", 3e-4, "weight_decay"),
+        ("OPTIM.MOMENTUM", 0.9, "momentum"),
+        ("OPTIM.NESTEROV", True, "nesterov"),
+        ("TRAIN.BATCH_SIZE", 100, "train_batch_size"),
+    )
+    for cfg_key, value, run_arg in settings:
+        _set_default_cfg(
+            cfg,
+            pipeline,
+            applied,
+            cfg_key,
+            value,
+            "Netta Framework-2 training profile",
+            run_arg=run_arg,
+        )
+    _set_cfg(cfg, "OPTIM.LR_POLICY", "cos")
+    applied["OPTIM.LR_POLICY"] = {
+        "value": "cos",
+        "reason": "Netta Framework-2 training profile",
+    }
+
+
 def _apply_training_paper_defaults(cfg: Any, pipeline: Dict[str, Any], applied: Dict[str, Dict[str, Any]], al_name: str) -> None:
     ds_key = _dataset_key(cfg)
 
@@ -244,11 +284,12 @@ def _apply_training_paper_defaults(cfg: Any, pipeline: Dict[str, Any], applied: 
 
 def apply_paper_hparams(cfg: Any, pipeline: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     """Apply method-specific paper/GitHub defaults unless the user supplied a value."""
-    if not pipeline.get("paper_hparams", True):
-        pipeline["paper_hparams_applied"] = {}
-        return {}
-
     applied: Dict[str, Dict[str, Any]] = {}
+    _apply_explicit_training_profile(cfg, pipeline, applied)
+    if not pipeline.get("paper_hparams", True):
+        pipeline["paper_hparams_applied"] = applied
+        return applied
+
     al_name = _normalize_al_name(pipeline["active_learning"].get("method") or getattr(cfg.ACTIVE_LEARNING, "SAMPLING_FN", None))
     ds_key = _dataset_key(cfg)
     budget = _default_budget(cfg)
@@ -260,7 +301,11 @@ def apply_paper_hparams(cfg: Any, pipeline: Dict[str, Any]) -> Dict[str, Dict[st
     elif al_name in MODEL_DEPENDENT_AL_METHODS:
         _set_default_run_arg(pipeline, applied, "initial_size", int(pipeline["active_learning"].get("budget") or budget), "model-dependent AL needs an initial labeled pool")
 
-    if al_name in {"maxherding", "max_herding", "maxherding_orig", "max_herding_orig"}:
+    if al_name in {
+        "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
+        "npc_maxherding_crossval", "npc_maxherding_knn",
+        "npc_maxherding_aum", "npc_maxherding_oracle",
+    }:
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.MAX_ITER", 5 if _is_imagenet_family(ds_key) else 10, "MaxHerding experiments", active_arg="max_iter")
     else:
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.MAX_ITER", 5, "TypiClust/ProbCover/DCoM default AL rounds", active_arg="max_iter")
@@ -285,7 +330,11 @@ def apply_paper_hparams(cfg: Any, pipeline: Dict[str, Any]) -> Dict[str, Dict[st
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.K_LOGISTIC", 30, "DCoM competence-score logistic parameter", run_arg="k_logistic")
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.A_LOGISTIC", 0.9 if budget <= 10 else 0.8, "DCoM competence-score logistic parameter", run_arg="a_logistic")
 
-    elif al_name in {"maxherding", "max_herding", "maxherding_orig", "max_herding_orig"}:
+    elif al_name in {
+        "maxherding", "max_herding", "maxherding_orig", "max_herding_orig",
+        "npc_maxherding_crossval", "npc_maxherding_knn",
+        "npc_maxherding_aum", "npc_maxherding_oracle",
+    }:
         _set_default_cfg(cfg, pipeline, applied, "KERNEL_TYPE", "rbf", "MaxHerding uses Gaussian/RBF kernel", run_arg="kernel_type")
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_SIGMA", 1.0, "MaxHerding lengthscale for normalized features", run_arg="initial_sigma")
         _set_default_cfg(cfg, pipeline, applied, "ACTIVE_LEARNING.INITIAL_DELTA", 1.0, "MaxHerding original code uses delta/lengthscale=1", run_arg="initial_delta")
@@ -422,6 +471,9 @@ def build_cfg(cfg_file: str, pipeline: Dict[str, Any]) -> Any:
         "ACTIVE_LEARNING.NAS_AUM_FAKE_PERCENTILE": run_args.get("nas_aum_fake_percentile"),
         "ACTIVE_LEARNING.NAS_AUM_LR": run_args.get("nas_aum_lr"),
         "ACTIVE_LEARNING.NAS_AUM_WEIGHT_DECAY": run_args.get("nas_aum_weight_decay"),
+        "ACTIVE_LEARNING.NAS_AUM_MOMENTUM": run_args.get("nas_aum_momentum"),
+        "ACTIVE_LEARNING.NAS_AUM_NESTEROV": run_args.get("nas_aum_nesterov"),
+        "ACTIVE_LEARNING.NAS_AUM_BATCH_SIZE": run_args.get("nas_aum_batch_size"),
         "ACTIVE_LEARNING.NAS_AUM_MAX_PRED_NOISY_RATE": run_args.get("nas_aum_max_pred_noisy_rate"),
         "ACTIVE_LEARNING.NAS_MIN_LABELED_SIZE": run_args.get("nas_min_labeled_size"),
         "ACTIVE_LEARNING.NAS_NOISE_DROPOUT": run_args.get("nas_noise_dropout"),
@@ -878,6 +930,7 @@ def build_run_summary(cfg: Any, pipeline: Dict[str, Any], extra: Optional[Dict[s
             'linear_from_images': _maybe_bool(_cfg_get(cfg, 'MODEL.LINEAR_FROM_IMAGES')),
         },
         'training': {
+            'profile': pipeline.get('run_args', {}).get('training_profile') or 'default',
             'optimizer': _cfg_get(cfg, 'OPTIM.TYPE'),
             'max_epoch': _cfg_get(cfg, 'OPTIM.MAX_EPOCH'),
             'base_lr': _cfg_get(cfg, 'OPTIM.BASE_LR'),
@@ -1096,7 +1149,10 @@ def _build_lowbudget_filtered_loader(data_obj, cfg, train_data, lSet, uSet, trai
     result = run_aum(train_data, lSet, uSet, cfg, checkpoint_file, train_al_module, pipeline)
     clean_indices = np.asarray(result.get("clean_indices", []), dtype=int)
     if len(clean_indices) == 0:
-        raise RuntimeError("LowBudgetAUM predicted zero clean samples; refusing to silently train on all labels.")
+        raise RuntimeError(
+            "Netta LowBudgetAUM predicted zero clean samples; refusing to train without the AUM filter."
+        )
+    result["training_filter_applied"] = True
     loader = data_obj.getIndexesDataLoader(indexes=clean_indices, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
     result["training_lset_size"] = int(len(clean_indices))
     result["full_lset_size"] = int(len(lSet))
@@ -1247,13 +1303,13 @@ def evaluate_final_knn(
 
 def _nas_filter_from_al_method(al_method: Optional[str]) -> Optional[str]:
     name = "" if al_method is None else str(al_method).lower().replace("-", "_")
-    if name == "npc_probcover_crossval":
+    if name in {"npc_probcover_crossval", "npc_maxherding_crossval"}:
         return "crossval"
-    if name == "npc_probcover_knn":
+    if name in {"npc_probcover_knn", "npc_maxherding_knn"}:
         return "knn"
-    if name == "npc_probcover_aum":
+    if name in {"npc_probcover_aum", "npc_maxherding_aum"}:
         return "aum"
-    if name == "npc_probcover_oracle":
+    if name in {"npc_probcover_oracle", "npc_maxherding_oracle"}:
         return "oracle"
     return None
 
@@ -1308,6 +1364,7 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "seed": args.seed,
             "initial_size": args.initial_size,
             "exp_name": exp_name,
+            "training_profile": args.training_profile,
             "features_tag": args.features_tag,
             "initial_delta": args.initial_delta,
             "initial_sigma": args.initial_sigma,
@@ -1349,6 +1406,9 @@ def build_pipeline(args: argparse.Namespace, noise_type: Optional[str], al_metho
             "nas_aum_fake_percentile": args.nas_aum_fake_percentile,
             "nas_aum_lr": args.nas_aum_lr,
             "nas_aum_weight_decay": args.nas_aum_weight_decay,
+            "nas_aum_momentum": args.nas_aum_momentum,
+            "nas_aum_nesterov": args.nas_aum_nesterov,
+            "nas_aum_batch_size": args.nas_aum_batch_size,
             "nas_aum_max_pred_noisy_rate": args.nas_aum_max_pred_noisy_rate,
             "nas_min_labeled_size": args.nas_min_labeled_size,
             "nas_noise_dropout": args.nas_noise_dropout,
@@ -1655,6 +1715,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--initial_sigma", default=None, type=float)
     parser.add_argument("--kernel_type", default=None, type=str)
     parser.add_argument("--eval_model_type", default=None, type=str)
+    parser.add_argument(
+        "--training_profile",
+        default="default",
+        choices=["default", "netta_framework2"],
+        help="Optional supervised-training profile. netta_framework2 uses the thesis Appendix-C linear-classifier settings.",
+    )
     parser.add_argument("--loss_fun", default=None, choices=["cross_entropy", "gce", "bootstrap_soft", "bootstrap_hard"], type=str)
     parser.add_argument("--gce_q", default=0.7, type=float)
     parser.add_argument("--bootstrap_beta", default=0.8, type=float)
@@ -1693,12 +1759,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--nas_cv_max_iter", default=300, type=int)
     parser.add_argument("--nas_knn_k", default=-1, type=int)
     parser.add_argument("--nas_aum_epochs", default=40, type=int)
-    parser.add_argument("--nas_aum_fake_ratio", default=1.0, type=float)
+    parser.add_argument(
+        "--nas_aum_fake_ratio",
+        default=1.0,
+        type=float,
+        help="Multiplier on Netta's ceil(|L| / num_classes) fake-sample count.",
+    )
     parser.add_argument("--nas_aum_fake_percentile", default=80.0, type=float)
     parser.add_argument("--nas_aum_lr", default=0.1, type=float)
-    parser.add_argument("--nas_aum_weight_decay", default=0.0, type=float)
+    parser.add_argument("--nas_aum_weight_decay", default=1e-4, type=float)
+    parser.add_argument("--nas_aum_momentum", default=0.9, type=float)
+    parser.set_defaults(nas_aum_nesterov=True)
+    parser.add_argument("--nas_aum_nesterov", dest="nas_aum_nesterov", action="store_true")
+    parser.add_argument("--no_nas_aum_nesterov", dest="nas_aum_nesterov", action="store_false")
+    parser.add_argument("--nas_aum_batch_size", default=64, type=int)
     parser.add_argument("--nas_aum_max_pred_noisy_rate", default=1.0, type=float,
-                        help="Cap the fraction of labeled samples that AUM can mark noisy before dropout. Use 1.0 for uncapped fake-threshold AUM.")
+                        help="Deprecated compatibility option; corrected LowBudgetAUM is uncapped.")
     parser.add_argument("--nas_min_labeled_size", default=0, type=int,
                         help="Apply NPC filtering only once |L| reaches this size. 0 keeps the original behavior.")
     parser.set_defaults(nas_noise_dropout=True)
@@ -1873,6 +1949,7 @@ def _light_grid_entry(combo_name: str, pipeline: Dict[str, Any], results: Dict[s
         "effective_gce_q": summary.get("effective_gce_q"),
         "effective_bootstrap_beta": summary.get("effective_bootstrap_beta"),
         "seed": run_args.get("seed"),
+        "training_profile": run_args.get("training_profile") or "default",
 
         "initial_size": run_args.get("initial_size"),
         "budget": al_cfg.get("budget"),

@@ -169,7 +169,6 @@ def predict_with_crossval(
         clf = LogisticRegression(
             max_iter=int(max_iter),
             solver="lbfgs",
-            multi_class="auto",
             n_jobs=-1,
         )
         clf.fit(x[train_pos], y_train)
@@ -398,7 +397,10 @@ def run_aum_cleaning(
         fake_ratio=float(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_RATIO", 1.0)),
         fake_percentile=float(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_FAKE_PERCENTILE", 80.0)),
         lr=float(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_LR", 0.1)),
-        weight_decay=float(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_WEIGHT_DECAY", 0.0)),
+        weight_decay=float(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_WEIGHT_DECAY", 1e-4)),
+        momentum=float(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_MOMENTUM", 0.9)),
+        nesterov=bool(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_NESTEROV", True)),
+        batch_size=int(getattr(cfg.ACTIVE_LEARNING, "NAS_AUM_BATCH_SIZE", 64)),
     )
     clean_indices = lSet[~noisy_mask]
     noisy_indices = lSet[noisy_mask]
