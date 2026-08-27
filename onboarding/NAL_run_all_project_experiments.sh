@@ -10,14 +10,14 @@
 set -euo pipefail
 export PYTHONUNBUFFERED=1
 
-# One entry point for all 610 unique scientific runs. The launcher creates four
+# One entry point for all 582 unique scientific runs. The launcher creates four
 # balanced workers. Each worker receives one regular-grid noise type (112
-# runs), 28 asymmetric-0.3 runs, and 12 or 13 Netta-aligned runs:
+# runs), 28 asymmetric-0.3 runs, and 5 or 6 Netta-aligned runs:
 #
-#   shard 0: clean regular grid      112 + 28 + 13 = 153
-#   shard 1: symmetric regular grid  112 + 28 + 13 = 153
-#   shard 2: asymmetric regular grid 112 + 28 + 12 = 152
-#   shard 3: CIFAR-100N regular grid 112 + 28 + 12 = 152
+#   shard 0: clean regular grid      112 + 28 + 5 = 145
+#   shard 1: symmetric regular grid  112 + 28 + 6 = 146
+#   shard 2: asymmetric regular grid 112 + 28 + 6 = 146
+#   shard 3: CIFAR-100N regular grid 112 + 28 + 5 = 145
 #
 # Smoke tests and repair/rerun-only scripts are excluded because they duplicate
 # configurations in these three complete suites.
@@ -48,7 +48,7 @@ if [[ -n "$PROJECT_SHARD_INDEX" && ! "$PROJECT_SHARD_INDEX" =~ ^[0-3]$ ]]; then
 fi
 
 SHARD_NOISE_TYPES=(clean sym asym cifar100n)
-SHARD_NETTA_RUNS=(13 13 12 12)
+SHARD_NETTA_RUNS=(5 6 6 5)
 
 worker_run_count () {
   local SHARD_INDEX="$1"
@@ -122,7 +122,7 @@ if [[ "$RUN_ASYM_03_GRID" == "1" ]]; then
   TOTAL_RUNS=$((TOTAL_RUNS + 112))
 fi
 if [[ "$RUN_NETTA_ALIGNED_GRID" == "1" ]]; then
-  TOTAL_RUNS=$((TOTAL_RUNS + 50))
+  TOTAL_RUNS=$((TOTAL_RUNS + 22))
 fi
 if [[ "$TOTAL_RUNS" -eq 0 ]]; then
   echo "No experiment suites are enabled" >&2

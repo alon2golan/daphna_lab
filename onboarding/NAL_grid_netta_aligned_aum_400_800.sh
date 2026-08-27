@@ -14,20 +14,22 @@ export PYTHONUNBUFFERED=1
 # Netta-aligned additions; these do not replace the regular 448-run grid.
 #
 # Protocol:
-#   - CIFAR-100, 20% symmetric noise
+#   - CIFAR-100, 50% symmetric noise
 #   - cold start (initial labeled set is empty)
 #   - b = C = 100 labels per AL round
 #   - Netta Framework-2 supervised-training profile
 #   - LowBudgetAUM filters the training set for every selector
-#   - AUM also acts on the query side for the two NPC selectors
+#   - cross-validation, kNN, AUM, and oracle detectors act on the query side
+#     for both ProbCover and MaxHerding
 #   - final labeled sizes 400 and 800
-#   - five seeds
+#   - one seed (42)
 #
 # Methods per seed/budget:
 #   random, probcover, maxherding,
-#   npc_probcover_aum, npc_maxherding_aum
+#   npc_probcover_{crossval,knn,aum,oracle},
+#   npc_maxherding_{crossval,knn,aum,oracle}
 #
-# Count: 5 methods x 5 seeds x 2 budgets = 50 runs.
+# Count: 11 methods x 1 seed x 2 budgets = 22 runs.
 
 REPO_DIR="/cs/labs/daphna/$USER/projects/daphna_lab"
 cd "$REPO_DIR"
@@ -35,11 +37,11 @@ source "$REPO_DIR/venv/bin/activate"
 cd "$REPO_DIR/deep_al/tools"
 
 CFG_PATH="../configs/cifar100/al/RESNET18.yaml"
-GRID_SEEDS="${GRID_SEEDS:-0,1,2,3,4}"
-GRID_AL_METHODS="random,probcover,maxherding,npc_probcover_aum,npc_maxherding_aum"
+GRID_SEEDS="42"
+GRID_AL_METHODS="random,probcover,maxherding,npc_probcover_crossval,npc_probcover_knn,npc_probcover_aum,npc_probcover_oracle,npc_maxherding_crossval,npc_maxherding_knn,npc_maxherding_aum,npc_maxherding_oracle"
 GRID_NOISE_TYPES="sym"
 GRID_NOISE_METHODS="aum"
-NOISE_RATE="${NETTA_NOISE_RATE:-0.2}"
+NOISE_RATE=0.5
 INITIAL_SIZE=0
 BUDGET_SIZE=100
 TRAINING_PROFILE="netta_framework2"
@@ -110,7 +112,7 @@ NAS_NOISE_DROPOUT_MIN_FRACTION="${NAS_NOISE_DROPOUT_MIN_FRACTION:-0.1}"
 run_budget () {
   local FINAL_SIZE="$1"
   local MAX_ITER="$2"
-  local EXP_NAME="netta_aligned_aum_cold_start_framework2_${FINAL_SIZE}"
+  local EXP_NAME="netta_aligned_all_npc_cold_start_framework2_${FINAL_SIZE}"
   local BASE_GRID_OUT_DIR="$REPO_DIR/grid_outputs/$EXP_NAME"
   if [[ -n "$PROJECT_SHARD_INDEX" ]]; then
     BASE_GRID_OUT_DIR="$BASE_GRID_OUT_DIR/parallel_shard_${PROJECT_SHARD_INDEX}"
@@ -181,6 +183,9 @@ run_budget () {
       --nas_aum_batch_size "$NAS_AUM_BATCH_SIZE" \
       --nas_aum_max_pred_noisy_rate 1.0 \
       --nas_min_labeled_size 0 \
+      --nas_cv_folds 3 \
+      --nas_cv_max_iter 300 \
+      --nas_knn_k -1 \
       --nas_noise_dropout \
       --nas_noise_dropout_min_fraction "$NAS_NOISE_DROPOUT_MIN_FRACTION" \
       "${JSON_ARGS[@]}"
