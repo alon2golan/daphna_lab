@@ -1,0 +1,4 @@
+delta=0.500000
+seed=3
+num_points=100000
+features_tag=maor

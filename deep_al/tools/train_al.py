@@ -79,10 +79,10 @@ def argparser():
     parser.add_argument('--density_norm_min_degree', default=1.0, type=float,
                         help='Minimum degree floor used to avoid exploding sparse-point weights')
     parser.add_argument('--density_norm_schedule', default='constant',
-                        choices=['constant', 'linear_decay', 'early_only', 'three_phase'],
+                        choices=['constant', 'linear_decay', 'linear_decay_steps', 'early_only', 'three_phase', 'three_phase_floor'],
                         help='Schedule for density_norm_alpha across sampling rounds')
     parser.add_argument('--density_norm_schedule_steps', default=3, type=int,
-                        help='Number of sampling rounds per phase for early_only/three_phase schedules')
+                        help='Number of sampling rounds per phase for early_only/three_phase schedules, or decay horizon for linear_decay_steps')
     parser.add_argument('--max_epoch', default=None, type=int, help='Max training epochs per AL round')
     parser.add_argument('--features_normalized', dest='features_normalized', action='store_true',
                         help='L2-normalize SSL features (default)')
@@ -102,11 +102,11 @@ def is_eval_epoch(cur_epoch):
 
 def prepare_datasets(cfg, args):
     """Prepare and load datasets including sparse dataset handling.
-    
+
     Args:
         cfg: Configuration object
         args: Command line arguments
-        
+
     Returns:
         Tuple of (data_obj, train_data, test_data, train_size, test_size)
     """
@@ -131,38 +131,38 @@ def prepare_datasets(cfg, args):
 
 def setup_experiment_directory(cfg):
     """Setup experiment directory structure and configuration.
-    
+
     Args:
         cfg: Configuration object
-        
+
     Returns:
         exp_dir: Path to the experiment directory
     """
     # Get the output directory ready (paths are already normalized from config.py)
     if not os.path.exists(cfg.OUT_DIR):
         os.mkdir(cfg.OUT_DIR)
-    
+
     # Create "DATASET/MODEL TYPE" specific directory
     dataset_out_dir = os.path.join(cfg.OUT_DIR, cfg.DATASET.NAME, cfg.MODEL.TYPE)
     if not os.path.exists(dataset_out_dir):
         os.makedirs(dataset_out_dir)
-    
+
     # Create day-specific directory
     now = datetime.now()
     day_dir = f'{now.year}_{now.month}_{now.day}'
     full_day_dir = os.path.join(dataset_out_dir, day_dir)
     if not os.path.exists(full_day_dir):
         os.mkdir(full_day_dir)
-    
+
     # Generate experiment name with prefix
     if cfg.EXP_NAME == 'auto':
         exp_prefix = ""
     else:
         exp_prefix = f"{cfg.EXP_NAME}_"
-    
+
     exp_suffix = f'{now.year}_{now.month}_{now.day}_{now.hour:02}{now.minute:02}{now.second:02}_{now.microsecond}'
     exp_name = f'{exp_prefix}{cfg.DATASET.NAME}_{cfg.ACTIVE_LEARNING.SAMPLING_FN}_{cfg.EVAL_MODEL_TYPE}_{exp_suffix}'
-    
+
     # Create experiment directory
     exp_dir = os.path.join(full_day_dir, exp_name)
     if not os.path.exists(exp_dir):
@@ -170,7 +170,7 @@ def setup_experiment_directory(cfg):
         print("Experiment Directory is {}.\n".format(exp_dir))
     else:
         print("Experiment Directory Already Exists: {}. Reusing it may lead to loss of old logs in the directory.\n".format(exp_dir))
-    
+
     cfg.EXP_DIR = exp_dir
     return exp_dir
 
@@ -223,7 +223,7 @@ def main(cfg):
 
     train_labels = train_data.targets
     al_obj = ActiveLearning(data_obj, cfg, train_labels, lSet, plotting_manager)
-    
+
     if len(lSet) == 0:
         print('Labeled Set is Empty - Sampling an Initial Pool')
         cfg.CURRENT_SAMPLING_ROUND = 0
@@ -243,7 +243,7 @@ def main(cfg):
     if valSet_loader is None:
         valSet_loader = lSet_loader
 
-    # Initialize the model.  
+    # Initialize the model.
     print("model: {}\n".format(cfg.MODEL.TYPE))
     logger.info("model: {}\n".format(cfg.MODEL.TYPE))
 
@@ -264,7 +264,7 @@ def main(cfg):
     all_epoch_times = []  # All epoch times across all episodes
     episode_training_times = []  # Total training time per episode
     episode_al_times = []  # AL sampling time per episode
-    
+
     # Initialize accuracy trackers for final episode
     final_train_acc = 0.0
     final_val_acc = 0.0
@@ -285,7 +285,7 @@ def main(cfg):
                                                valSet_loader, plotting_manager)
         episode_training_times.append(episode_train_time)
         all_epoch_times.extend(epoch_times)
-        
+
         # Store accuracies from current episode (will keep the last one)
         final_train_acc = best_train_acc
         final_val_acc = best_val_acc
@@ -305,7 +305,7 @@ def main(cfg):
                                                                       valSet_loader, al_obj)
         al_time = time.time() - al_start_time
         episode_al_times.append(al_time)
-        
+
         _, ep_y = plotting_manager.get_episode_data()
         print('Current accuracy values: ', ep_y)
 
@@ -391,7 +391,7 @@ def train_and_eval_model(cfg, cur_episode, lSet_loader, model, optimizer, test_l
     test_acc = test_model(test_loader, checkpoint_file, cfg, cur_episode, model, plotting_manager)
     print("Test Accuracy: {}.\n".format(round(test_acc, 4)))
     logger.info("EPISODE {} Test Accuracy {}.\n".format(cur_episode, test_acc))
-    
+
     return checkpoint_file, train_time, epoch_times, best_train_acc, best_val_acc, test_acc
 
 
@@ -420,7 +420,7 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
         print(f"1NN eval: val_data={val_data.shape} labels={val_labels.shape}")
         preds = model.predict(val_data)
         test_acc = 100. * (preds == np.array(val_labels)).mean()
-        
+
         # For 1NN, train_acc is assumed to be perfect
         train_acc = 100.0
 
@@ -472,7 +472,7 @@ def train_model(train_loader, val_loader, model, optimizer, cfg, plotting_manage
 
     val_acc_epochs_x = []
     val_acc_epochs_y = []
-    
+
     temp_best_train_acc = 0.
     epoch_times = []  # Track time for each epoch
 
@@ -613,14 +613,14 @@ def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch
         train_meter.iter_tic()
     # Log epoch stats
     train_meter.log_epoch_stats(cur_epoch)
-    
+
     # Calculate train accuracy for the epoch
     # Note: topk_errors returns percentages (0-100), so num_top1_mis accumulates percentage*mb_size
     # Therefore num_top1_mis/num_samples gives the average error percentage
     train_acc = 100.0 - (train_meter.num_top1_mis / train_meter.num_samples)
-    
+
     epoch_time = time.time() - epoch_start_time
-    
+
     train_meter.reset()
     return loss, train_acc, clf_iter_count, epoch_time
 

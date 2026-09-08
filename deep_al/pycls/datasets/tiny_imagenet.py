@@ -6,6 +6,7 @@ import torch
 import torchvision.datasets as datasets
 
 from typing import Any
+import deep_al.pycls.datasets.utils as ds_utils
 
 
 class TinyImageNet(datasets.ImageFolder):
@@ -28,7 +29,16 @@ class TinyImageNet(datasets.ImageFolder):
         samples (list): List of (image path, class_index) tuples
         targets (list): The class_index value for each image in the dataset
     """
-    def __init__(self, root: str, split: str = 'train', transform=None, test_transform=None, only_features=False, **kwargs: Any) -> None:
+    def __init__(
+            self,
+            root: str,
+            split: str = 'train',
+            transform=None,
+            test_transform=None,
+            only_features=False,
+            features_tag=None,
+            **kwargs: Any,
+    ) -> None:
         self.root = root
         self.test_transform = test_transform
         self.no_aug = False
@@ -48,18 +58,28 @@ class TinyImageNet(datasets.ImageFolder):
         # Tiny ImageNet val directory structure is not similar to that of train's
         # So a custom loading function is necessary
         self.only_features = only_features
-        if self.split == 'train':
-            self.features = np.load('../../scan/results/tiny-imagenet/pretext/features_seed1.npy')
-        elif self.split == 'val':
-            self.features = np.load('../../scan/results/tiny-imagenet/pretext/test_features_seed1.npy')
+        if self.only_features:
+            self.features = ds_utils.load_features(
+                "TINYIMAGENET",
+                train=self.split == 'train',
+                normalized=True,
+                features_tag=features_tag,
+            )
+        if self.split == 'val':
             self.root = root
             self.imgs, self.targets = self.load_val_data()
             self.samples = [(self.imgs[idx], self.targets[idx]) for idx in range(len(self.imgs))]
             self.root = os.path.join(self.root, 'val')
+            if self.only_features and features_tag is None:
+                # The stored validation features are ordered by class, matching
+                # the representation-bank label file, not val_annotations.txt.
+                labels_path = '/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext/2912_valset_labels.npy'
+                self.targets = np.load(labels_path).astype(np.int64).tolist()
+                self.samples = [(self.imgs[idx], self.targets[idx]) for idx in range(len(self.targets))]
 
 
 
-    # Split folder is used for the 'super' call. Since val directory is not structured like the train, 
+    # Split folder is used for the 'super' call. Since val directory is not structured like the train,
     # we simply use train's structure to get all classes and other stuff
     @property
     def split_folder(self) -> str:
@@ -101,17 +121,17 @@ class TinyImageNet(datasets.ImageFolder):
         Returns:
             tuple: (sample, target) where target is class_index of the target class.
         """
+        if self.only_features:
+            return self.features[index], self.targets[index]
+
         path, target = self.samples[index]
         sample = self.loader(path)
 
-        if self.only_features:
-            sample = self.features[index]
+        if self.no_aug:
+            if self.test_transform is not None:
+                sample = self.test_transform(sample)
         else:
-            if self.no_aug:
-                if self.test_transform is not None:
-                    sample = self.test_transform(sample)
-            else:
-                if self.transform is not None:
-                    sample = self.transform(sample)
+            if self.transform is not None:
+                sample = self.transform(sample)
 
         return sample, target

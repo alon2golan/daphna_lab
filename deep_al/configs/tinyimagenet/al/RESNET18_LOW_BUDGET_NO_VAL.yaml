@@ -1,0 +1,45 @@
+# Low-budget Tiny ImageNet config for paper-style 1NN feature experiments.
+#
+# Difference from RESNET18_LOW_BUDGET.yaml:
+# DATASET.VAL_RATIO is 0.0 so active selection uses the full 100000-image
+# Tiny ImageNet training pool. This better matches paper-style 1NN evaluation,
+# where no neural model validation split is needed.
+
+RNG_SEED: 1
+DATASET:
+  NAME: TINYIMAGENET
+  ROOT_DIR: '/cs/labs/daphna/itai.david/py_repos/TypiClust/data/tiny-imagenet-200/tiny-imagenet-200'
+  VAL_RATIO: 0.0
+  AUG_METHOD: 'hflip'
+MODEL:
+  TYPE: resnet18
+  NUM_CLASSES: 200
+OPTIM:
+  TYPE: 'adam'
+  BASE_LR: 0.001
+  LR_POLICY: none
+  LR_MULT: 0.1
+  MAX_EPOCH: 100
+  MOMENTUM: 0.9
+  NESTEROV: True
+  WEIGHT_DECAY: 0.0003
+  GAMMA: 0.1
+TRAIN:
+  SPLIT: train
+  BATCH_SIZE: 100
+  IM_SIZE: 64
+  EVAL_PERIOD: 2
+TEST:
+  SPLIT: test
+  BATCH_SIZE: 200
+  IM_SIZE: 64
+DATA_LOADER:
+  NUM_WORKERS: 4
+CUDNN:
+  BENCHMARK: True
+ACTIVE_LEARNING:
+  INIT_L_RATIO: 0.0
+  BUDGET_SIZE: 200
+  MAX_ITER: 9
+  DELTA_RESOLUTION: 0.05
+  MAX_DELTA: 1.1

@@ -31,7 +31,7 @@ class   CoverageMatrixMethod:
 
         mat_type = getattr(self.cfg, 'MATRIX_DTYPE', 'float32')
         self.matrices_type = getattr(torch, mat_type)
-        
+
         self.features_gpu = torch.from_numpy(self.all_features).to(self.device, dtype=self.matrices_type)
         self.budgetSize = cfg.ACTIVE_LEARNING.BUDGET_SIZE
         self.sigma = cfg.ACTIVE_LEARNING.INITIAL_SIGMA if 'INITIAL_SIGMA' in cfg.ACTIVE_LEARNING else 1.0
@@ -40,7 +40,7 @@ class   CoverageMatrixMethod:
         self.alpha = 0
         if cfg.ACTIVE_LEARNING.INITIAL_DELTA < 0:
             print("Delta not specified. Starting automated selection process...")
-    
+
             # Track time for performance monitoring
             start_time = time.time()
 
@@ -61,6 +61,8 @@ class   CoverageMatrixMethod:
         unique_labels = np.unique(self.train_labels_general)
         self.unique_labels = unique_labels
         self.num_of_classes = unique_labels.size
+        self.tie_generator = torch.Generator(device=self.device)
+        self.tie_generator.manual_seed(int(self.seed))
 
         self.kernel_build_batch_size = getattr(self.cfg, 'KERNEL_BUILD_BATCH_SIZE', 1024)
 
@@ -323,6 +325,9 @@ class   CoverageMatrixMethod:
         if self.density_norm_schedule == 'linear_decay':
             max_round = max(1, int(getattr(self.cfg.ACTIVE_LEARNING, 'MAX_ITER', 1)))
             return base_alpha * max(0.0, 1.0 - (sampling_round / max_round))
+        if self.density_norm_schedule == 'linear_decay_steps':
+            max_round = max(1, self.density_norm_schedule_steps)
+            return base_alpha * max(0.0, 1.0 - (sampling_round / max_round))
         if self.density_norm_schedule == 'early_only':
             return base_alpha if sampling_round < self.density_norm_schedule_steps else 0.0
         if self.density_norm_schedule == 'three_phase':
@@ -331,6 +336,12 @@ class   CoverageMatrixMethod:
             if sampling_round < 2 * self.density_norm_schedule_steps:
                 return 0.5 * base_alpha
             return 0.0
+        if self.density_norm_schedule == 'three_phase_floor':
+            if sampling_round < self.density_norm_schedule_steps:
+                return base_alpha
+            if sampling_round < 2 * self.density_norm_schedule_steps:
+                return 0.5 * base_alpha
+            return 0.25 * base_alpha
         raise ValueError(f"Unknown density norm schedule: {self.density_norm_schedule}")
 
     def _normalize_kernel_by_density(self, kernel_matrix, alpha=None):
@@ -484,7 +495,7 @@ class   CoverageMatrixMethod:
         torch.cuda.empty_cache()
         self.set_rel_features(lset, uset)
         self.activeSet = []
-        
+
         if self.use_sparse:
             K_csr_shuffled = self.K_general[self.relevant_indices, :][:, self.relevant_indices]
             if self.density_normalize_kernel and self.density_norm_schedule != 'constant':
@@ -514,7 +525,7 @@ class   CoverageMatrixMethod:
         self.K =  self.K.to(self.device) if self.K is not None else None
         self.C = self.C_general[self.relevant_indices]
         self.train_labels = self.train_labels_general[self.relevant_indices]
-        
+
     def set_rel_features(self, lset, uset):
         self.lSet = lset
         self.uSet = uset
@@ -524,7 +535,7 @@ class   CoverageMatrixMethod:
             self.rel_features = self.all_features[self.relevant_indices]
         elif isinstance(self.all_features, np.ndarray):
             self.rel_features = torch.from_numpy(self.all_features[self.relevant_indices])
-    
+
     @torch.inference_mode()
     def select_samples(self, lset, uset):
         """
@@ -552,9 +563,22 @@ class   CoverageMatrixMethod:
 
 
             point_total_contribution[curr_l_set] = -np.inf
-            
-            sampled_point = torch.argmax(point_total_contribution).item()
-            # sampled_point = np.argsort(-point_total_contribution.cpu().numpy(), kind='stable')[0].item()
+
+            max_score = torch.max(point_total_contribution)
+            tied_points = torch.nonzero(point_total_contribution == max_score, as_tuple=False).flatten()
+            if tied_points.numel() == 1:
+                sampled_point = tied_points.item()
+            else:
+                # Tiny ImageNet features are class-sorted. A deterministic
+                # argmax would repeatedly choose the lowest class block when the
+                # graph is sparse and many points have identical scores.
+                tie_pos = torch.randint(
+                    tied_points.numel(),
+                    (1,),
+                    generator=self.tie_generator,
+                    device=tied_points.device,
+                ).item()
+                sampled_point = tied_points[tie_pos].item()
             chosen_label = self.train_labels[sampled_point].item()
 
             K_row_dense = self.K[sampled_point].to_dense().squeeze()
@@ -578,19 +602,19 @@ class   CoverageMatrixMethod:
         del self.C
 
         return activeSet, remainSet
-    
+
     def sample_from_uSet(self, clf_model, lSet, uSet, trainDataset, supportingModels=None,
                         checkpoint_file=None):
         """
         Standard interface for active learning sampling.
         Adapts the algorithm to work with the unified AL interface.
-        
+
         Note: checkpoint_file is ignored for non-DCoM algorithms.
         """
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE > 0, "Expected a positive budgetSize"
         assert self.cfg.ACTIVE_LEARNING.BUDGET_SIZE < len(uSet), \
             f"BudgetSet cannot exceed length of unlabelled set. Length of unlabelled set: {len(uSet)} and budgetSize: {self.cfg.ACTIVE_LEARNING.BUDGET_SIZE}"
-        
+
         return self.select_samples(lSet, uSet)
 
 
@@ -601,10 +625,10 @@ def batched_diffs(K, C, alpha, number_of_classes, chunk_size=1024, diff_method="
     for start in range(0, N, chunk_size):
         end = min(start + chunk_size, N)
         if diff_method == "abs_diff":
-            
+
             K_batched = K[start:end]
             K_batched = K_batched.to(C.device)
-            diff = K_batched.sub(C) 
+            diff = K_batched.sub(C)
             diff.clamp_(min=0)
             result[start:end] = diff.sum(dim=1)
             del diff

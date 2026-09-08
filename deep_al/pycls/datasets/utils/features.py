@@ -29,7 +29,8 @@ DATASET_FEATURES_DICT = {
             'CIFAR100': '/cs/labs/daphna/itai.david/representations_bank/cifar-100_simclr/cifar100_simclr_train.npy',
             'CIFAR100_TypiclustRepo': '/cs/labs/daphna/alongol/data/embeddings/cifar-100/downloaded_from_typiclust/features_seed1.npy',
             'CIFAR100_alon': '/cs/labs/daphna/alongol/data/embeddings/cifar-100/alon_20260217/features_seed1.npy',
-            'TINYIMAGENET': '/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext/features_seed1.npy',
+            'TINYIMAGENET': '/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext/3112_train_set_features.npy',
+            'TINYIMAGENET_maor': '/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext/maor_train_features.npy',
             'IMAGENET50': '/cs/labs/daphna/itai.david/representations_bank/imagenet_dinov2/train_features.npy',
             'IMAGENET100': '/cs/labs/daphna/itai.david/representations_bank/imagenet_dinov2/train_features.npy',
             'IMAGENET200': '/cs/labs/daphna/itai.david/representations_bank/imagenet_dinov2/train_features.npy',
@@ -43,7 +44,8 @@ DATASET_FEATURES_DICT = {
             'CIFAR100': '/cs/labs/daphna/itai.david/representations_bank/cifar-100_simclr/cifar100_simclr_test.npy',
             'CIFAR100_TypiclustRepo  ': '/cs/labs/daphna/alongol/data/embeddings/cifar-100/downloaded_from_typiclust/features_seed1.npy',
             'CIFAR100_alon': '/cs/labs/daphna/alongol/data/embeddings/cifar-100/alon_20260217/test_features_seed1.npy',
-            'TINYIMAGENET': '/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext/test_features_seed1.npy',
+            'TINYIMAGENET': '/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext/2912_valset_features.npy',
+            'TINYIMAGENET_maor': '/cs/labs/daphna/itai.david/representations_bank/tiny-imagenet_simclr/pretext/maor_test_features.npy',
             'IMAGENET50': '/cs/labs/daphna/itai.david/representations_bank/imagenet_dinov2/val_features.npy',
             'IMAGENET100': '/cs/labs/daphna/itai.david/representations_bank/imagenet_dinov2/val_features.npy',
             'IMAGENET200': '/cs/labs/daphna/itai.david/representations_bank/imagenet_dinov2/val_features.npy',
@@ -57,11 +59,11 @@ def get_dataset_name_with_tag(ds_name, features_tag=None):
     """
     Constructs the dataset name with the features tag if provided.
     Allows specifying different feature representations for any dataset (e.g., 'itai', 'alon').
-    
+
     Args:
         ds_name: Base dataset name (e.g., 'CIFAR100', 'CIFAR10', 'TINYIMAGENET')
         features_tag: Optional tag to specify which features to use (e.g., 'itai', 'alon')
-    
+
     Returns:
         Dataset name with tag if applicable (e.g., 'CIFAR100_alon', 'CIFAR10_custom')
     """
@@ -72,20 +74,20 @@ def get_dataset_name_with_tag(ds_name, features_tag=None):
 def load_features(ds_name, seed=1, train=True, normalized=True, features_tag=None):
     """
     Load pretrained features for a dataset.
-    
+
     Args:
         ds_name: Dataset name
         seed: Random seed
         train: Whether to load training or test features
         normalized: Whether to normalize features
         features_tag: Optional tag to specify which features to use for CIFAR100
-    
+
     Returns:
         Loaded features as numpy array
     """
     # Construct the full dataset name with tag if provided
     full_ds_name = get_dataset_name_with_tag(ds_name, features_tag)
-    
+
     split = "train" if train else "test"
     fname = DATASET_FEATURES_DICT[split][full_ds_name].format(seed=seed)
     if fname.endswith('.npy'):

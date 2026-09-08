@@ -33,6 +33,8 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 if str(REPO_ROOT / "deep_al") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "deep_al"))
 
@@ -74,7 +76,7 @@ def parse_args() -> argparse.Namespace:
         "--datasets",
         nargs="*",
         default=None,
-        choices=["CIFAR10", "CIFAR100"],
+        choices=["CIFAR10", "CIFAR100", "TINYIMAGENET"],
         help="Optional dataset filter.",
     )
     parser.add_argument(
@@ -234,6 +236,10 @@ def load_labels(dataset: str, data_root: str) -> np.ndarray:
         ds = datasets.CIFAR10(root=data_root, train=True, download=False)
     elif dataset == "CIFAR100":
         ds = datasets.CIFAR100(root=data_root, train=True, download=False)
+    elif dataset == "TINYIMAGENET":
+        from pycls.datasets.tiny_imagenet import TinyImageNet
+
+        ds = TinyImageNet(root=data_root, split="train")
     else:
         raise ValueError(f"Unsupported dataset for label loading: {dataset}")
     return np.asarray(ds.targets, dtype=np.int64)

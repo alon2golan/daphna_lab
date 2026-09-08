@@ -1,0 +1,2463 @@
+Generalized Coverage for More Robust
+Low-Budget Active Learning
+Wonho Bae1 , Junhyug Noh2 , and Danica J. Sutherland1,3
+University of British Columbia, Vancouver
+2
+Ewha Womans University
+3
+Alberta Machine Intelligence Institute (Amii)
+whbae@cs.ubc.ca, junhyug@ewha.ac.kr, dsuth@cs.ubc.ca
+
+arXiv:2407.12212v2 [cs.LG] 24 Jul 2024
+
+1
+
+Abstract. The ProbCover method of Yehuda et al. is a well-motivated
+algorithm for active learning in low-budget regimes, which attempts to
+“cover” the data distribution with balls of a given radius at selected data
+points. We demonstrate, however, that the performance of this algorithm
+is extremely sensitive to the choice of this radius hyper-parameter, and
+that tuning it is quite difficult, with the original heuristic frequently failing. We thus introduce (and theoretically motivate) a generalized notion
+of “coverage,” including ProbCover’s objective as a special case, but also
+allowing smoother notions that are far more robust to hyper-parameter
+choice. We propose an efficient greedy method to optimize this coverage,
+generalizing ProbCover’s algorithm; due to its close connection to kernel
+herding, we call it “MaxHerding.” The objective can also be optimized
+non-greedily through a variant of k-medoids, clarifying the relationship
+to other low-budget active learning methods. In comprehensive experiments, MaxHerding surpasses existing active learning methods across
+multiple low-budget image classification benchmarks, and does so with
+less computational cost than most competitive methods.
+Keywords: Active learning · Set coverage · Low budget · Kernel herding
+
+1
+
+Introduction
+
+In active learning, rather than being handed a dataset with a random set of
+labeled points (as in passive learning), a model strategically requests annotations
+for specific data points. The aim is to obtain a better final model at a given label
+budget, by requesting the “most informative” labels. Some practical domains,
+such as medical imaging, require reasonably-accurate models with a very small
+set of labels [48], smaller than those used by most previous work in active learning
+(henceforth “high-budget” settings). This setting is more achievable than it used
+to be thanks to good features from self-supervised learning techniques [7, 8, 50];
+with strong baseline features, actively trained models can perform comparably to
+standard passive models trained on an order of magnitude more data [19,32,55].
+Previous active learning techniques mostly select data points based on estimates of uncertainty, but as demonstrated by Hacohen et al . [19], in low-budget
+
+
+2
+
+W. Bae et al.
+
+regimes, it can be far more effective to select representative data points than
+uncertain ones. To that end, Yehuda et al . [55] recently proposed ProbCover,
+a greedy algorithm to maximize the coverage of the training data. Their notion of “coverage,” however, depends on a radius δ; we demonstrate that the
+performance of ProbCover is highly sensitive to the choice of δ.
+We thus introduce generalized coverage (Sec. 3.1), which encompasses ProbCover’s objective as a special case, while also allowing for smoother notions of
+coverage which are far more robust to hyper-parameter selection. We propose
+an algorithm named MaxHerding (Sec. 3.2) to greedily maximize the generalized coverage, motivated by the data summarization algorithm called kernel
+herding [10]. We also consider a non-greedy algorithm for the same objective
+(in Sec. 3.3), a variant of k-medoids. Doing so further clarifies the connection to
+other low-budget active learning approaches, as depicted in Fig. 1 and Sec. 3.4.
+Our experiments (Sec. 4.1) show that MaxHerding outperforms existing active learning methods across various low-budget benchmark datasets, including
+“imbalanced” variants (Sec. 4.2), while using less computation cost than most
+competitive methods. The non-greedy algorithm k-medoids marginally outperforms MaxHerding, but does so at significantly increased computational cost
+(Sec. 4.3); we thus recommend practitioners typically prefer MaxHerding for
+low-budget active learning. To summarize our contributions:
+– We introduce a smoother and more robust notion of coverage, generalizing
+ProbCover’s objective.
+– We propose MaxHerding, a greedy algorithm to efficiently optimize generalized coverage, motivated by kernel herding.
+– We illustrate that kernel k-medoids can also optimize this objective, helping
+clarify the relationship to other low-budget active learning methods.
+– We demonstrate that MaxHerding outperforms existing active learning methods, with less computational cost than most competitive methods, while
+being more robust to the choice of budget size and features.
+
+2
+
+Background
+
+2.1
+
+Active Learning
+
+The aim of active learning is to reduce the need for manual annotation by strategically selecting data points for annotation. There are two major categories of
+active learning techniques: uncertainty-based and representation-based methods.
+The most common framework is pool-based active learning, where we repeat
+the following process at each iteration t ∈ [1, 2, . . . , T ]:
+
+1. Train a pre-defined model on the labeled set Lt and evaluate it on a test set.
+2. Select a set of data points St = {xb }B
+b=1 , where B is a fixed budget, from an
+|Ut |
+unlabeled set Ut = {xu }u=1 .
+3. Annotate the selected set St , merge it to a labeled set Lt+1 = Lt ∪ St , and
+remove it from the unlabeled set Ut+1 = Ut \ St .
+
+For simplicity, we do not separately notate the labels y for points in L.
+
+
+Generalized Coverage for More Robust Low-Budget Active Learning
+
+3
+
+Uncertainty-based Generally, uncertainty-based approaches leverage the model
+trained on Lt to find new points St . This approach includes simple yet effective algorithms like entropy [52], margin sampling [42], and posterior probability [30,31]. These depend on the predictions from the current model, which does
+not take into account the potential impact of newly added data points. [3, 47]
+approximate the expected change in model parameters by measuring the change
+in loss gradients. A related category of approaches estimate expected reduction
+in error [18, 41, 56] or expected change in model outputs [16, 22, 23, 36].
+Representation-based The objective of this approach is to select examples
+from the unlabeled set that are considered the most “typical”, expecting that
+performing effectively on these examples will generalize well to the entire unseen dataset. Traditional methods are based on clustering algorithms such as kmeans [54] and variants such as k-means++ [3], k-medoids [1], or k-medians [51].
+Another option is determinantal point processes [28]. There are also some hybrid
+methods that combine uncertainty and representation-based methods [2, 3, 39].
+In pool-based batch active learning, for typical values of the labeling budget
+BT , uncertainty-based methods often outperform representation-based ones.
+2.2
+
+Low-Budget Active Learning
+
+In many modern problems, however, settings where BT is very small (say, ten
+times the number of classes) have become highly relevant. In this low-budget
+regime, popular uncertainty-based active learning methods such as entropy [52]
+and margin sampling [42] are less effective even than random sampling [19]: the
+model simply is not good enough to “know what it doesn’t know.” Thus, recent
+work on low-budget active learning [19, 32, 55] instead selects data points which
+are representative of the unlabeled set U.
+Maximum coverage ProbCover [55] aims to select data points which maximally cover the data distribution: that is, it aims to have most of the data
+distribution lie within a distance at most δ from a labeled point. This is motivated in part by their bound on the accuracy of a nearest neighbor (1-NN)
+classifier fˆ, compared to the true (deterministic) labeling function f :
+  \begin {split} \Pr _{\vecx }( f(\vecx ) \ne \hat f(\vecx ) ) &\le \bigg ( 1 - \Pr _{\vecx }\Big (\exists \vecx ' \in \mathcal L \;\text { s.t. }\; \lVert \vecx - \vecx ' \rVert \le \delta \Big ) \bigg ) \\ &+ \bigg ( 1 - \Pr _{\vecx }\Big ( \forall \vecx ' \text { s.t. } \lVert \vecx - \vecx ' \rVert \le \delta , \;\; f(\vecx ) = f(\vecx ') \Big ) \bigg ) .\end {split} \label {eq:probcover_bound}
+(1)
+
+The first probability on the right-hand side is the coverage, the probability that
+a randomly selected point is near a labeled point; the second is the purity, the
+probability that a point does not lie near a decision boundary. Yehuda et al .
+propose to choose a δ 4 such that the second term is acceptably small, and then
+4
+
+In low-budget settings, holding out a validation set for tuning hyperparameters such
+as δ may significantly reduce the training set size and severely degrade performance.
+
+
+4
+
+W. Bae et al.
+
+chooses L to minimize an empirical estimate of the first term. Exact optimization
+is NP-hard, and thus ProbCover greedily maximizes the estimated coverage [55].
+Self-supervised features It is hard to learn good features based on a handful
+of labeled data points. Previous work in low-budget active learning has thus
+used representations from self-supervised learning on the unlabeled data points,
+particularly with SimCLR [8], which are then used in a 1-NN or linear classifier.
+We follow previous works in focusing on SimCLR features, but also consider the
+more recent methods SCAN [50] and DINO [7].
+2.3
+
+Kernel Herding
+
+Kernel herding [10] is a method to summarize an arbitrary probability distribution with a “super-sample”: a set of points such that empirical averages of f
+on the super-sample converge to the true expectation faster than simple Monte
+Carlo averages over i.i.d. samples. It does so by greedily aligning kernel mean
+embeddings [6, 37] computed in a reproducing kernel Hilbert space (RKHS) H
+with kernel k. In our setting, we aim to match the empirical distribution of the
+L
+points U = {xn }N
+n=1 . After selecting {x̃l }l=1 , the (L + 1)-th chosen point is
+  \tilde \vecx _{L+1} &\in \argmax _{\tilde {\vecx }} \underbrace {\frac {1}{N} \sum _{n=1}^N k(\vecx _n, \tilde {\vecx })}_\text {reward} - \underbrace {\frac {1}{L+1} \sum _{l=1}^L k(\tilde \vecx _l, \tilde {\vecx })}_\text {penalty} \label {eq:kherding_approx}
+
+(2)
+
+The first “reward” term encourages x̃L+1 to be “similar” to the target points,
+while the second “penalty” term discourages it from overlapping with alreadyselected data points. Kernel herding can be seen [4] as a type of Frank-Wolfe
+algorithm [15], also known as conditional gradient [29]; it is also closely connected [21] to Bayesian quadrature [40]. Stein Points
+√ [9] is a recent variant.
+Herding converges much faster than the O(1/ L) rate of i.i.d. sampling:
+Proposition 1 (Kernel herding convergence [10]). Let x be distributed
+such that k(x, x) is bounded for a positive definite kernel k, and assume a mild
+regularity condition which is typically satisfied as long as x is not concentrated
+at a single point. Then, for any function g(x) in the RKHS H with kernel k,
+  \left \lvert \frac 1N \sum _{n=1}^N g(\vecx _n) - \frac 1L \sum _{l=1}^L g(\tilde \vecx _l) \right \rvert = \mathcal O\left ( \frac {\lVert g \rVert _{\mathcal H}}{L} \right ) .
+
+Active learning was mentioned as an application by Chen et al . [10], but this
+has not seen much uptake in practice.
+
+3
+
+Our Method
+
+3.1
+
+Generalized Coverage
+
+We begin with a more general version of the bound (1) of Yehuda et al . [55].
+
+
+Generalized Coverage for More Robust Low-Budget Active Learning
+(a) Max kernel fn.
+– Proposition 3
+
+Max Herding
+Objective – Eq. (5)
+
+(b) Top-hat fn.
+– Corollary 2
+
+Kernel Herding [10]
+
+ProbCover [55]
+
+(d) Max. Kernel
+Stein Discrepancy
+
+(e) Varying δ
+Coverage = 1
+
+5
+
+Stein Points [9]
+
+Coreset [46]
+
+Non-greedy
+
+Kernel 𝑘-Means
+(Kernel 𝑘-Medoids)
+
+(c) Linear kernel
+
+𝑘-Means [54]
+(𝑘-Medoids [1])
+
+(f) 𝑚-Nearest
+Neighbors
+
+Typiclust [19]
+
+Fig. 1: Illustration of the connection between our proposed methods (in red) and the
+existing active learning (in blue) as well as herding methods (in green). We describe
+(a)–(c) in Sec. 3. For (d)–(f), please refer to [9], [55], and [19], respectively.
+
+
+ |L|
+Theorem 1. Let fˆ denote a 1-NN classifier trained on xl , f (xl ) l=1 , for a
+deterministic labeling function f . Let k be a nonnegative function such that for
+any x, if ∥x1 − x∥ ≤ ∥x2 − x∥, then k(x, x1 ) ≥ k(x, x2 ). Then
+  \Pr _{\vecx }\left ( f(\vecx ) \neq \hat {f}(\vecx ) \right ) \le \left ( 1 - \E _{\vecx }\left [ \max _{\vecx ' \in \mathcal {L}} k(\vecx , \vecx ') \right ] \right ) + \E _{\vecx }\left [ \max _{\vecx ' : f(\vecx ) \ne f(\vecx ')} k(\vecx , \vecx ') \right ] \label {eq:ourbound} . (3)
+
+The proof is given in Appendix A.1. This result is in fact a strict generalization of (1), as shown in the following result (proved in Appendix A.2).
+Corollary 1. Let k be the top-hat function defined as follows for a given δ:
+  k(\vecx , \vecx ') \defeq \begin {cases} 1 &\text {if } \lVert \vecx - \vecx ' \rVert \le \delta \\ 0 &\text {otherwise } .\end {cases}
+Then the statement of (3) becomes identical to that of (1).
+We define the generalized coverage as the term in (3) corresponding to the
+coverage term of (1). Similarly to ProbCover, we propose to use a k such that
+the second (impurity) term of (3) is small, and then choose L to maximize the
+generalized coverage, guaranteeing good downstream performance of fˆ.
+Definition 1 (Generalized Coverage). For a labeled set L and a real-valued
+function k, the generalized coverage is defined as
+  \mathrm {C}_k(\mathcal {L}) \defeq \E _{\vecx } \left [ \max _{\vecx '\in \mathcal {L}} k(\vecx , \vecx ') \right ] \label {eq:gen-coverage} .
+
+(4)
+
+We do not require k to be positive definite (or integrate
+to one), but typically
+
+use a Gaussian kernel k(x, x̃) = exp − 2σ1 2 ∥x − x̃∥2 . Both the Gaussian kernel
+and the top-hat function satisfy the conditions of Theorem 1.
+
+
+6
+
+W. Bae et al.
+
+Extension to a linear classifier The bounds so far have assumed a 1-NN
+classifier fˆ. In practice, however, linear classifiers are more common. In the lowbudget regime where n ≪ d, gradient descent for logistic regression will find the
+max-margin separator [49]. Moreover, for high-dimensional normalized features,
+it is plausible that a “successful” choice of L with one data point per class will
+have nearly-orthogonal data points. Lemma 1 of Bae et al . [5] shows that in
+this case, the max-margin linear separator in fact exactly agrees with the 1-NN
+classifier. Thus, motivations based on 1-NN classifiers should give some intuition
+about the performance of linear classifiers as well.
+3.2
+
+Greedy Maximization: MaxHerding
+
+Our main algorithm is greedy maximization of Ck (L), which we call MaxHerding.
+The generalized coverage is defined in terms of an expectation over x, but
+we have access only via samples. Thus, we use the Monte Carlo approximation
+  C_k(\mathcal L) = \E _{\vecx }\left [ \max _{\vecx ' \in \mathcal L} k(x, x') \right ] \approx \frac 1N \sum _{n=1}^N \left (\max _{\vecx ' \in \mathcal L} k(\vecx _n, \vecx ')\right ) =: \hat C_k(\mathcal L) .
+q
+
+
+If a ≤ k(x, x′ ) ≤ b, then Pr |Ĉk (L) − Ck (L)| ≤ (b − a) N2 log 2δ ≥ 1 − δ by
+Hoeffding’s inequality. For the top-hat kernel of ProbCover, b − a = 1. In active
+learning settings, N (the size of the unlabeled pool) is typically very large, at
+least on the order of tens of thousands, so Ĉk will be very close to Ck .
+The improvement in Ĉk (L) from adding one more entry x̃ to L is
+  \max _{\tilde \vecx } \left ( \frac 1N \sum _{n=1}^N \max _{\vecx ' \in \mathcal L \cup \{\tilde \vecx \}} k(\vecx _n, \vecx ') - \frac 1N \sum _{n=1}^N \max _{\vecx ' \in \mathcal L} k(\vecx _n, \vecx ') \right ) \label {eq:max_herding} .
+
+(5)
+
+MaxHerding simply picks the corresponding maximizer x̃ from (5) at each step.
+Proposition 2. For L selected by MaxHerding with a nonnegative function k,
+  \hat C_k(\mathcal L) \ge \left (1 - \frac 1e\right ) \max _{\mathcal S : \lvert \mathcal S \rvert \le \lvert \mathcal L \rvert } \hat C_k(\mathcal S) \label {eq:submodular-guarantee} .
+
+(6)
+
+PN
+Proof. The generalized coverage can be written as g(S) := i=1 maxj∈S Mi,j ;
+when all Mi,j ≥ 0, these facility location problems are monotone submodular [17,34]. The result follows from standard guarantees on the quality of greedy
+optimization of submodular functions [25, 38].
+⊔
+⊓
+Connection to ProbCover This result follows immediately from Corollary 1.
+Corollary 2. MaxHerding with a top-hat function is identical to ProbCover.
+
+
+Generalized Coverage for More Robust Low-Budget Active Learning
+3
+
+80
+
+−4
+
+−2
+
+0
+
+2
+
+4
+
+X
+
+(a) Comparison for the next choices
+
+ProbCover
+
+Size of L
+
+90
+10
+0
+
+80
+
+70
+
+60
+
+50
+
+40
+
+30
+
+20
+
+10
+
+90
+10
+0
+
+Size of L
+
+80
+
+70
+
+60
+
+−3
+
+50
+
+−2
+
+40
+
+40
+
+Initial Point
+KernelHerding
+MaxHerding
+ProbCover
+
+30
+
+0
+−1
+
+98% purity
+95% purity
+90% purity
+80% purity
+70% purity
+60% purity
+
+60
+
+20
+
+1
+
+10
+
+Test Acc (%)
+
+2
+
+Y
+
+7
+
+MaxHerding
+
+(b) Sensitivity to δ (derived from purity)
+
+Fig. 2: (a) Next choices for different algorithms after selecting the initial orange point.
+(b) Varying the radius δ in ProbCover, and Gaussian lengthscale for MaxHerding, for
+CIFAR10 classification. See text for the definition of purity.
+
+Connection to kernel herding The following result, proved in Appendix A.3,
+relates MaxHerding to kernel herding (thus explaining the name).
+Proposition 3. Let the max kernel function for a labeled set L be given by
+  k(\vecx , \tvecx ; \mathcal L) := \max \left \{ k(\vecx , \tvecx ) - \max _{\vecx ' \in \mathcal L} k(\vecx , \vecx ') , 0 \right \} .
+Then we can rewrite (5), the improvement in one step of MaxHerding, as
+  \label {eq:maxherding-reframed} \max _{\tvecx } \frac 1N \sum _{n=1}^N k(\vecx _n, \tvecx ; \mathcal L) - \frac {1}{\lvert \mathcal L \rvert + 1} \sum _{l=1}^{\lvert \mathcal L \rvert } k(\tvecx _l, \tvecx ; \mathcal L) .
+
+(7)
+
+Comparing to (2) shows that MaxHerding takes the same form as kernel
+herding using a max kernel which only counts the “closest” contribution, rather
+than allowing multiple contributions from nearby points to “add up.”
+Kernel herding tries to match a target distribution, and hence if many points
+are clustered in a small region, it will select several points from a small area to
+match the probability density. If we assume that the deterministic true labeling
+function f is relatively smooth, this effort is simply wasted in active learning:
+we already know the local label from the first point in that area, and our effort
+is probably better spent obtaining labels from elsewhere.
+For an illustration, see Fig. 2a, where 80% of data points (marked as ◦)
+come from one Gaussian component, and the remaining 20% (△) from another.
+Kernel herding, MaxHerding, and ProbCover will each choose roughly the mean
+of the larger component as their first point (orange). Freezing that selection, the
+figure shows the second point selected by each algorithm: MaxHerding chooses
+roughly the mean of the second component, and both ProbCover and kernel
+herding choose points within the first larger component. ProbCover chooses a
+point just outside the radius of its initial selection; kernel herding chooses a
+point far enough to have a small penalty, but close enough to still exploit a large
+
+
+8
+
+W. Bae et al.
+
+Algorithm 1: Greedy and non-greedy methods for generalized coverage
+Input: Labeled set L, unlabeled set U, budget B, number of iterations T
+Compute k ∈ |U | where ki = maxx′ ∈L k(xi , x′ )
+2 for t ∈ [1, 2, · · · , T ] do
+3
+if Use Greedy then // Greedy method
+4
+for b ∈ [1, 2, · · · , B] do
+PN
+5
+Select x∗b = argmaxx̃∈U N1
+n=1 max(k(xi , x̃) − ki , 0)
+6
+Update ki ← max(k(xi , x∗b ), ki )
+
+R
+
+1
+
+7
+8
+9
+
+10
+
+else // Non-greedy method
+Fit kernel k-medoids with |L| fixed and B random initial centroids
+Select new B centroids as {x∗1 , x∗2 , · · · , x∗B }
+// For both greedy and non-greedy methods
+∗ B
+Update L ← L ∪ {x∗b }B
+b=1 and U ← U \ {xb }b=1
+
+amount of reward from “double-counting” the larger cluster. MaxHerding also
+shows improved behavior compared to these algorithms in our experiments.
+The max kernel is not a positive definite kernel function (for one, it is not
+symmetric), and so bounds for kernel herding such as Proposition 1 do not automatically apply to MaxHerding. It is worth noting, however, that Proposition 1
+is not actually particularly applicable to active learning settings either.
+Let Lfˆ(x) := Ey [ℓ(fˆ(x), y) | x] denote the expected loss on x for a predictor
+fˆ at x. (If y is a deterministic function f of x and ℓ is the 0-1 loss corresponding
+to accuracy, L ˆ(x) is 0 if fˆ(x) = f (x) and 1 otherwise.)
+f
+
+We wish to find the predictor fˆ with minimal expected loss Lfˆ = Ex Lfˆ(x).
+Proposition 1 establishes that if L is chosen with kernel herding in a RKHS H,
+P|L|
+1
+our estimated loss L̂fˆ = |L|
+l=1 Lfˆ(x̃l ) converges to the true value Lfˆ at a rate
+
+
+of O ∥Lfˆ∥H /L , and thus we can expect based on uniform convergence that
+learning based on L will quickly identify the best predictor.
+For classification tasks with the 0-1 loss and a continuous kernel, however,
+∥Lfˆ∥H = ∞ [11, Lemma 4.28]. Thus, the upper bound is infinite.
+Efficient implementation Using the expressions from Proposition 3, we can
+use dynamic programming to select each point in O(N ) time, rather than O(N |L|)
+as for a direct implementation of (5). Algorithm 1 gives pseudocode.
+Sensitivity to radius δ We argue that the top-hat function used by ProbCover
+is not a good choice for measuring similarity between data points. Its notion
+of smoothness for data points is “all or nothing,” treating two points as exactly
+equivalent at distance 0.99δ and utterly unconnected at 1.01δ. Thus, it is perhaps
+unsurprising that ProbCover is highly sensitive to the choice of δ.
+Figure 2b shows downstream active learning performance on CIFAR10 for
+different values of δ (details in Sec. 4). Following Yehuda et al . [55], we select δ
+
+
+Generalized Coverage for More Robust Low-Budget Active Learning
+
+9
+
+based on an estimate of its purity: 95% purity means that the second term in
+the upper bound of (1) is 0.05, as estimated on samples with k-means labels.
+(The purity is a monotonically decreasing function of δ.)
+We can see that active learning performance for ProbCover is highly sensitive
+to the choice of δ; in this case, larger δ performs better, but this varies by dataset
+and features. By contrast, varying the lengthscale parameter of a Gaussian kernel
+to set the purity term in (3) barely changes downstream performance here. We
+thus stick to a default value of 1, a sensible number for normalized features. We
+also show that MaxHerding is robust to the choice of kernels in Fig. 7.
+3.3
+
+Non-Greedy Maximization: Kernel k-Medoids
+
+Given already-selected points L, the problem of choosing a new batch S to label
+in order to maximize the generalized coverage Ck of (4) can be written as
+  \argmax _{\mathcal {S} \subset \mathcal {X}, \lvert \mathcal {S} \rvert = B } & \frac {1}{N} \sum _{n=1}^N \max _{x' \in \mathcal {L} \cup \mathcal {S}} k(\mathbf {x}_n, \mathbf {x}') \label {eq:non_greedy}
+
+(8)
+
+Proposition 4. Let k be a positive definite kernel with feature map ϕ, so that
+k(x, x′ ) = ⟨ϕ(x), ϕ(x′ )⟩H for some Hilbert space H. Suppose k(x, x) is constant
+(as holds, e.g., for Gaussian kernels). Then the maximizer of (8) exactly agrees
+with the objective of k-means or k-medoids, with cluster centers in L ∪ S:
+  \eqref {eq:non_greedy} = \argmax _{\mathcal {S} \subset \mathcal {X}, \lvert \mathcal {S} \rvert = B } \frac {1}{N} \sum _{n=1}^N \min _{x' \in \mathcal {L} \cup \mathcal {S}} \lVert \phi (\vecx _n) - \phi (\vecx ')\rVert _\mathcal {H}^2 \label {eq:kmeans}
+
+(9)
+
+⊓
+Proof. We have that ∥ϕ(xn ) − ϕ(x′ )∥2H = k(xn , xn ) + k(x′ , x′ ) − 2k(xn , x′ ). ⊔
+Using a linear kernel5 k(x, x′ ) = x · x′ , we recover standard k-means.
+In pool-based active learning, we cannot query the labels of arbitrary points;
+we thus cannot simply query at the cluster centers obtained by k-means. (Using
+kernel k-means and having x the output space of a featurizer network both
+also mean that arbitrary points in H may not correspond to any possible input
+image.) Typiclust [19] thus runs k-means (capping the number of clusters at 500
+to try to avoid empty clusters) and chooses the “densest” point in each cluster to
+label. Doing so, however, might not choose a “central” point in that cluster. Given
+our generalized coverage framing, we can instead directly enforce L ∪ S ⊆ U and
+optimize the objective (9) with k-medoids, as described in Algorithm 1.
+The most popular approach for high-quality solutions to k-medoids problems
+is the Partitioning Around Medoids (PAM) [24] algorithm. Although we found
+implementations of “plain” PAM impractically slow, the FasterPAM algorithm
+of [43–45] is more efficient. We modified the fast Rust [33] implementation from
+Schubert and Lenssen [43] to support “freezing” L while optimizing S in (9).
+5
+
+If ∥x∥ = 1, then the linear kernel satisfies our assumption of k(x, x) being constant.
+k-means would not select points satisfying this assumption, but k-medoids would.
+
+
+10
+
+W. Bae et al.
+
+In our experiments, kernel k-medoids achieves similar or slightly better downstream performance compared to MaxHerding, as shown in Fig. 5a. (We know
+from Proposition 2 that the amount of possible improvement in Ck is limited.)
+Even this optimized implementation is much slower than other methods, however (see Sec. 4.3). Hence, we recommend practitioners default to MaxHerding
+over kernel k-medoids.
+3.4
+
+Relationships with Existing Methods
+
+Figure 1 describes connections between our approaches based on generalized
+coverage, Ck (L), to several existing active learning and herding algorithms. (a,
+Proposition 3) MaxHerding is kernel herding [10] with a “max kernel function,”
+also establishing (d) a connection to Stein Points [9]. (b, Corollary 2) ProbCover [55] is a special case of MaxHerding with a top-hat kernel function, also
+establishing (e) a close connection to Coreset [46]. (c, Eq. (9)) Maximizing generalized coverage is equivalent to kernel k-medoids, connecting (f) to Typiclust [19]
+through k-means clustering.
+
+4
+
+Experimental Evaluation
+
+Active learning methods We compare our proposed MaxHerding method
+to the following baselines. Uncertainty, Entropy, and Margin are representative
+uncertainty-based methods. Coreset, Typiclust, and ProbCover are the leading
+representation-based methods, while KernelHerding was selected due to its connection to our algorithm.
+Random
+
+Uniformly select B data points at random.
+
+Uncertainty Select x∗ = argminx̃∈U p1 (y|x̃), one point at a time, where p1
+denotes the highest predicted probability.
+Entropy [52] Select x∗ = argmaxx̃∈U H(ŷ(x̃) | x̃), one point at a time, where
+H(·) is the Shannon entropy.
+Margin [42] Select x∗ = argminx̃∈U p1 (y|x̃) − p2 (y|x̃), one point at a time,
+where p2 denotes the second-highest predicted probability.
+Coreset [46] Select one point at a time using the k-Center-Greedy algorithm,
+defined as x∗ = argmaxx̃∈U minx′ ∈L ∥x̃ − x′ ∥2 .
+
+BADGE [3] Select one point at a time by the k-means++ initialization algorithm, based on gradient embeddings w.r.t. the weights of the last layer.
+Typiclust [19] Run a clustering algorithm, e.g., k-means. For each cluster,
+select a point with the highest “typicality” using m-Nearest Neighbors:
+−1
+ P
+1
+′
+.
+typicality(x) := m
+x′ ∈m-NN(x) ∥x − x ∥2
+
+ProbCover [55] Construct a graph where nodes represent data points in U
+and there is an edge between x and x′ if ∥x − x′ ∥ ≤ δ. δ is pre-defined
+
+
+Generalized Coverage for More Robust Low-Budget Active Learning
+
+11
+
+based on heuristics proposed by the authors (refer to Appendix B for more
+details). Select points one at a time with the highest number of edges.
+KernelHerding [10] Select one point at a time based on (2).
+Evaluation metric Following [19, 55], we select C data points for annotation
+at each iteration, where C is the number of classes. We report the mean and
+standard deviation of test accuracies for 5 runs at each of 10 iterations, except
+for ImageNet where we conduct 3 runs at each of 5 iterations.
+Implementation We consider classification both with a 1-NN classifier, where
+fˆ(x) is the label of the closest point to x in L, and with a linear classifier trained
+on L with cross-entropy loss (multiclass logistic regression). All results using a
+linear classifier are presented in Appendix C.6
+Our implementation for active learning is based on the code provided by the
+authors of [19,55]. Since the code for the heuristic choice of δ is not provided, we
+implement it as described in Appendix B. For self-supervised learning features,
+we employ SimCLR [8] and SCAN [50] using the code provided by the authors of
+[50], and DINO [7] using its public implementation. We use a Gaussian kernel for
+both MaxHerding and kernel k-medoids, with lengthscale fixed to 1 throughout
+the experiments, but we also provide a comparison of kernel choices in Fig. 7.
+4.1
+
+Comparison on Benchmarks with Prior Methods
+
+We compare MaxHerding to the other active learning methods on benchmark
+datasets: CIFAR10 [26], CIFAR100 [27], TinyImageNet [35] and ImageNet [13].
+We extract features using DINO for ImageNet, and SimCLR for the rest.
+Fig. 3 shows that uncertainty-based methods are even worse than random
+selection, as previously reported [19, 55].7 Kernel herding is significantly better
+than uncertainty-based methods, but worse than Typiclust and MaxHerding.
+Although ProbCover performs the best on TinyImageNet, it is significantly worse
+than MaxHerding and Typiclust on the CIFAR datasets. This demonstrates the
+instability of the heuristics for choosing its δ radius parameter.
+MaxHerding consistently outperforms other methods including Typiclust, the
+most competitive method. MaxHerding especially outperforms Typiclust on ImageNet; this is likely because of the hardcoded 500-cluster limit of Typiclust,
+smaller than the number of ImageNet classes. Increasing that limit without further attention, however, can cause issues as described in Sec. 3.3.
+4.2
+
+Comparison on Imbalanced Datasets
+
+Although datasets with imbalances in class frequencies are common in practical,
+previous works have focused on benchmark datasets with balanced classes. We
+BADGE [3] is presented only for linear classifiers, since the gradient embeddings are
+not defined for 1-NN classifiers.
+7
+In high-budget settings, uncertainty methods outperform other methods; see Fig. 6a.
+6
+
+
+W. Bae et al.
+Entropy
+
+Typiclust
+
+ProbCover
+
+25
+
+50
+
+35
+10
+
+Size of L
+
+CIFAR10
+
+Size of L
+
+CIFAR100
+
+0
+
+0
+
+50
+0
+
+40
+0
+
+0
+
+0
+
+0
+10
+00
+12
+00
+14
+00
+16
+00
+18
+00
+20
+00
+
+30
+
+0
+
+0
+
+0
+
+0
+
+10
+0
+
+0
+
+90
+
+0
+
+80
+
+0
+
+70
+
+0
+
+60
+
+0
+
+50
+
+0
+
+Size of L
+
+40
+
+30
+
+20
+
+0
+
+90
+
+80
+
+10
+
+70
+
+60
+
+50
+
+40
+
+30
+
+20
+
+10
+
+0
+
+20
+
+30
+
+40
+
+80
+
+25
+
+0
+
+40
+
+45
+15
+
+60
+
+30
+
+40
+
+50
+
+20
+
+35
+
+MaxHerding
+
+55
+
+20
+60
+
+KernelHerding
+
+0
+
+40
+
+Coreset
+
+30
+0
+
+70
+
+Margin
+
+0
+
+45
+
+20
+0
+
+Uncertainty
+
+10
+
+Test Acc (%)
+
+Random
+
+80
+
+10
+0
+
+12
+
+Size of L
+
+TinyImageNet
+
+ImageNet
+
+Fig. 3: Comparison on benchmark datasets using 1-NN classifier.
+
+40
+
+12
+
+35
+
+20
+
+10
+
+30
+
+15
+
+8
+
+25
+
+25
+
+10
+0
+20
+0
+30
+0
+40
+0
+50
+0
+60
+0
+70
+0
+80
+0
+90
+0
+10
+00
+
+10
+0
+
+90
+
+70
+80
+
+50
+60
+
+30
+40
+
+10
+20
+
+30
+
+Imbal. CIFAR10
+
+Size of L
+
+Imbal. CIFAR100
+
+10
+00
+12
+00
+14
+00
+16
+00
+18
+00
+20
+00
+
+40
+
+Size of L
+
+Imbal. TinyImageNet
+
+0
+
+45
+
+14
+
+50
+
+50
+0
+
+50
+
+16
+
+MaxHerding
+
+0
+
+18
+
+30
+
+0
+
+35
+
+60
+
+Size of L
+
+KernelHerding
+
+55
+
+0
+
+ProbCover
+
+40
+0
+
+Typiclust
+
+20
+
+0
+
+Coreset
+
+30
+0
+
+Margin
+
+20
+0
+40
+0
+60
+0
+80
+0
+
+Test Acc (%)
+
+70
+
+Entropy
+
+20
+0
+
+Uncertainty
+
+10
+0
+
+Random
+
+Size of L
+
+Imbal. ImageNet
+
+Fig. 4: Comparison on imbalanced datasets using 1-NN classifier.
+
+generate imbalanced datasets using the benchmark datasets with a standard
+long-tailed imbalance generation method [12]; details are in Appendix C.
+Low budget active learning on imbalanced datasets is significantly harder
+than balanced datasets, because selecting data points from the densest region
+may result in ignoring some classes with a small number of samples. In extreme
+cases, test accuracy may even decrease with more labels; this occurs with ProbCover on Imbalanced CIFAR100 and TinyImageNet in Fig. 4.
+In this setting, Coreset generally performs better than random selection –
+not the case on the balanced datasets. More importantly, the margin between
+MaxHerding and Typiclust is larger than on the balanced datasets. We conjecture that this may be related to the different notions of “coverage” used by the
+two algorithms, with Typiclust more drawn to choose additional points in dense
+areas (due to its typicality scores) than MaxHerding based on Gaussian kernels.
+
+4.3
+
+Ablation Study
+
+Greedy vs. non-greedy Due to the high computational overhead of the nongreedy algorithm (as we will see in Fig. 5b), we did not provide its performance
+in previous results. In Fig. 5a, we compare the greedy (MaxHerding) and nongreedy (kernel k-medoids) for the generalized coverage (left) and test accuracy
+(right) on CIFAR100. The greedy and non-greedy algorithms are not significantly
+different in either coverage or test accuracy, except for the first few iterations.
+
+
+Generalized Coverage for More Robust Low-Budget Active Learning
+MaxHerding
+
+45.0
+
+0.46
+
+Typiclust
+
+ProbCover
+
+42.5
+40.0
+37.5
+
+0.44
+
+MaxHerding
+
+Kernel k-Medoids
+
+300
+
+200
+Run Time / Iter (sec)
+
+Test Acc (%)
+
+0.48
+Coverage
+
+Coreset
+
+Kernel k-Medoids
+
+0.50
+
+13
+
+250
+
+150
+50
+
+50
+
+35.0
+
+(a) Greedy vs. Non-greedy
+
+Size of L
+
+CIFAR100
+
+0
+20
+0
+
+0
+
+0
+
+15
+0
+
+10
+0
+
+50
+0
+
+0
+
+80
+0
+
+10
+0
+
+60
+0
+
+40
+0
+
+0
+
+20
+0
+
+0
+
+0
+00
+10
+
+0
+
+CIFAR100
+
+90
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+Size of L
+
+80
+
+70
+
+60
+
+50
+
+40
+
+30
+
+20
+
+10
+
+0
+
+0
+
+0
+00
+10
+
+90
+
+0
+
+0
+
+0
+
+0
+
+0
+
+CIFAR100
+
+80
+
+70
+
+60
+
+50
+
+40
+
+30
+
+20
+
+10
+
+0
+
+0
+Size of L
+
+Size of L
+
+TinyImageNet
+
+(b) Runtime per selection – note the axis break
+
+Fig. 5: (a) compares the greedy (MaxHerding) and non-greedy (kernel k-medoids)
+algorithms on CIFAR100, and (b) compares low budget active learning methods in
+terms of runtime in seconds per selection on CIFAR100 and TinyImageNet.
+
+Comparison in runtime We compare the runtime of low-budget active learning methods on CIFAR100 and TinyImageNet in Fig. 5b. Coreset and ProbCover
+are extremely fast; Coreset only needs to find the closest labeled points to each
+candidate x̃, and ProbCover usually maintains quite a sparse graph with a reasonably large δ. However, their downstream performance is significantly worse
+than MaxHerding and Typiclust, as shown in Secs. 4.1 and 4.2.
+Typiclust, which usually gives active learning performance comparable to
+(but worse than) that of MaxHerding, generally has runtime a factor of three
+or four longer. Our proposed kernel k-medoids generally matches or slightly
+outperforms MaxHerding, but with more than ten times as much runtime.
+Mid- and high-budget regimes Although our main focus is on the low-budget
+regime, in practice, these regimes are not precisely defined and hard to know in
+advance.8 In Fig. 6a, we compare methods in the mid-budget regime (100 samples
+per iteration) and high-budget regime (1,000 samples per iteration) on CIFAR10.
+In the mid-budget regime, MaxHerding still performs the best, although Margin
+catches up at the end. As expected, in the high-budget regime, Margin and
+Entropy outperform other methods; MaxHerding still significantly outperforms
+Typiclust and ProbCover, which shows the robustness of MaxHerding compared
+to other low-budget active learning methods.
+Robustness to feature embedding We also compare methods using more
+recent self-supervised learning features: SCAN [50] and DINO [7] on CIFAR100.
+We obtain SCAN features using a ResNet18 trained on CIFAR100, while for
+DINO features we use a ViT model pre-trained on ImageNet [13]. As the ViT
+model is not directly trained on CIFAR100, the performance using the DINO
+features is generally lower; we still use DINO features because we think this
+8
+
+SelectAL [20] introduced an algorithm to identify the regime, but it requires multiple
+model re-trainings for cross-validation.
+
+
+14
+
+W. Bae et al.
+Random
+
+Entropy
+
+Margin
+
+Coreset
+
+ProbCover
+
+Typiclust
+
+MaxHerding
+
+Random
+
+Entropy
+
+Margin
+
+Coreset
+
+Typiclust
+
+ProbCover
+
+MaxHerding
+
+25
+
+88
+
+85
+
+Test Acc (%)
+
+87
+86
+85
+
+30
+
+15
+
+25
+
+(a) Mid and high budget regime
+
+0
+
+0
+
+80
+
+0
+
+70
+
+0
+
+60
+
+0
+
+Size of
+
+SCAN on CIFAR100
+
+0
+90
+0
+10
+00
+
+Size of
+
+50
+
+0
+
+0
+90
+0
+10
+00
+
+0
+
+80
+
+0
+
+70
+
+0
+
+60
+
+0
+
+50
+
+0
+
+40
+
+30
+
+20
+
+0
+
+9K
+10
+K
+
+Size of
+
+High Budget
+
+8K
+
+7K
+
+6K
+
+5K
+
+4K
+
+3K
+
+2K
+
+1K
+
+0
+
+0
+90
+0
+10
+00
+
+80
+
+0
+
+0
+
+70
+
+0
+
+60
+
+0
+
+50
+
+0
+
+40
+
+30
+
+20
+
+0
+10
+
+Size of
+
+Mid Bugdet
+
+0
+
+10
+
+20
+
+40
+
+65
+
+0
+
+84
+
+30
+
+70
+
+20
+
+35
+
+20
+
+75
+
+10
+
+80
+
+10
+
+Test Acc (%)
+
+40
+
+DINO on CIFAR100
+
+(b) SCAN and DINO features
+
+Fig. 6: (a) compares active learning methods in different budget regimes, and (b)
+compares them using different self-supervised learning features: SCAN and DINO.
+
+setting reflects a highly practical use of active learning, where time or resources
+are insufficient to train a self-supervised learning model from scratch.
+With these features, we observe similar patterns as we did with previous
+experiments; uncertainty-based methods are worse than random selection, and
+MaxHerding generally outperforms the other methods.
+Different Kernel Functions We compare
+MaxHerding with different kernel functions –
+Gaussian, Student-t, Laplace and Cauchy – on
+CIFAR10 and CIFAR100 datasets. These kernels are all functions of ∥x − x′ ∥/δ; we fix δ = 1
+for all kernels. Fig. 7 shows that all choices
+CIFAR10
+CIFAR100
+of kernels perform similarly; Student-t is very
+Fig.
+7:
+Comparison
+of
+kernels.
+slightly better than others on CIFAR100, but
+the margin is not significant. MaxHerding is thus robust to the choice of kernel.
+Gaussian
+
+Student-t
+
+Test Acc (%)
+
+80
+
+Laplace
+
+Cauchy
+
+44
+42
+
+75
+
+40
+38
+
+70
+
+36
+
+5
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+20
+
+30
+
+40
+
+50
+
+60
+
+60
+
+50
+
+40
+
+30
+
+20
+
+10
+
+Size of L
+
+10
+
+34
+
+65
+
+Size of L
+
+Conclusion
+
+In this study, we introduced a generalized notion of coverage, which allows for
+smoother measurements of whether a point is “representative” of nearby data
+points. We proposed novel low-budget active learning approaches aimed at maximizing this generalized coverage, employing both greedy and non-greedy algorithms. We show that our greedy algorithm, MaxHerding, is closely connected
+to kernel herding as well as including ProbCover as a special case; it is simple
+and fast, but surpasses the performance of existing active learning methods.
+The non-greedy algorithm, a version of kernel k-medoids, performs slightly
+better than MaxHerding, but its computation demands are significantly higher.
+Therefore, we recommended practitioners prioritize MaxHerding over the nongreedy algorithm kernel k-medoids algorithm.
+Recently, active learning methods designed for fine-tuning [53] have gained
+popularity. It would be an interesting future work to demonstrate how lowbudget active learning approaches perform in the fine-tuning of large models.
+
+
+Generalized Coverage for More Robust Low-Budget Active Learning
+
+15
+
+Acknowledgements
+This work was enabled in part by support provided by the Natural Sciences
+and Engineering Research Council of Canada, the Canada CIFAR AI Chairs
+program, Mitacs through the Mitacs Accelerate program, Advanced Research
+Computing at the University of British Columbia, the BC DRI Group, and the
+Digital Research Alliance of Canada. Junhyug Noh was supported by Institute of
+Information & communications Technology Planning & Evaluation (IITP) grant
+funded by the Korea government (MSIT) (No.RS-2022-00155966).
+
+References
+1. Aghaee, A., Ghadiri, M., Baghshah, M.S.: Active distance-based clustering using
+k-medoids. In: PAKDD (2016)
+2. Al-Shedivat, M., Li, L., Xing, E., Talwalkar, A.: On data efficiency of meta-learning.
+In: AISTAT (2021)
+3. Ash, J.T., Zhang, C., Krishnamurthy, A., Langford, J., Agarwal, A.: Deep batch
+active learning by diverse, uncertain gradient lower bounds. ICLR (2020)
+4. Bach, F., Lacoste-Julien, S., Obozinski, G.: On the equivalence between herding
+and conditional gradient algorithms. ICML (2012)
+5. Bae, W., Wang, J., Sutherland, D.J.: Exploring active learning in meta-learning:
+Enhancing context set labeling. arXiv preprint arXiv:2311.02879 (2023)
+6. Berlinet, A., Thomas-Agnan, C.: Reproducing Kernel Hilbert Spaces in Probability
+and Statistics. Springer New York (2003)
+7. Caron, M., Touvron, H., Misra, I., Jégou, H., Mairal, J., Bojanowski, P., Joulin,
+A.: Emerging properties in self-supervised vision transformers. In: ICCV (2021)
+8. Chen, T., Kornblith, S., Norouzi, M., Hinton, G.: A simple framework for contrastive learning of visual representations. In: ICML (2020)
+9. Chen, W.Y., Mackey, L., Gorham, J., Briol, F.X., Oates, C.: Stein points. In: ICML
+(2018)
+10. Chen, Yutian and Welling, Max and Smola, Alex: Super-samples from kernel herding. In: UAI (2010)
+11. Christmann, A., Steinwart, I.: Support Vector Machines. Springer New York (2008)
+12. Cui, Y., Jia, M., Lin, T.Y., Song, Y., Belongie, S.: Class-balanced loss based on
+effective number of samples. In: CVPR (2019)
+13. Deng, J., Dong, W., Socher, R., Li, L.J., Li, K., Fei-Fei, L.: ImageNet: A large-scale
+hierarchical image database. In: CVPR (2009)
+14. Everingham, M., Eslami, S.M.A., Van Gool, L., Williams, C.K.I., Winn, J., Zisserman, A.: The pascal visual object classes challenge: A retrospective. IJCV (2015)
+15. Frank, M., Wolfe, P., et al.: An algorithm for quadratic programming. Naval research logistics quarterly 3(1-2), 95–110 (1956)
+16. Freytag, A., Rodner, E., Denzler, J.: Selecting influential examples: Active learning
+with expected model output changes. In: ECCV (2014)
+17. Frieze, A.M.: A cost function property for plant location problems. Mathematical
+Programming pp. 245–248 (1974)
+18. Guo, Y., Greiner, R.: Optimistic active-learning using mutual information. In:
+IJCAI. pp. 823–829 (2007)
+19. Hacohen, G., Dekel, A., Weinshall, D.: Active learning on a budget: Opposite
+strategies suit high and low budgets. In: ICML (2022)
+
+
+16
+
+W. Bae et al.
+
+20. Hacohen, G., Weinshall, D.: How to select which active learning strategy is best
+suited for your specific problem and budget. NeurIPS (2024)
+21. Huszár, Ferenc and Duvenaud, David: Optimally-weighted herding is bayesian
+quadrature. In: UAI (2012)
+22. Käding, C., Rodner, E., Freytag, A., Denzler, J.: Active and continuous exploration
+with deep neural networks and expected model output changes. In: NIPSW (2016)
+23. Käding, C., Rodner, E., Freytag, A., Mothes, O., Barz, B., Denzler, J., AG, C.Z.:
+Active learning for regression tasks with expected model output changes. In: BMVC
+(2018)
+24. Kaufman, L., Rousseeuw, P.J.: Finding groups in data: an introduction to cluster
+analysis. John Wiley & Sons (2009)
+25. Krause, A., Golovin, D.: Submodular function maximization. Tractability p. 3
+(2014)
+26. Krizhevsky, A.: Learning multiple layers of features from tiny images (2009)
+27. Krizhevsky, A., Nair, V., Hinton, G.: Cifar-100 (canadian institute for advanced
+research), http://www.cs.toronto.edu/~kriz/cifar.html
+28. Kulesza, A., Taskar, B., et al.: Determinantal point processes for machine learning.
+Foundations and Trends® in Machine Learning 5(2–3), 123–286 (2012)
+29. Levitin, E.S., Polyak, B.T.: Constrained minimization methods. USSR Computational mathematics and mathematical physics 6(5), 1–50 (1966)
+30. Lewis, D.D., Catlett, J.: Heterogeneous uncertainty sampling for supervised learning. In: Machine learning proceedings 1994. pp. 148–156 (1994)
+31. Lewis, D.D., Gale, W.A.: A sequential algorithm for training text classifiers. In:
+SIGIR. pp. 3–12 (1994)
+32. Mahmood, R., Fidler, S., Law, M.T.: Low budget active learning via wasserstein
+distance: An integer programming approach. In: ICLR (2022)
+33. Matsakis, N.D., Klock, F.S.: The Rust language. ACM SIGAda Ada Letters (2014)
+34. Mirchandani, P.B., Francis, R.L.: Discrete location theory (1990)
+35. mnmoustafa, M.A.: Tiny imagenet (2017), https://kaggle.com/competitions/
+tiny-imagenet
+36. Mohamadi, M.A., Bae, W., Sutherland, D.J.: Making look-ahead active learning
+strategies feasible with neural tangent kernels. In: NeurIPS (2022)
+37. Muandet, K., Fukumizu, K., Sriperumbudur, B., Schölkopf, B.: Kernel mean embedding of distributions: A review and beyond. Foundations and Trends® in Machine Learning p. 1–141 (2017)
+38. Nemhauser, G.L., Wolsey, L.A., Fisher, M.L.: An analysis of approximations for
+maximizing submodular set functions—i. Mathematical programming (1978)
+39. Parvaneh, A., Abbasnejad, E., Teney, D., Haffari, G.R., Van Den Hengel, A., Shi,
+J.Q.: Active learning by feature mixing. In: CVPR (2022)
+40. Rasmussen, C.E., Ghahramani, Z.: Bayesian monte carlo (2003)
+41. Roy, N., McCallum, A.: Toward optimal active learning through monte carlo estimation of error reduction. In: ICML (2001)
+42. Scheffer, T., Decomain, C., Wrobel, S.: Active hidden markov models for information extraction. In: ISIDA (2001)
+43. Schubert, E., Lenssen, L.: Fast k-medoids clustering in Rust and Python. Journal
+of Open Source Software p. 4183 (2022)
+44. Schubert, E., Rousseeuw, P.J.: Faster k-medoids clustering: improving the PAM,
+CLARA, and CLARANS algorithms. In: Similarity Search and Applications: 12th
+International Conference, SISAP 2019, Newark, NJ, USA, October 2–4, 2019, Proceedings 12. pp. 171–187 (2019)
+
+
+Generalized Coverage for More Robust Low-Budget Active Learning
+
+17
+
+45. Schubert, E., Rousseeuw, P.J.: Fast and eager k-medoids clustering: O(k) runtime
+improvement of the PAM, CLARA, and CLARANS algorithms. Information Systems (2021)
+46. Sener, O., Savarese, S.: Active learning for convolutional neural networks: A coreset approach. In: ICLR (2018)
+47. Settles, B.: Active learning literature survey. University of Wisconsin-Madison Department of Computer Sciences (2009)
+48. Shin, G., Xie, W., Albanie, S.: All you need are a few pixels: Semantic segmentation
+with pixelpick. In: ICCV Workshops (2021)
+49. Soudry, D., Hoffer, E., Nacson, M.S., Gunasekar, S., Srebro, N.: The implicit bias
+of gradient descent on separable data. JMLR 19 (2018)
+50. Van Gansbeke, W., Vandenhende, S., Georgoulis, S., Proesmans, M., Van Gool,
+L.: Scan: Learning to classify images without labels. In: ECCV (2020)
+51. Voevodski, K., Balcan, M.F., Röglin, H., Teng, S.H., Xia, Y.: Active clustering of
+biological sequences. In: JMLR (2012)
+52. Wang, D., Shang, Y.: A new active labeling method for deep learning. In: IJCNN
+(2014)
+53. Xie, Y., Lu, H., Yan, J., Yang, X., Tomizuka, M., Zhan, W.: Active finetuning:
+Exploiting annotation budget in the pretraining-finetuning paradigm. In: CVPR
+(2023)
+54. Xu, Z., Yu, K., Tresp, V., Xu, X., Wang, J.: Representative sampling for text
+classification using support vector machines. In: ECIR (2003)
+55. Yehuda, O., Dekel, A., Hacohen, G., Weinshall, D.: Active learning through a
+covering lens. In: NeurIPS (2022)
+56. Zhu, X., Lafferty, J., Ghahramani, Z.: Combining active learning and semisupervised learning using gaussian fields and harmonic functions. In: ICMLW. vol. 3
+(2003)
+
+
+18
+
+W. Bae et al.
+
+A
+
+Proofs
+
+A.1
+
+Proof for Theorem 1
+
+
+ |L|
+Theorem 1. Let fˆ denote a 1-NN classifier trained on xl , f (xl ) l=1 , for a
+deterministic labeling function f . Let k be a nonnegative function such that for
+any x, if ∥x1 − x∥ ≤ ∥x2 − x∥, then k(x, x1 ) ≥ k(x, x2 ). Then
+  \Pr _{\vecx }\left ( f(\vecx ) \neq \hat {f}(\vecx ) \right ) \le \left ( 1 - \E _{\vecx }\left [ \max _{\vecx ' \in \mathcal {L}} k(\vecx , \vecx ') \right ] \right ) + \E _{\vecx }\left [ \max _{\vecx ' : f(\vecx ) \ne f(\vecx ')} k(\vecx , \vecx ') \right ] \label {eq:ourbound} . (3)
+Proof. We begin with
+  &\Pr _{\vecx }(f(\vecx ) \ne \hat f(\vecx )) = \E \left [ \mathbbm {1}[f(\vecx ) \neq \hat {f}(\vecx ) ] \right ] \\ &= \E \left [ \mathbbm {1}[f(\vecx ) \neq \hat {f}(\vecx ) ] (1 - \max _{\vecx ' \in \mathcal {L}} k(\vecx , \vecx ') ) \right ] + \E \left [ \mathbbm {1}[f(\vecx ) \neq \hat {f}(\vecx ) ] \cdot \max _{\vecx ' \in \mathcal {L}} k(\vecx , \vecx ') \right ] \\ &\leq 1 - \E \left [ \max _{\vecx ' \in \mathcal {L}} k(\vecx , \vecx ') \right ] + \E \left [ \mathbbm {1}[f(\vecx ) \neq \hat {f}(\vecx ) ] \cdot \max _{\vecx ' \in \mathcal {L}} k(\vecx , \vecx ') \right ]
+
+using in the last line that 1[f (x) ̸= fˆ(x)] ≤ 1. Now consider the value
+  g(\vecx ) = \mathbbm {1}[f(\vecx ) \neq \hat {f}(\vecx ) ] \cdot \max _{\vecx ' \in \mathcal {L}} k(\vecx , \vecx ') .
+Recall that fˆ(x) is f (x′ ), where x′ = argminx̃∈L ∥x − x̃∥. Thus, for any given x,
+there are two cases:
+1. f (x) = fˆ(x). In this case, g(x) = 0, and is hence upper-bounded by
+  \max _{\vecx ' : f(\vecx ) \ne f(\vecx ')} k(\vecx , \vecx ') \ge 0 .
+2. f (x) ̸= fˆ(x). Let x̃ be the nearest point in L to x. We know that f (x) ̸= f (x̃),
+and hence
+  k(\vecx , \tvecx ) \le \max _{\vecx ' : f(\vecx ) \ne f(\vecx ')} k(\vecx , \vecx ') .
+We also know that because x̃ is the closest point in L to x,
+  k(\vecx , \tvecx ) = \max _{\vecx ' \in \mathcal L} k(\vecx , \vecx ') .
+Thus
+  \max _{\vecx ' \in \mathcal L} k(\vecx , \vecx ') \le \max _{\vecx ' : f(\vecx ) \ne f(\vecx ')} k(\vecx , \vecx ') ,
+as desired.
+Thus E g(x) ≤ E maxx′ :f (x)̸=f (x′ ) k(x, x′ ), giving the desired result.
+
+⊔
+⊓
+
+
+Generalized Coverage for More Robust Low-Budget Active Learning
+
+A.2
+
+19
+
+Proof for Corollary 1
+
+Corollary 1. Let k be the top-hat function defined as follows for a given δ:
+  k(\vecx , \vecx ') \defeq \begin {cases} 1 &\text {if } \lVert \vecx - \vecx ' \rVert \le \delta \\ 0 &\text {otherwise } .\end {cases}
+Then the statement of (3) becomes identical to that of (1).
+Proof. When k is a top-hat function, the first term of (3) becomes
+  1 - \E \left [ \max _{\vecx ' \in \mathcal {L}} k(\vecx , \vecx ') \right ] = 1- \E \Big [ \max _{\vecx ' \in \mathcal L} \mathbbm {1}\left [ \lVert \vecx - \vecx ' \rVert \le \delta \right ] \Big ] ,
+agreeing with the first term of (1). For the other term, we have that
+ \E \max _{\vecx ' : f(\vecx ) \ne f(\vecx ')} k(\vecx , \vecx ') = \E \max _{\vecx ' : f(\vecx ) \ne f(\vecx ')} \mathbbm {1}[ \lVert \vecx - \vecx ' \rVert \le \delta ] \\ = \Pr \left ( \exists \vecx ' \text { s.t. } f(\vecx ) \ne f(\vecx ') \text { and } \lVert \vecx - \vecx ' \rVert \le \delta \right )
+
+which is one minus the probability that all points within a radius δ of x have
+the same label. Thus, (1) is a special case of (3).
+⊔
+⊓
+A.3
+
+Proof for Proposition 3
+
+Proposition 3. Let the max kernel function for a labeled set L be given by
+  k(\vecx , \tvecx ; \mathcal L) := \max \left \{ k(\vecx , \tvecx ) - \max _{\vecx ' \in \mathcal L} k(\vecx , \vecx ') , 0 \right \} .
+Then we can rewrite (5), the improvement in one step of MaxHerding, as
+  \label {eq:maxherding-reframed} \max _{\tvecx } \frac 1N \sum _{n=1}^N k(\vecx _n, \tvecx ; \mathcal L) - \frac {1}{\lvert \mathcal L \rvert + 1} \sum _{l=1}^{\lvert \mathcal L \rvert } k(\tvecx _l, \tvecx ; \mathcal L) .
+
+(7)
+
+Proof. We will show the second term in Eq. (7) is equal to 0, and the first term
+is equivalent to Eq. (5). For ∀ x ∈ L, x′ ̸= x ∈ X , since k(x, x) ≥ k(x, x′ ),
+  k(\mathbf {x}, \tvec {x}; \mathcal {L}) &= \max (k(\mathbf {x}, \tvec {x}) - \max _{\mathbf {x}' \in \mathcal {L}} k(\mathbf {x}, \mathbf {x}'), 0) \\ &= \max (k(\mathbf {x}, \tvec {x}) - k(\mathbf {x}, \mathbf {x}), 0) = 0.
+(11)
+Hence, the second term becomes 0. Now, we convert the max kernel function
+into the following form and plug it into the first term,
+  k(\mathbf {x}, \tvecx ; \mathcal {L}) = \max _{\vecx ' \in \mathcal {L} \cup \{ \tvec {x} \}} k(\vecx , \vecx ') - \max _{\vecx ' \in \mathcal {L} } k(\vecx , \vecx ').
+Then, the first term becomes Eq. (5).
+
+(12)
+⊔
+⊓
+
+
+W. Bae et al.
+1.0
+
+1.0
+
+0.8
+
+0.8
+
+0.8
+
+0.6
+
+0.6
+
+0.6
+
+0.6
+
+Purity
+
+1.0
+
+0.8
+
+Purity
+
+1.0
+
+Purity
+
+Purity
+
+20
+
+0.4
+
+0.4
+
+0.4
+
+0.4
+
+0.2
+
+0.2
+
+0.2
+
+0.2
+
+0.0
+0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0
+
+0.0
+0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0
+
+0.0
+0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0
+
+0.0
+0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0
+
+(a) CIFAR10
+
+(b) CIFAR100
+
+(c) TinyImageNet
+
+(d) ImageNet
+
+Fig. 8: Selection of δ-radius using the heuristics suggested by [55].
+
+B
+
+Determination of δ in ProbCover
+
+Yehuda et al . [55] suggest a heuristic to determine the radius parameter δ for
+ProbCover as follows:
+1. For given self-supervised learning features, e.g., SimCLR, it obtains a pseudolabel for each feature using k-Means.
+2. It computes the purity of a blob centered at each feature, then, counts how
+many blobs are “pure” (a blob is pure if no features inside the blob are
+assigned to different clusters).
+3. It finds a radius that gives around 95% of overall purity.
+Listing 1.1: Python code for selecting δ based on [55]
+import numpy as np
+import torch
+from fast_pytorch_kmeans import KMeans
+def compute_dists ( features ):
+dists = torch . cdist ( features , features , p =2)
+return dists
+def blob_purity ( dists , center_idx , radius , assignments ):
+label = assignments [ center_idx ]
+dist = dists [ center_idx ]
+total_count = torch . sum ( dist < radius )
+cond = torch . logical_and (
+dist < radius , assignments == label )
+pure_count = torch . sum ( cond )
+if total_count == pure_count :
+return 1
+return 0
+def compute_purity ( feature_path , num_classes , ratio =1.0):
+# Load self - supervised learning features
+with open ( feature_path , ’ rb ’) as f :
+features = np . load ( f )
+features = torch . from_numpy ( features )
+
+
+Generalized Coverage for More Robust Low-Budget Active Learning
+
+21
+
+# Normalize features
+features = torch . nn . functional . normalize ( features , dim =1)
+# Find pseudo labels using k - Means
+kmeans = KMeans ( n_clusters = num_classes , mode = ’ euclidean ’)
+assignments = kmeans . fit_predict ( features )
+# Compute a distance matrix
+dist_matrix = compute_dists ( features )
+best_purity_radius , is_first , purity_rates = 0 , True , []
+radiuses = np . linspace (0.05 , 1.0 , 20)
+for r , radius in enumerate ( radiuses ):
+# Compute purity for a given radius
+purity_count = 0
+for i in range ( num_samples ):
+purity_count += blob_purity (
+dist_matrix , i , radius , assignments )
+purity_rate = purity_count / num_samples
+purity_rates . append ( purity_rate )
+# If purity < 0.95 , determine the " optimal " radius
+if is_first and purity_rate < 0.95:
+best_purity_radius = radiuses [r -1]
+is_first = False
+return best_purity_radius
+
+Despite its importance for the algorithm given that the performance is sensitive to δ, its implementation has not been released. Hence, we provide our
+implementation in Listing 1.1.9 Also, based on our implementation, we compute
+the “optimal” δ for each dataset as provided in Fig. 8.
+
+C
+
+Experiment Results with Linear Classifiers
+
+We provide the results with a linear classifier on the benchmark datasets in Appendix C.1 and imbalanced datasets in Appendix C.2. As with Secs. 4.1 and 4.2,
+we report the mean and standard deviation of test accuracies for 5 runs at each
+of 10 iterations, except for ImageNet where we conduct 3 runs at each of 5
+iterations.
+C.1
+
+Comparison with State-of-the-Arts
+
+The performance of the linear classifier is slightly worse than 1-NN on CIFAR100
+and ImageNet but better on TinyImageNet.
+9
+
+One of the authors of ProbCover have confirmed that our implementation is correct.
+But we have not been able to obtain their implementation.
+
+
+22
+
+W. Bae et al.
+Rand.
+
+Unc.
+
+Ent.
+
+Marg.
+
+Coreset
+
+BADGE
+
+Typiclust
+
+ProbCover
+
+KHerding
+
+MHerding
+
+30
+80
+
+50
+
+60
+
+45
+
+30
+
+50
+
+20
+
+40
+
+15
+
+35
+
+20
+
+40
+
+30
+10
+
+00
+50
+
+00
+
+00
+
+40
+
+00
+
+Size of L
+
+CIFAR100
+
+30
+
+20
+
+00
+
+00
+
+00
+
+20
+
+00
+
+18
+
+16
+
+14
+
+0
+
+00
+
+00
+
+12
+
+0
+
+0
+
+0
+
+90
+
+Size of L
+
+10
+
+0
+
+80
+
+0
+
+0
+
+70
+
+80
+
+0
+
+60
+
+0
+
+0
+
+50
+
+60
+
+0
+
+40
+
+40
+
+0
+
+30
+
+20
+
+0
+
+20
+
+00
+
+0
+
+10
+
+90
+
+10
+
+80
+
+70
+
+60
+
+50
+
+40
+
+30
+
+20
+
+10
+
+Size of L
+
+CIFAR10
+
+00
+
+25
+
+10
+
+10
+
+30
+
+10
+
+Test Acc (%)
+
+25
+
+40
+
+70
+
+Size of L
+
+TinyImageNet
+
+ImageNet
+
+Fig. 9: Comparison on benchmark datasets using a linear classifier
+Rand.
+
+Unc.
+
+Ent.
+
+Marg.
+
+Coreset
+
+BADGE
+
+Typiclust
+
+ProbCover
+
+KHerding
+
+MHerding
+
+35
+20.0
+
+60
+
+40
+
+17.5
+
+25
+40
+20
+
+15.0
+
+35
+
+12.5
+
+30
+
+10.0
+
+30
+
+25
+
+7.5
+15
+
+00
+
+00
+20
+
+50
+
+00
+10
+
+Size of L
+
+Imbal. TinyImageNet
+
+00
+
+00
+
+00
+
+20
+
+00
+
+00
+
+00
+
+18
+
+16
+
+14
+
+00
+
+12
+
+0
+
+10
+
+0
+
+80
+
+60
+
+0
+
+0
+
+40
+
+20
+
+0
+
+00
+
+10
+
+0
+
+Imbal. CIFAR100
+
+90
+
+0
+
+Size of L
+
+80
+
+70
+
+0
+60
+
+0
+
+0
+
+50
+
+0
+
+40
+
+0
+
+0
+
+30
+
+20
+
+10
+
+0
+
+90
+
+10
+
+80
+
+70
+
+60
+
+50
+
+40
+
+30
+
+20
+
+10
+
+Size of L
+
+Imbal. CIFAR10
+
+40
+
+20
+
+5.0
+
+00
+
+20
+
+30
+
+Test Acc (%)
+
+30
+50
+
+Size of L
+
+Imbal. ImageNet
+
+Fig. 10: Comparison on imbalanced datasets using a linear classifier.
+
+We can observe a similar pattern that is shown in the 1-Nearest Neighbor
+(NN) classifier. Uncertainty-based methods generally underperform compared
+to Random whereas representation-based methods perform significantly better
+than Random. Notably, Typiclust and MaxHerding significantly outperform the
+other active learning methods, with MaxHerding emerging as the top performer
+across the datasets.
+The disparity between MaxHerding and Typiclust, the second-best model
+overall, shows less pronounced differences on CIFAR100 and TinyImageNet.
+However, this distinction becomes more significant on CIFAR10 and ImageNet
+datasets. Typiclust is particularly worse than MaxHerding on ImageNet, potentially because of its strict limitation on the number of clusters.
+C.2
+
+Comparison with Imbalanced Datasets
+
+Generation of imbalanced datasets We generate imbalanced datasets from
+the balanced benchmark datasets following the standard long-tailed imbalance
+generation algorithm [12]. Given an imbalance ratio ρ = 0.02, we define
+|least frequent class| := |samples per class| × ρ.
+Then, we randomly draw samples per class where the number of samples exponentially decays from the size of the most frequent class to the size of the least
+frequent class.
+
+
+Generalized Coverage for More Robust Low-Budget Active Learning
+Method
+Random
+Coreset
+Typiclust
+MaxHerding
+
+200
+4.4 ± 0.3
+4.4 ± 0.3
+4.6 ± 0.2
+5.6 ± 0.1
+
+400
+
+Size of L
+600
+
+800
+
+23
+
+1,000
+
+11.9 ± 0.7 20.7 ± 1.0 27.2 ± 0.7 33.4 ± 1.0
+11.2 ± 0.8 19.3 ± 0.9 26.4 ± 0.8 33.2 ± 0.9
+10.9 ± 0.9 18.5 ± 0.6 27.2 ± 0.5 32.5 ± 0.7
+13.4 ± 0.7 21.5 ± 0.8 28.9 ± 0.5 34.9 ± 0.6
+
+Table 1: Comparison in test performance using mAP50-95 with YOLOv5 on VOC.
+
+Results We provide the results with the linear classifier on the imbalanced
+datasets in Fig. 10. The overall trend aligns closely with the findings observed
+using the 1-NN classifier. MaxHerding consistently matches or outperforms other
+methods, followed by Typiclust except on ImageNet. Notably, Margin and Uncertainty show rapid improvement, surpassing Typiclust’s performance after processing 3,000 data points.
+
+D
+
+Low-Budget Active Learning for Object Detection
+
+In addition to the conventional image classification tasks, we further verify the
+effectiveness of the proposed MaxHerding compared to the other low-budget
+active learning methods: Coreset and Typiclust, for object detection tasks. To
+this end, we use YOLOv5 on PASCAL VOC dataset [14]. For the active learning
+methods, we use features from the penultimate layer. 10
+Tab. 1 reports the mean and standard deviation of five runs in the mAP5095 metric with different size of labeled sets L. Interestingly, both Coreset and
+Typiclust are worse than Random, but the proposed MaxHerding generally outperforms Random.
+To the best of our knowledge, low-budget acitve learning has not been wellstudied for other tasks except image classification. It would be an interesting
+future work to compare different low-budget active learning methods for various
+tasks including object detection and semantic segmentation.
+
+10
+
+We do not include uncertainty-based methods since it is not obvious to convert the
+measure of uncertainty for object detection tasks.

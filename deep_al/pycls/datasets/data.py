@@ -53,7 +53,7 @@ class MultiEpochsDataLoader(torch.utils.data.DataLoader):
 
 class Data:
     """
-    Contains all data related functions. For working with new dataset 
+    Contains all data related functions. For working with new dataset
     make changes to following functions:
     0. Create labeled.txt and unlabaled.txt for Active Learning
     1. getDataset
@@ -87,23 +87,23 @@ class Data:
 
     def make_data_lists(self, exp_dir):
         """
-        Creates train.txt, test.txt and valid.txt. Text format is chosen to allow readability. 
+        Creates train.txt, test.txt and valid.txt. Text format is chosen to allow readability.
         Keyword arguments:
             exp_dir -- Full path to the experiment directory where index lists will be saved
         """
         train = os.path.join(exp_dir, 'train.txt')
         test = os.path.join(exp_dir, 'test.txt')
-        
+
         if os.path.exists(train) or os.path.exists(test):
             out = f'train.txt or test.text already exist at {exp_dir}'
             return None
-        
+
         train_list = glob.glob(os.path.join(path, 'train/**/*.png'), recursive=True)
         test_list = glob.glob(os.path.join(path, 'test/**/*.png'), recursive=True)
 
         with open(train, 'w') as filehandle:
             filehandle.writelines("%s\n" % index for index in train_list)
-        
+
         with open(test, 'w') as filehandle:
             filehandle.writelines("%s\n" % index for index in test_list)
 
@@ -111,10 +111,10 @@ class Data:
     def getPreprocessOps(self):
         """
         This function specifies the steps to be accounted for preprocessing.
-        
+
         INPUT:
         None
-        
+
         OUTPUT:
         Returns a list of preprocessing steps. Note the order of operations matters in the list.
         """
@@ -128,14 +128,14 @@ class Data:
                 norm_mean = [0.4914, 0.4822, 0.4465]
                 norm_std = [0.247 , 0.2435, 0.2616]
             elif self.dataset == "MNIST":
-                ops = [transforms.Resize(32)] 
+                ops = [transforms.Resize(32)]
                 norm_mean = [0.1307,]
                 norm_std = [0.3081,]
             elif self.dataset == "TINYIMAGENET":
                 # ops = [transforms.RandomResizedCrop(64)]
                 ops = [transforms.RandomResizedCrop(64, scale=(0.5, 1.))]
 
-                # Using ImageNet values 
+                # Using ImageNet values
                 norm_mean = [0.485, 0.456, 0.406]
                 norm_std = [0.229, 0.224, 0.225]
             elif self.dataset in ["IMAGENET", 'IMAGENET50', 'IMAGENET100', 'IMAGENET200']:
@@ -182,16 +182,16 @@ class Data:
     def getDataset(self, save_dir, isTrain=True, isDownload=False):
         """
         This function returns the dataset instance and number of data points in it.
-        
+
         INPUT:
         save_dir: String, It specifies the path where dataset will be saved if downloaded.
-        
+
         preprocess_steps(optional): List, Contains the ordered operations used for preprocessing the data.
-        
+
         isTrain (optional): Bool, If true then Train partition is downloaded else Test partition.
-        
+
         isDownload (optional): Bool, If true then dataset is saved at path specified by "save_dir".
-        
+
         OUTPUT:
         (On Success) Returns the tuple of dataset instance and length of dataset.
         (On Failure) Returns Message as <dataset> not specified.
@@ -200,7 +200,7 @@ class Data:
         test_preops_list = self.getPreprocessOps()
         test_preprocess_steps = transforms.Compose(test_preops_list)
         self.eval_mode = False
-        
+
         if isTrain:
             preprocess_steps = self.getPreprocessOps()
         else:
@@ -231,10 +231,24 @@ class Data:
         elif self.dataset == "TINYIMAGENET":
             if isTrain:
                 # tiny = datasets.ImageFolder(save_dir+'/train', transform=preprocess_steps)
-                tiny = TinyImageNet(save_dir, split='train', transform=preprocess_steps, test_transform=test_preprocess_steps, only_features=only_features)
+                tiny = TinyImageNet(
+                    save_dir,
+                    split='train',
+                    transform=preprocess_steps,
+                    test_transform=test_preprocess_steps,
+                    only_features=only_features,
+                    features_tag=self.cfg.DATASET.FEATURES_TAG,
+                )
             else:
                 # tiny = datasets.ImageFolder(save_dir+'/val', transform=preprocess_steps)
-                tiny = TinyImageNet(save_dir, split='val', transform=preprocess_steps, test_transform=test_preprocess_steps)
+                tiny = TinyImageNet(
+                    save_dir,
+                    split='val',
+                    transform=preprocess_steps,
+                    test_transform=test_preprocess_steps,
+                    only_features=only_features,
+                    features_tag=self.cfg.DATASET.FEATURES_TAG,
+                )
             return tiny, len(tiny)
         elif self.dataset in ['IMAGENET50', 'IMAGENET100', 'IMAGENET200']:
             if isTrain:
@@ -301,7 +315,7 @@ class Data:
         For example: 0.1 means ending 10% of data is validation data.
 
         data: reference to dataset instance. This can be obtained by calling getDataset function of Data class.
-        
+
         OUTPUT:
         (On Success) Sets the labelled, unlabelled set along with validation set
         (On Failure) Returns Message as <dataset> not specified.
@@ -317,18 +331,18 @@ class Data:
         lSet = []
         uSet = []
         valSet = []
-        
+
         n_dataPoints = len(data)
         all_idx = [i for i in range(n_dataPoints)]
         np.random.shuffle(all_idx)
         train_splitIdx = int(train_split_ratio*n_dataPoints)
-        #To get the validation index from end we multiply n_datapoints with 1-val_ratio 
+        #To get the validation index from end we multiply n_datapoints with 1-val_ratio
         val_splitIdx = int((1-val_split_ratio)*n_dataPoints)
         #Check there should be no overlap with train and val data
         assert train_split_ratio + val_split_ratio < 1.0, "Validation data over laps with train data as last train index is {} and last val index is {}. \
             The program expects val index > train index. Please satisfy the constraint: train_split_ratio + val_split_ratio < 1.0; currently it is {} + {} is not < 1.0 => {} is not < 1.0"\
                 .format(train_splitIdx, val_splitIdx, train_split_ratio, val_split_ratio, train_split_ratio + val_split_ratio)
-        
+
         lSet = all_idx[:train_splitIdx]
         uSet = all_idx[train_splitIdx:val_splitIdx]
         valSet = all_idx[val_splitIdx:]
@@ -336,15 +350,15 @@ class Data:
         # print("=============================")
         # print("lSet len: {}, uSet len: {} and valSet len: {}".format(len(lSet),len(uSet),len(valSet)))
         # print("=============================")
-        
+
         lSet = np.array(lSet, dtype=np.ndarray)
         uSet = np.array(uSet, dtype=np.ndarray)
         valSet = np.array(valSet, dtype=np.ndarray)
-        
+
         np.save(f'{save_dir}/lSet.npy', lSet)
         np.save(f'{save_dir}/uSet.npy', uSet)
         np.save(f'{save_dir}/valSet.npy', valSet)
-        
+
         return f'{save_dir}/lSet.npy', f'{save_dir}/uSet.npy', f'{save_dir}/valSet.npy'
 
     def makeTVSets(self, val_split_ratio, data, seed_id, save_dir):
@@ -360,7 +374,7 @@ class Data:
         For example: 0.1 means ending 10% of data is validation data.
 
         data: reference to dataset instance. This can be obtained by calling getDataset function of Data class.
-        
+
         OUTPUT:
         (On Success) Sets the train set and the validation set
         (On Failure) Returns Message as <dataset> not specified.
@@ -374,30 +388,30 @@ class Data:
 
         trainSet = []
         valSet = []
-        
+
         n_dataPoints = len(data)
         all_idx = [i for i in range(n_dataPoints)]
         np.random.shuffle(all_idx)
 
-        # To get the validation index from end we multiply n_datapoints with 1-val_ratio 
+        # To get the validation index from end we multiply n_datapoints with 1-val_ratio
         val_splitIdx = int((1-val_split_ratio)*n_dataPoints)
-        
+
         trainSet = all_idx[:val_splitIdx]
         valSet = all_idx[val_splitIdx:]
 
         # print("=============================")
         # print("lSet len: {}, uSet len: {} and valSet len: {}".format(len(lSet),len(uSet),len(valSet)))
         # print("=============================")
-        
+
         trainSet = np.array(trainSet, dtype=np.ndarray)
         valSet = np.array(valSet, dtype=np.ndarray)
-        
+
         np.save(f'{save_dir}/trainSet.npy', trainSet)
         np.save(f'{save_dir}/valSet.npy', valSet)
-        
+
         return f'{save_dir}/trainSet.npy', f'{save_dir}/valSet.npy'
 
-    def makeUVSets(self, val_split_ratio, data, seed_id, save_dir): 
+    def makeUVSets(self, val_split_ratio, data, seed_id, save_dir):
         """
         Initial labeled pool should already be sampled. We use this function to initialize the train and validation sets by splitting the train data according to split_ratios arguments.
 
@@ -410,7 +424,7 @@ class Data:
         For example: 0.1 means ending 10% of data is validation data.
 
         data: reference to uSet instance post initial pool sampling. This can be obtained by calling getDataset function of Data class.
-        
+
         OUTPUT:
         (On Success) Sets the unlabeled set and the validation set
         (On Failure) Returns Message as <dataset> not specified.
@@ -423,27 +437,27 @@ class Data:
         assert self.dataset in self.datasets_accepted, "Sorry the dataset {} is not supported. Currently we support {}".format(self.dataset, self.datasets_accepted)
         uSet = []
         valSet = []
-        
+
         n_dataPoints = len(data)
         # all_idx = [i for i in range(n_dataPoints)]
         np.random.shuffle(data)
 
-        # To get the validation index from end we multiply n_datapoints with 1-val_ratio 
+        # To get the validation index from end we multiply n_datapoints with 1-val_ratio
         val_splitIdx = int((1-val_split_ratio)*n_dataPoints)
-        
+
         uSet = data[:val_splitIdx]
         valSet = data[val_splitIdx:]
 
         # print("=============================")
         # print("lSet len: {}, uSet len: {} and valSet len: {}".format(len(lSet),len(uSet),len(valSet)))
         # print("=============================")
-        
+
         uSet = np.array(uSet, dtype=np.ndarray)
         valSet = np.array(valSet, dtype=np.ndarray)
-        
+
         np.save(f'{save_dir}/uSet.npy', uSet)
         np.save(f'{save_dir}/valSet.npy', valSet)
-        
+
         return f'{save_dir}/uSet.npy', f'{save_dir}/valSet.npy'
 
     def getIndexesDataLoader(self, indexes, batch_size, data):
@@ -488,7 +502,7 @@ class Data:
 
     def getSequentialDataLoader(self, indexes, batch_size, data):
         """
-        Gets reference to the data loader which provides batches of <batch_size> sequentially 
+        Gets reference to the data loader which provides batches of <batch_size> sequentially
         from indexes set. We use IndexedSequentialSampler as sampler in returned DataLoader.
 
         ARGS
@@ -508,7 +522,7 @@ class Data:
 
         assert isinstance(indexes, np.ndarray), "Indexes has dtype: {} whereas expected is nd.array.".format(type(indexes))
         assert isinstance(batch_size, int), "Batchsize is expected to be of int type whereas currently it has dtype: {}".format(type(batch_size))
-        
+
         subsetSampler = IndexedSequentialSampler(indexes)
         # if self.dataset == "IMAGENET":
         #     loader = DataLoader(dataset=data, batch_size=batch_size,sampler=subsetSampler,pin_memory=True)
@@ -521,14 +535,14 @@ class Data:
     def getTestLoader(self, data, test_batch_size, seed_id=0):
         """
         Implements a random subset sampler for sampling the data from test set.
-        
+
         INPUT:
         data: reference to dataset instance. This can be obtained by calling getDataset function of Data class.
-        
+
         test_batch_size: int, Denotes the size of test batch
 
         seed_id: int, Helps in reporoducing results of random operations
-        
+
         OUTPUT:
         (On Success) Returns the testLoader
         (On Failure) Returns Message as <dataset> not specified.
@@ -619,17 +633,17 @@ class Data:
         """
         INPUT
         dataloader: dataLoader
-        
+
         OUTPUT
-        Returns a tensor of size C where each element at index i represents the weight for class i. 
+        Returns a tensor of size C where each element at index i represents the weight for class i.
         """
 
         all_labels = []
         for _,y in dataloader:
             all_labels.append(y)
         print("===Computing Imbalanced Weights===")
-        
-        
+
+
         all_labels = np.concatenate(all_labels, axis=0)
         print(f"all_labels.shape: {all_labels.shape}")
         classes = np.unique(all_labels)
@@ -638,12 +652,12 @@ class Data:
         freq_count = np.zeros(num_classes, dtype=int)
         for i in classes:
             freq_count[i] = (all_labels==i).sum()
-        
+
         #Normalize
         freq_count = (1.0*freq_count)/np.sum(freq_count)
         print(f"=== Sum(freq_count): {np.sum(freq_count)} ===")
         class_weights = 1./freq_count
-        
+
         class_weights = torch.Tensor(class_weights)
         return class_weights
 

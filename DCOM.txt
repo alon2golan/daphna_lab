@@ -1,0 +1,2671 @@
+DCoM: Competence-Driven Adaptive Active Learning
+Inbal Mishal† , Daphna Weinshall†
+School of Computer Science & Engineering†
+The Hebrew University of Jerusalem
+Jerusalem 91904, Israel
+
+arXiv:2407.01804v3 [cs.LG] 19 Sep 2025
+
+{inbal.mishal,daphna}@mail.huji.ac.il
+
+Abstract
+Deep Active Learning techniques can be effective in reducing annotation costs for training deep models. However, their
+effectiveness in low- and high-budget scenarios seems to require different strategies, and achieving optimal results across
+varying budget scenarios remains a challenge. In this study,
+we introduce Dynamic Coverage & Margin mix (DCoM), a
+novel active learning approach designed to bridge this gap.
+Unlike existing strategies, DCoM dynamically adjusts its strategy, while taking into account the competence of the current
+model. Through theoretical analysis and empirical evaluations
+on diverse datasets, including challenging computer vision
+tasks, we demonstrate DCoM’s ability to overcome the cold
+start problem and consistently improve results across different
+budgetary constraints. Thus DCoM achieves state-of-the-art
+performance in both low- and high-budget regimes.
+
+1
+
+Introduction
+
+Deep Learning (DL) algorithms require large amounts of
+data to achieve optimal results. In some situations, there is
+an abundance of unlabeled data but limited capacity to label
+it. In fields such as medical imaging, an invaluable resource
+— doctors themselves — serves as a costly oracle.
+Active learning (AL) algorithms aim to address this challenge by reducing the labeling burden and enhancing its
+effectiveness (see illustration in Fig. 1). Unlike traditional
+supervised learning frameworks, AL can influence the construction of the labeled set, potentially by leveraging knowledge about the current learner. Accordingly, the initial goal
+of AL is to select q examples to be annotated, where q represents the number of examples that can be sent to the oracle.
+AL has already demonstrated tangible contributions across
+various domains such as computer vision tasks (e.g. Yuan
+et al. 2023), NLP (e.g. Siddhant and Lipton 2018; Kaseb and
+Farouk 2023) and medical imaging (e.g. El-Hasnony et al.
+2022). These examples highlight the importance of advancing
+AL to achieve even greater impact.
+The choice of an active learning (AL) strategy depends
+on both the learner’s inductive biases and the nature of the
+problem. Recent research indicates that the optimal AL strategy varies with the budget size, where the budget refers to
+the size of the training set. For larger budgets, uncertainty
+and diversity sampling methods are most effective, while for
+smaller budgets, strategies focused on typicality and diversity
+
+Figure 1: Illustration of the AL iterative process: DCoM introduces
+an additional step to estimate the current learner’s competence,
+which is then utilized during the active sampling phase.
+
+are more suitable. However, no single AL strategy is universally optimal across all budget levels. Our study addresses
+this challenge by dynamically selecting the best examples
+based on the learner’s current state and the available budget.
+Recent research, as briefly reviewed below, often categorizes active sampling methods based on budget regimes. In
+contrast, our study takes a different approach by emphasizing the need to adapt sample selection methods according
+to the learner’s competence. We aim to develop a single algorithm that dynamically adjusts its sampling strategy in
+response to the learner’s evolving abilities. This shift from a
+budget-focused to a competence-driven approach represents
+a significant advancement in active learning research, allowing for a more adaptive strategy that optimizes performance
+based on measurable learner’s capabilities.
+In this work, we introduce a novel method called Dynamic
+Coverage & Margin Mix (DCoM), which dynamically adjusts
+its selection strategy by minimizing a new loss function that
+incorporates a measure of competence. We start by exploring
+a simplified theoretical framework (Section 2), where we
+integrate a typicality test with an uncertainty test based on
+the budget and a notion of coverage. Building on the insights
+from this analysis, we introduce DCoM (Section 3), which
+combines these elements to provide a flexible solution for any
+budget. Thus, DCoM selects the most appropriate examples
+suited to the current budget. We validate DCoM through
+an extensive empirical study using various vision datasets
+(Section 4), demonstrating that DCoM consistently achieves
+superior performance across all budget ranges.
+
+
+Relation to prior art. Over the past years, active learning
+has been an active area of research (Wang et al. 2023; Settles 2009; Cohn, Ghahramani, and Jordan 1996; Tharwat
+and Schenck 2023; Xie et al. 2023; Schmidt et al. 2024).
+The realm of Active Learning (AL) is segmented into three
+problem settings: membership query synthesis, stream-based
+selective sampling, and pool-based active learning (Settles
+2009). Much of the recent AL work follows the pool-based
+setting, where samples are selected from a large pool of unlabeled data and annotations are obtained from an oracle. In
+this setting, AL algorithms operate within a given budget (b),
+selecting a subset of unlabeled examples to send to an oracle
+for labeling. This selection process aims to identify examples
+that will maximize the model’s performance. This process
+may be repeated iteratively, gradually increasing budget b.
+In discussions of pool-based AL, two key characteristics
+that play a crucial role during the active sampling process are
+uncertainty and diversity. Some AL algorithms focus solely
+on uncertainty sampling (Lewis and Gale 1994; Shannon
+1948; Cho et al. 2023; Zhao et al. 2021; Houlsby et al. 2011;
+Gissin and Shalev-Shwartz 2019; Ranganathan et al. 2017;
+Woo 2022; Gal, Islam, and Ghahramani 2017; Parvaneh et al.
+2022; Jung, Kim, and Lee 2023), while others prioritize diversity sampling (Sener and Savarese 2018; Hu, Mac Namee,
+and Delany 2010; Yehuda et al. 2022; Hacohen, Dekel, and
+Weinshall 2022). Other algorithms combine both uncertainty
+and diversity in their approaches (Yang et al. 2015; Chen et al.
+2024; Wen, Pizarro, and Williams 2023; Kirsch, Van Amersfoort, and Gal 2019; Chowdhury, Hamerly, and McGarrity
+2024; Ash et al. 2019; Kim et al. 2021).
+Over time, the cold start problem has emerged, highlighting the difficulties faced by AL algorithms when operating
+with a small budget. It seems that uncertainty and diversity
+are ill-suited to address this challenge. Accordingly, Chen
+et al. (2024) describe the cold start problem as a combination
+of two issues: unbalanced sampling across different classes
+(which relates to diversity). and unbalanced sampling within
+each class, where uncertain examples are favored over certain
+ones at the outset.
+In low-budget scenarios, typical examples often offer the
+highest benefits for training the model (Hacohen, Dekel, and
+Weinshall 2022; Yehuda et al. 2022; Chen et al. 2024). This
+implies that in such contexts, AL algorithms should aim to
+maximize both certainty and diversity. Conversely, in highbudget scenarios, the emphasis shifts towards maximizing
+uncertainty while maintaining diversity. While (Hacohen and
+Weinshall 2024) proposes a method to select the most suitable approach for the current state, the method involves the
+comparison of multiple active learning strategies at each state,
+rather than recommending a single universal approach.
+Summary of contribution. (i) Expand a theoretical framework to analyze Active Learning (AL) strategies in embedding spaces. (ii) Introduce DCoM, a universal strategy
+that significantly outperforms previous methods in low and
+medium budget scenarios, and matches them in high budget scenarios. (iii) Initiate a transition from a budget-based
+discussion to the learner’s competence, while introducing
+coverage as a measure designed to predict competence.
+
+2
+
+Theoretical Framework
+
+Let X denote the input domain, Y the target domain, and
+L : X → Y the trained learner. Before seeing any labels, L
+may be a random feasible hypothesis, or it may be initialized
+by either transfer learning or self training. Let b denote the
+size of the labeled training set, aka budget.
+Active learning may involve a single step, or an iterative process with repeated active learning steps. In each AL
+step, the learner actively seeks labels by choosing a set of
+unlabeled points as a query set, to be labeled by an oracle/teacher. Subsequently, this set of labeled points is added
+to the learner’s supervised training set, and the learner is
+either retrained or fine-tuned.
+As discussed in Section 1, it has been shown that different
+active learning strategies are suited for different budgets b.
+With a low budget b, strategies that do not rely on the outcome
+of the learner are most suitable. When b is high, it is beneficial
+to consider the confidence of the learner when choosing an
+effective query set. What makes a certain budget b high or
+low is left vague in previous work, as it depends on both the
+hypothesis space (or architecture) and the dataset.
+To achieve an effective active learning protocol suitable for
+all learners, irrespective of budget, we aim to devise a universal objective function, whose minimization is used to select
+the query set. We begin by proposing to replace the notion of
+budget with the notion of competence, designed to track the
+generalization ability of L when trained with budget b. The
+notion of competence, we hypothesize, is more universal and
+less dependent on the type of learner and specific dataset (see
+discussion in Section 2.3).
+We then rephrase the intuition stated above (see Section 1)
+as follows: When the learner’s competence is low, the objective function should prioritize typicality and diversity of selected queries irrespective of the learner’s predictions. When
+the learner’s competence is high, its uncertainty in prediction
+should be given high priority.
+More formally, let O(x) denote the desired objective function for query selection, where x ∈ X is unlabeled. Let
+Olow (x) and Ohigh (x) denote the objective functions suitable for a learner with low competence and high competence
+respectively. Let SL denote a score, which captures the competence of learner L. The proposed objective function can
+now be written as follows ∀x ∈ X:
+O(x) = (1 − SL ) · Olow (x) + SL · Ohigh (x)
+
+(1)
+
+After the introduction of necessary preliminaries in Section 2.1 we discuss in Section 2.2 the design of Olow (x).
+We begin with the point coverage framework introduced by
+Yehuda et al. (2022). This approach relies on self-supervised
+data representation, which is blind to the learner’s performance. We refine their analysis and obtain an improved generalization bound for the Nearest Neighbor classification
+model that depends on the local geometry of the data.
+Next, in Section 2.3 we discuss our choice of SL , and connect it to the notion of budget discussed in previous work. Finally, we select Ohigh (x) to equal one minus the normalized
+lowest response between the two highest softmax outputs of
+L at x, or Margin, as this is a common uncertainty measure.
+
+
+2.1
+
+Preliminaries
+
+where ε → 0 bounds the error of the approximation π̂(δ).
+b→∞
+
+Notations. Let P denote the underlying probability distribution of data X. Assume that a true labeling function
+f : X → Y exists. Let U ⊆ X denote the unlabeled set of
+points, and L ⊆ X the labeled set, such that X = U ∪ L. Here
+|L| = b ≤ m is the annotation budget where |X| = m.
+Let Bδ (x) = {x′ ∈ X : ∥x′ − x∥2 ≤ δ} denote
+S a ball of
+radius δ centered at x. Let C ≡ C(L, δ) = x∈L Bδ (x)
+denote the region covered by δ-balls centered at the labeled
+examples in L. We call C(L, δ) the covered region, where
+P (C) denotes its probability. Let f N denote the 1-NN classifier, and L denote our current learner – a 1-NN classifier
+based on L.
+Definition 2.1. We say that a ball Bδ (x) is pure if ∀x′ ∈
+Bδ (x) : f (x′ ) = f (x).
+Definition 2.2. We define the purity of δ as
+π (δ) = P ({x ∈ X : Bδ (x) is pure}) .
+Note that π(δ) is monotonically decreasing, as can be readily
+verified.
+In (Yehuda et al. 2022) it is shown that the generalization
+error of the 1-NN classifier f N is bounded as follows
+
+
+E f N (x) ̸= f (x) ≤ (1 − P [C(L, δ)]) + (1 − π(δ)). (2)
+Subsequently, an algorithm is proposed that minimizes the
+first term in (2) by maximizing the coverage probability
+P [C(L, δ)], while ignoring the second term that is assumed
+to be fixed.
+Below, we begin by refining the bound, focusing more
+closely on its second term (1 − π(δ)). This is used in Section 3 to device an improved algorithm that minimizes simultaneously both terms of the refined error bound.
+
+2.2
+
+Refined error bound
+
+Define the indicator random variable Iδ (x) as follows:
+Iδ (x) = 1{x∈X:Bδ (x) is pure} .
+
+Note that the refined bound in (3) depends on the purity
+separately at each labeled point in L. Next, we further refine this bound by allowing the fixed radius δ to be chosen
+individually, where δi denotes the radius of point xi ∈ L.
+Let ∆ = [δi ]bi=1 denote the list of individual radii corresponding S
+to L = {xi }bi=1 . The cover defined by ∆ is
+C(L, ∆) = (xi ,δi )∈L×∆ Bδi (xi ).
+With this choice, it is necessary to replace the 1-NN classifier with a suitable variant of nearest neighbor classification - the normalized Nearest Neighbor (1-nNN) classifier. In 1-nNN, distances to point xi ∈ L are normalized
+by the corresponding δi , after which the nearest neighbor
+i)
+f N (x) = argminxi ∈L d(x,x
+is computed. This transition
+δi
+preserves the original problem settings, and guarantees that
+if a labeled point c ∈ L assigns labels to other points, it also
+covers them (see Appendix B). Consequently, if a point x is
+mislabeled, there exists a c ∈ L that covers it, leading to a
+reduction in purity. The bound on the error in (3) becomes
+i
+
+ h
+E f N (x) ̸= f (x) ≤ 1 − P [C(L, ∆)]
+b
+i
+h
+1X
+P [Bδi (xi ) is pure] + ε.
++ 1−
+b i=1
+
+This bound describes a trade-off between probability coverage and purity, and guides the algorithm design in Section 3.
+Note that in (4), the cover P [Bδi (xi ) is pure] is refined locally, using Bδi instead of Bδ .
+
+2.3
+
+Competence score SL
+
+In order to obtain a useful competence score1 , which can be
+effectively used in objective function (1), we require that it
+satisfies the following conditions: (i) Lie in the range [0, 1];
+(ii) Depend on the entire dataset; (iii) Monotonically increase
+with the competence of learner L. In accordance, we propose
+to use a constrained Sigmoid function that depends on the
+probability of coverage:
+
+By definition,
+π (δ) = P ({x ∈ X : Bδ (x) is pure}) = E[Iδ (x)].
+
+SL (L, ∆) =
+
+Since the distribution of X is not known apriori, we use
+the empirical distribution to approximate the expected value
+b
+of this random variable. Thus, with labeled set L = {xi }i=1
+π̂(δ) = Ê[1{x∈L:Bδ (x) is pure} ] =
+=
+
+b
+1 X
+E[
+1{Bδ (xi ) is pure} ]
+b i=1
+
+b
+b
+1X
+1X
+E[1{Bδ (xi ) is pure} ] =
+P [Bδ (xi ) is pure].
+b i=1
+b i=1
+
+With this approximation
+i
+
+ h
+E f N (x) ̸= f (x) ≤ 1 − P [C(L, δ)]
+b
+h
+i
+1X
++ 1−
+P [Bδ (xi ) is pure] + ε.
+b i=1
+
+(3)
+
+(4)
+
+1 + e−k(1−a)
+1 + e−k(P [C(L,∆)]−a)
+
+(5)
+
+This score follows the sigmoid curve, where a denotes its
+midpoint and k the steepness of the curve. In Appendix C,
+we analyze the choice of these parameters and its impact on
+the algorithm. Note that this score satisfies the conditions
+stated above for the nNN classifier: (i)-(ii), as it is a function
+in [0, 1] that depends on P [C(L, ∆)] = |C(L,∆)|
+, while (iii)
+|X|
+follows from the error bound (4).
+Below, we demonstrate that SL is monotonically increasing with the budget b, which supports the alignment of definition (5) with empirical evidence from prior work. Specifically,
+Hacohen, Dekel, and Weinshall (2022) showed both empirically and theoretically that the training budget b = |L| serves
+1
+
+When the labeled set L is large, it may be possible to set aside
+a validation set to directly estimate the competence of learner L, but
+this is not feasible when the labeled set L is small.
+
+
+as a valuable indicator for the relative suitability of Olow (x)
+and Ohigh (x), which are employed in (1). In our formulation, this relationship informs a trade-off represented by the
+score SL (L, ∆) defined in (5). It remains to be shown that
+SL (L, ∆) is indeed monotonically increasing with b.
+Proposition. For two labeled sets L, L′ , if L ⊆ L′ then
+SL (L, ∆) ≤ SL (L′ , ∆′ ).
+Proof. First, we note that
+L ⊆ L′ =⇒ C(L, ∆) =
+
+[
+
+Bδi (xi )
+
+xi ∈L
+
+
+
+!
+⊆
+
+[
+
+Bδi (xi )
+
+
+[
+
+∪
+
+xi ∈L
+
+Bδi (xi )
+
+xi ∈L′ \L
+
+= C(L′ , ∆′ )
+Since probability is monotonic, it follows that P [C(L, ∆)] ≤
+P [C(L′ , ∆′ )]. From (5), and by the definition of the logistic function using the provided parameters limits, SL (L, ∆)
+is monotonically increasing in L, which implies that
+SL (L, ∆) ≤ SL (L′ , ∆′ ).
+
+3
+
+Our method: DCoM
+
+The error bound presented in (4), derived in Section 2 by our
+theoretical analysis, highlights the trade-off between maximizing coverage P [C(L, ∆)] and maintaining high purity
+P [∪i {Bδi (xi ) is pure}] while seeking an optimal query set.
+The analysis also highlights the benefit of using a dynamic
+competence score to adjust the algorithm’s objective function
+based on coverage. Below, we incorporate these principles
+into a new active learning strategy called DCoM, a unified
+active learning strategy designed for all budget scenarios.
+Notably, since (Yehuda et al. 2022) demonstrated that maximizing coverage is an NP-hard problem, we address this
+challenge with a greedy algorithm for query selection.
+
+3.1
+
+Framework and definitions
+
+∀x ∈ X, let M (x) denote the normalized margin between the
+two highest softmax outputs from the last trained model M.
+Define ∆ as the set of individual δ-values for each labeled
+example in L. As in the theoretical analysis, P [C(L, ∆)]
+denotes the probability of coverage for L given ∆. The competence score SL (L, ∆) is defined by the objective function
+(5). The graph {Gδ = (V, E)} is a directed adjacency graph
+where nodes are samples, and edges connect pairs of nodes
+if their distance in the embedding space is less than δ.
+
+3.2
+
+Active learning method
+
+Active Learning (AL) is performed iteratively (see Fig. 1):
+at each iteration i, a query set Q of q unlabeled examples
+is selected based on a specific strategy, where q denotes the
+query set size and Q denotes the current query set. These examples are then labeled by an oracle, added to the labeled set
+L, and removed from the unlabeled pool U. Subsequently, the
+algorithm parameters may be updated as needed, depending
+on the specific requirements of the algorithm. This process
+
+is repeated until the label budget is exhausted or predefined
+termination conditions are met.
+Our AL method DCoM involves several distinct steps:
+Step 1: Initialization. Identify an appropriate embedding
+space for U ∪ L, where distances are expected to be inversely
+correlated to semantic similarity. This can be achieved using
+self-supervised or representation learning techniques. Select
+an initial radius δ0 as outlined in (Yehuda et al. 2022), and
+initialize the parameter ∆ = ∅. If L ̸= ∅, skip Step 2 for now
+and begin the iterations with Step 3.
+Step 2: Active sampling. Select q examples from U for labeling (see Alg 1 for the pseudo-code). Begin by computing the
+normalized margin M (x) ∀x ∈ U using the latest model M.
+Next, construct a directed adjacency graph {Gδavg = (V, E)},
+where δavg is the average of ∆, or δ0 if ∆ is empty. To avoid
+covering points multiple times, ∀xi ∈ L, ∀x ∈ Bδi (xi ) and
+∀v ∈ V , prune all incoming edges e = (v, x) ∈ E. Additionally, prune all outgoing edges e = (xi , v) ∈ E.
+Using this graph, compute the Out-Degree-Rank (ODR)
+∀x ∈ U. Likewise, compute the probability of coverage
+P [C(L, ∆)] of the current L and its corresponding ∆, and
+use these quantities to determine SL (L, ∆). Now select q
+points from U in a greedy manner as follows:
+1. ∀x ∈ U, compute the Out-Degree-Rank ODR(x).
+2. ∀x ∈ U, compute a ranking score
+R(x) = SL (L, ∆)·(1−M (x))+(1−SL (L, ∆))·ODR(x).
+3. Select the vertex xmax with the highest score
+xmax = argmaxx∈U R(x).
+4. Remove all incoming edges to xmax and its neighbors,
+implying that ODR(xmax ) = 0.
+5. Set M (xmax ) = 1.
+Step 3: Model training: Obtain labels for the query set Q
+derived in Step 2. Remove Q from U and add it to L. Finally,
+train model M using the updated L (and also U if the learner
+employs semi-supervised learning).
+Step 4: ∆-Adjustment. Determine a suitable δi for each
+new labeled example xi ∈ Q and add it to ∆, see Alg 2
+for pseudo-code and illustration in Fig. 2. Begin by using the updated model M to predict labels for all points
+in the unlabeled set U. Likewise, compute a purity threshold τ = m · P [C(L \ Q, ∆)] + d, where2 P [C(L \ Q, ∆)],
+the probability of coverage using the old labeled set, is
+derived in Step 2. Finally, for each new labeled example v ∈
+δopt whose pu Q, search for the largest radius
+
+rity P x ∈ Bδopt (v) : f (x) = f (v) remains above τ . Assuming that π(Bδ (x)) is monotonic with δ, use binary search.
+
+4
+4.1
+
+Empirical evaluation
+
+Methodology
+
+This section investigates two deep AL frameworks: a fully
+supervised approach, wherein a deep model is trained exclusively on the annotated dataset L as a standard supervised
+2
+The linear transformation defined by m, d adjusts the range of
+coverage scores into the relevant range of purity scores [b, b + m].
+
+
+(a) Initial active sampling using δ0 in DCoM, following ProbCover approach.
+
+(b) DCoM’s updated ∆ list, which includes a suitable δ value for each example in L
+
+Figure 2: Illustration of Step 4: ∆-Adjustment in DCoM, comparing the coverage obtained by DCoM (b) with ProbCover (a) using budget
+b = 15. Selected points are marked by x, and the covered area is shaded in light gray. While ProbCover maintains a constant δ for each
+example, DCoM seeks to maximize coverage while preserving the purity of the balls by fitting a suitable radius for each center.
+
+Algorithm 1: DCoM, Active sampling
+
+Algorithm 2: DCoM, ∆-Adjustment
+
+Input: unlabeled pool U, labeled pool L, query size q, list of ball
+sizes ∆, trained model M if L ̸= ∅
+Output: a set of points to query, and the coverage of L
+1: ∀x ∈ U, M (x) ← normalized margin between the two highest
+softmax outputs of M if L ̸= ∅, 1 otherwise
+2: Compute P [C(L, ∆)]
+3: Compute SL (L, ∆)
+4: δavg ← Average(∆)
+5: G = (V = U ∪ L, E = {(x, x′ ) : x′ ∈ Bδavg (x)})
+6: for (xi , δi ) ∈ L × ∆ do
+7:
+∀x ∈ Bδi (xi ): ∀e = (v, x) ∈ E, remove e
+8:
+∀e = (xi , v) ∈ E, remove e
+9: end for
+
+Input: unlabeled pool U, labeled pool L, query pool Q, maximal
+ball size δmax , list of ball sizes ∆ for L \ Q, trained model M from
+the current iteration and P [C(L \ Q, ∆)] from Step 2
+Output: updated list of ball sizes ∆
+1: τ ← m · P [C(L \ Q, ∆)] + d
+2: Ŷ ← The predicted label for each x ∈ U using the model M
+3: for v ∈ Q do
+4:
+δopt ← argmaxδ [P ({x ∈ Bδ (v) : f (x) = f (v)}) > τ ]
+5:
+∆ ← ∆ + [δopt ]
+6: end for
+7: return ∆
+
+10: Q ← ∅
+11: for i = 1, ..., q do
+12:
+∀x ∈ U, ODR(x) ←Out-Degree Rank
+13:
+∀x ∈ U, R(x) ← SL (L, ∆)·(1−M (x)) + (1 - SL (L, ∆))·
+ODR(x)
+14:
+xmax ← {argmaxx∈U R(x)}
+15:
+Q ← Q ∪ {xmax }
+16:
+∀x ∈ Bδavg (xmax ): ∀e = (v, x) ∈ E, remove e
+17:
+M (xmax ) ← 1
+18: end for
+19: return Q, P [C(L, ∆)]
+
+2021) and the code provided by (Wang et al. 2022), adopting
+the parameters specified by (Zhang et al. 2021) (see details
+in Appendix A). While the ResNet-18 architecture may no
+longer achieve state-of-the-art results on the datasets examined, it serves as a suitable platform to evaluate the efficacy
+of AL strategies in a competitive and fair environment, where
+they have demonstrated benefits.
+In our comparisons, we used several active learning strategies for selecting a query set: (i) Random sampling, (ii) Min
+margin — lowest margin between the two highest softmax outputs; (iii) Max entropy — highest entropy of softmax outputs; (iv) Uncertainty — 1 minus the highest softmax output; (v) DBAL (Gal, Islam, and Ghahramani 2017);
+(vi) CoreSet (Sener and Savarese 2018); (vii) BALD (Kirsch,
+Van Amersfoort, and Gal 2019); (viii) BADGE (Ash et al.
+2019); (ix) ProbCover (Yehuda et al. 2022); and (x) LDM-s
+(Cho et al. 2023). When available, we used the code provided in (Munjal et al. 2022) for each strategy. When it was
+unavailable, we used the code from the repositories of the
+corresponding papers. Since (Cho et al. 2023) doesn’t provide code, we compared our results with the corresponding
+available results reported in their paper, despite differences
+in the running setup (see Appendix E.5).
+DCoM and ProbCover require a suitable data embedding.
+For STL-10 , SVHN, CIFAR-10 and CIFAR-100 we employed the SimCLR (Chen et al. 2020) embedding. For the
+ImageNet subsets we used the DINOv2 (Oquab et al. 2023)
+
+task, and a semi-supervised framework trained on both the
+annotated and unlabeled datasets, L and U. Our experimental
+setup is based on the codebase of (Munjal et al. 2022), ensuring a fair comparison among the various AL strategies by
+using the same network architectures while sharing all the
+relevant experimental conditions.
+More specifically, we trained ResNet-18 (He et al. 2016)
+on the following benchmark datasets: STL-10 (Coates, Ng,
+and Lee 2011), SVHN (Netzer et al. 2011), CIFAR-100
+(Krizhevsky, Hinton et al. 2009) and subsets of ImageNet
+(Deng et al. 2009) including ImageNet-50, ImageNet-100,
+and ImageNet-200 as defined in (Van Gansbeke et al. 2020).
+The hyper-parameters are detailed in Appendix A. In the
+semi-supervised framework, we used FlexMatch (Zhang et al.
+
+
+embedding. Section 4.3 provides an extensive ablation study,
+which includes alternative embedding spaces. In all experiments, identical settings and hyper-parameters are used as
+detailed in Appendix A. The robustness of our method to
+these choices is discussed in Appendix C.
+Using a sparse representation of the adjacency graph enables DCoM to handle large datasets efficiently without exhaustive space requirements. The algorithm’s complexity,
+including adjacency graph construction and sample selection,
+is discussed in Appendix D.
+
+4.2
+
+Main results
+
+(a) STL-10
+
+is trained from scratch using the updated labeled set L. This
+process is repeated for several AL iterations. Fig. 3 shows
+the difference between the accuracy obtained by each AL
+method, and the accuracy obtained when training a similar
+network with a random query set of the same size (the baseline of no active learning), for each AL iteration. The final
+accuracy of each method is shown in Table 1 for the CIFAR100 dataset, as mean ± Standard Error (STE). Similar tables
+for the remaining datasets are shown in Appendix E.
+Semi-supervised framework. We evaluate the effectiveness
+of 5 representative AL strategies with FlexMatch, a competitive semi-supervised learning method. We also evaluate
+our method, and the results of random sampling (no AL) as
+baseline. Fig. 4 shows the mean accuracy and STE based on
+3 repetitions of FlexMatch, employing labeled sets generated
+by the different AL strategies. Note that in these experiments,
+since the query is selected from an unlabeled set, the resulting labeled set L may be unbalanced between the classes,
+which is especially harmful when the budget is small. This
+affects all the methods. As a result, the accuracy with random
+sampling may differ from reported results. Notably, DCoM
+demonstrates significant superiority over random sampling.
+
+(b) SVHN
+
+|L| = 400
+
+(c) CIFAR-100
+
+(d) ImageNet-50
+
+Figure 4: Comparison of AL strategies in a semi-supervised learning
+framework. Each bar shows the mean test accuracy over 3 repetitions
+of FlexMatch, trained with 400 and 1,000 labeled examples on
+CIFAR-100. Three AL rounds are conducted, selecting 100, 300,
+and 600 examples in each round.
+
+4.3
+
+(e) ImageNet-100
+
+(f) ImageNet-200
+
+Figure 3: Mean accuracy difference between AL algorithms and
+random queries. Positive mean difference indicates that the corresponding AL method is beneficial. The errors bars correspond to
+standard error, using 5-10 repetitions (3 for the ImageNet subsets).
+While some methods perform well only in specific budget regime,
+DCoM consistently achieves the best results across all budgets. Cumulative budget is evenly spaced for easy range comparison.
+
+Fully supervised framework. We evaluate various AL methods by training a ResNet-18 model from scratch for each
+different AL strategy, using the labels of the queries selected
+by the respective method. In each AL iteration, a new model
+
+|L| = 1, 000
+
+Ablation study
+
+We present a series of experiments where we investigate
+the choices made by our method, including different feature
+spaces and different uncertainty-based measures. The results
+demonstrate the robustness of our method to these choices.
+Additional choices are investigate in Appendix E, including
+the contribution of a dynamic δ and initialization δ0 (Appendix E.1). In Appendix E.3, we evaluate the effectiveness
+of SL (L, ∆) from (5) in capturing competence.
+Different feature spaces. As discussed in Section 3, our
+approach relies on the existence of a suitable embedding
+space, where distance is indicative of semantic dissimilarity. We now repeat the basic fully-supervised experiments
+while varying the embedding space, comparing various popular self-supervised representations. Results are reported in
+Fig. 5, showing that DCoM consistently delivers the best
+performance regardless of the specific embedding used.
+Breaking down the algorithm into its components. The objective function in (1) includes the linear combination of two
+
+
+|L|
+
+Random
+
+Prob Cover
+
+BADGE
+
+BALD
+
+Coreset
+
+Uncertainty
+
+Entropy
+
+DBAL
+
+Margin
+
+LDM-s
+
+DCoM
+
+200
+400
+600
+1,000
+3,000
+5,000
+7,000
+11,000
+15,000
+19,000
+23,000
+
+6.39±0.19
+8.74±0.07
+10.73±0.13
+13.49±0.18
+24.02±0.27
+31.52±0.39
+37.69±0.16
+45.66±0.22
+50.57±0.09
+54.95±0.09
+57.74±0.14
+
+10.79±0.08
+13.53±0.22
+15.86±0.16
+19.49±0.20
+29.31±0.42
+34.64±0.15
+38.36±0.13
+44.69±0.20
+49.58±0.46
+52.90±0.14
+56.29±0.21
+
+6.31±0.09
+8.27±0.14
+10.29±0.27
+13.66±0.26
+24.24±0.28
+32.18±0.33
+38.09±0.10
+47.00±0.16
+52.42±0.17
+56.32±0.07
+59.60±0.16
+
+3.30±0.11
+6.63±0.23
+8.33±0.31
+11.42±0.26
+22.10±0.11
+29.58±0.38
+34.36±0.20
+44.37±0.28
+51.02±0.09
+55.55±0.27
+59.96±0.35
+
+6.39±0.19
+8.62±0.17
+10.39±0.25
+12.94±0.21
+23.00±0.28
+31.41±0.26
+38.24±0.16
+46.53±0.18
+52.19±0.29
+56.72±0.31
+59.59±0.22
+
+2.59±0.05
+4.59±0.23
+6.52±0.38
+9.98±0.38
+21.93±0.26
+30.60±0.40
+35.87±0.19
+45.23±0.20
+51.82±0.16
+56.55±0.21
+59.79±0.23
+
+2.74±0.17
+4.68±0.23
+6.32±0.27
+9.31±0.22
+20.15±0.33
+29.15±0.46
+35.11±0.11
+45.01±0.17
+51.43±0.21
+55.76±0.31
+59.91±0.08
+
+2.61±0.18
+4.41±0.30
+5.94±0.28
+8.47±0.35
+20.29±0.23
+29.60±0.28
+35.67±0.35
+44.31±0.24
+51.30±0.35
+55.75±0.14
+59.72±0.21
+
+5.09±0.37
+7.58±0.17
+10.20±0.16
+13.28±0.19
+23.71±0.31
+31.66±0.23
+38.16±0.17
+46.37±0.36
+52.37±0.19
+56.73±0.24
+59.88±0.21
+
+31.85±0.00
+40.88±0.01
+46.59±0.01
+49.41±0.01
+52.48±0.00
+
+10.59±0.19
+14.11±0.11
+16.66±0.11
+20.21±0.07
+30.36±0.08
+36.95±0.10
+41.52±0.25
+46.86±0.28
+52.33±0.22
+56.53±0.07
+59.60±0.33
+
+Table 1: Model accuracy with varying labeled set sizes L (row) and AL strategies (column) while training directly on CIFAR-100 images.
+
+choice for Ohigh (x) in objective function (1), investigating
+the alternative methods of min margin, entropy of the min
+max activation, and uncertainty (see details in Section 4.1).
+Additionally, we use a score reminiscent of the AL method
+BADGE (Gal, Islam, and Ghahramani 2017) and termed
+Gradient norm, which computes the norm of the gradient between the learner’s last two layers. Once again, the results of
+DCoM show robustness to this choice, with insignificant differences between the different uncertainty scores, see Fig. 7.
+Consequently, we prioritize computational efficiency and opt
+for the fastest-to-compute score, which is min-margin.
+(a) MOCOv2+
+
+(b) Barlow Twins
+
+Figure 5: Performance over CIFAR-100, using two different embedding spaces for DCoM and ProbCover, see details in the caption of
+Fig. 3. Clearly, DCoM consistently achieves the best results. Results
+using an additional embedding space are shown in Appendix E.4.
+
+objective functions, weighed by competence score SL (L, ∆)
+from (5). We evaluate the contribution of each component in
+this objective function separately. Results are shown in Fig. 6,
+wherein DPC denotes the Dynamic Probability Coverage,
+corresponding to Olow (x) in DCoM, and Margin denotes
+DCoM’s choice for Ohigh (x). Clearly, the weighted objective function of DCoM yields superior results.
+
+Figure 7: Similar to Fig. 3, using only DCoM while leveraging 4
+different variants for its underlying uncertainty score (see text). The
+performance differences between the variants are hardly significant.
+
+5
+
+(a) CIFAR-10
+
+(b) IMAGENET-50
+
+Figure 6: Performance (mean accuracy and STE) when optimizing
+each component of objective function (1) separately and together.
+
+Different uncertainty-based methods. We evaluate our
+
+Summary
+
+We investigate the challenge of Active Learning (AL) in a
+multi-budget setting. Our approach is motivated by a new
+bound on the generalization error of the Nearest Neighbor
+classifier, and aims to minimize this bound. Additionally,
+the sampling strategy is dynamically adjusted during training using a new competence score, also motivated by the
+same bound. We validate our method empirically in both
+supervised and semi-supervised frameworks across various
+datasets. The results show that DCoM significantly outperforms alternative methods across all budgetary constraints.
+
+Acknowledgments
+This work was supported by grants from the Israeli Council
+of Higher Education, AFOSR award FA8655-24-1-7006, and
+the Gatsby Charitable Foundation.
+
+
+References
+Ash, J. T.; Zhang, C.; Krishnamurthy, A.; Langford, J.; and
+Agarwal, A. 2019. Deep Batch Active Learning by Diverse,
+Uncertain Gradient Lower Bounds. In International Conference on Learning Representations.
+Chen, L.; Bai, Y.; Huang, S.; Lu, Y.; Wen, B.; Yuille, A.; and
+Zhou, Z. 2024. Making your first choice: to address cold start
+problem in medical active learning. In Medical Imaging with
+Deep Learning, 496–525. PMLR.
+Chen, T.; Kornblith, S.; Norouzi, M.; and Hinton, G. 2020.
+A simple framework for contrastive learning of visual representations. In International conference on machine learning,
+1597–1607. PMLR.
+Cho, S. J.; Kim, G.; Lee, J.; Shin, J.; and Yoo, C. D. 2023.
+Querying Easily Flip-flopped Samples for Deep Active Learning. In The Twelfth International Conference on Learning
+Representations.
+Chowdhury, S.; Hamerly, G.; and McGarrity, M. 2024. Active
+Learning Strategy Using Contrastive Learning and K-Means
+for Aquatic Invasive Species Recognition. In Proceedings of
+the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV) Workshops, 848–858.
+Coates, A.; Ng, A.; and Lee, H. 2011. An analysis of singlelayer networks in unsupervised feature learning. In Proceedings of the fourteenth international conference on artificial
+intelligence and statistics, 215–223. JMLR Workshop and
+Conference Proceedings.
+Cohn, D. A.; Ghahramani, Z.; and Jordan, M. I. 1996. Active learning with statistical models. Journal of artificial
+intelligence research, 4: 129–145.
+da Costa, V. G. T.; Fini, E.; Nabi, M.; Sebe, N.; and Ricci,
+E. 2022. solo-learn: A Library of Self-supervised Methods
+for Visual Representation Learning. Journal of Machine
+Learning Research, 23(56): 1–6.
+Deng, J.; Dong, W.; Socher, R.; Li, L.-J.; Li, K.; and FeiFei, L. 2009. Imagenet: A large-scale hierarchical image
+database. In 2009 IEEE conference on computer vision and
+pattern recognition, 248–255. Ieee.
+El-Hasnony, I. M.; Elzeki, O. M.; Alshehri, A.; and Salem, H.
+2022. Multi-Label Active Learning-Based Machine Learning
+Model for Heart Disease Prediction. Sensors, 22(3).
+Gal, Y.; Islam, R.; and Ghahramani, Z. 2017. Deep bayesian
+active learning with image data. In International Conference
+on Machine Learning, 1183–1192. PMLR.
+Gissin, D.; and Shalev-Shwartz, S. 2019. Discriminative
+active learning. arXiv preprint arXiv:1907.06347.
+Grill, J.-B.; Strub, F.; Altché, F.; Tallec, C.; Richemond,
+P.; Buchatskaya, E.; Doersch, C.; Avila Pires, B.; Guo, Z.;
+Gheshlaghi Azar, M.; et al. 2020. Bootstrap your own latenta new approach to self-supervised learning. Advances in
+neural information processing systems, 33: 21271–21284.
+Hacohen, G.; Dekel, A.; and Weinshall, D. 2022. Active
+Learning on a Budget: Opposite Strategies Suit High and Low
+Budgets. In International Conference on Machine Learning.
+PMLR.
+
+Hacohen, G.; and Weinshall, D. 2024. How to Select Which
+Active Learning Strategy is Best Suited for Your Specific
+Problem and Budget. Advances in Neural Information Processing Systems, 36.
+He, K.; Fan, H.; Wu, Y.; Xie, S.; and Girshick, R. 2020.
+Momentum contrast for unsupervised visual representation
+learning. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, 9729–9738.
+He, K.; Zhang, X.; Ren, S.; and Sun, J. 2016. Deep Residual
+Learning for Image Recognition. In 2016 IEEE Conference
+on Computer Vision and Pattern Recognition, CVPR 2016,
+Las Vegas, NV, USA, June 27-30, 2016, 770–778. IEEE Computer Society.
+Houlsby, N.; Huszár, F.; Ghahramani, Z.; and Lengyel, M.
+2011. Bayesian Active Learning for Classification and Preference Learning. stat, 1050: 24.
+Hu, R.; Mac Namee, B.; and Delany, S. J. 2010. Off to a
+good start: Using clustering to select the initial training set
+in active learning. In Twenty-Third International FLAIRS
+Conference.
+Jung, S.; Kim, S.; and Lee, J. 2023. A simple yet powerful deep active learning with snapshot ensembles. In The
+Eleventh International Conference on Learning Representations. International Conference on Learning Representations.
+Kaseb, A.; and Farouk, M. 2023. Active learning for Arabic
+sentiment analysis. Alexandria Engineering Journal, 77:
+177–187.
+Kim, K.; Park, D.; Kim, K. I.; and Chun, S. Y. 2021. TaskAware Variational Adversarial Active Learning. In 2021
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), 8162–8171. IEEE.
+Kirsch, A.; Van Amersfoort, J.; and Gal, Y. 2019. Batchbald:
+Efficient and diverse batch acquisition for deep bayesian
+active learning. Advances in neural information processing
+systems, 32: 7026–7037.
+Krizhevsky, A.; Hinton, G.; et al. 2009. Learning multiple
+layers of features from tiny images. Online.
+Lewis, D. D.; and Gale, W. A. 1994. A sequential algorithm
+for training text classifiers. In Proceedings of the 17th annual international ACM SIGIR conference on Research and
+development in information retrieval, 3–12.
+Munjal, P.; Hayat, N.; Hayat, M.; Sourati, J.; and Khan, S.
+2022. Towards Robust and Reproducible Active Learning
+using Neural Networks. In 2022 IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR), 223–232.
+IEEE.
+Netzer, Y.; Wang, T.; Coates, A.; Bissacco, A.; Wu, B.; Ng,
+A. Y.; et al. 2011. Reading digits in natural images with
+unsupervised feature learning. In NIPS workshop on deep
+learning and unsupervised feature learning, 5, 7. Granada,
+Spain.
+Oquab, M.; Darcet, T.; Moutakanni, T.; Vo, H. V.; Szafraniec,
+M.; Khalidov, V.; Fernandez, P.; HAZIZA, D.; Massa, F.;
+El-Nouby, A.; et al. 2023. DINOv2: Learning Robust Visual
+Features without Supervision. Transactions on Machine
+Learning Research.
+
+
+Parvaneh, A.; Abbasnejad, E.; Teney, D.; Haffari, G. R.; Van
+Den Hengel, A.; and Shi, J. Q. 2022. Active learning by
+feature mixing. In Proceedings of the IEEE/CVF conference
+on computer vision and pattern recognition, 12237–12246.
+Ranganathan, H.; Venkateswara, H.; Chakraborty, S.; and
+Panchanathan, S. 2017. Deep active learning for image classification. In 2017 IEEE International Conference on Image
+Processing (ICIP), 3934–3938.
+Schmidt, S.; Schenk, L.; Schwinn, L.; and Günnemann, S.
+2024. A Unified Approach Towards Active Learning and
+Out-of-Distribution Detection. arXiv:2405.11337.
+Sener, O.; and Savarese, S. 2018. Active Learning for Convolutional Neural Networks: A Core-Set Approach. In International Conference on Learning Representations.
+Settles, B. 2009. Active learning literature survey. Technical report, University of Wisconsin-Madison Department of
+Computer Sciences.
+Shannon, C. E. 1948. A Mathematical Theory of Communication. The Bell System Technical Journal, 27: 379–423.
+Siddhant, A.; and Lipton, Z. C. 2018. Deep Bayesian Active Learning for Natural Language Processing: Results of
+a Large-Scale Empirical Study. In Proceedings of the 2018
+Conference on Empirical Methods in Natural Language Processing, 2904–2909.
+Tharwat, A.; and Schenck, W. 2023. A survey on active
+learning: state-of-the-art, practical challenges and research
+directions. Mathematics, 11(4): 820.
+Van Gansbeke, W.; Vandenhende, S.; Georgoulis, S.; Proesmans, M.; and Van Gool, L. 2020. Scan: Learning to classify
+images without labels. In European conference on computer
+vision, 268–285. Springer.
+Wang, H.; Jin, Q.; Li, S.; Liu, S.; Wang, M.; and Song, Z.
+2023. A comprehensive survey on deep active learning and
+its applications in medical image analysis. arXiv preprint
+arXiv:2310.14230.
+Wang, Y.; Chen, H.; Fan, Y.; Sun, W.; Tao, R.; Hou, W.;
+Wang, R.; Yang, L.; Zhou, Z.; Guo, L.-Z.; Qi, H.; Wu, Z.; Li,
+Y.-F.; Nakamura, S.; Ye, W.; Savvides, M.; Raj, B.; Shinozaki,
+T.; Schiele, B.; Wang, J.; Xie, X.; and Zhang, Y. 2022. USB:
+A Unified Semi-supervised Learning Benchmark for Classification. In Thirty-sixth Conference on Neural Information
+Processing Systems Datasets and Benchmarks Track.
+Wen, Z.; Pizarro, O.; and Williams, S. 2023. NTKCPL: Active Learning on Top of Self-Supervised Model by Estimating
+True Coverage. arXiv e-prints, arXiv–2306.
+Woo, J. O. 2022. Active Learning in Bayesian Neural Networks with Balanced Entropy Learning Principle. In The
+Eleventh International Conference on Learning Representations.
+Xie, Y.; Lu, H.; Yan, J.; Yang, X.; Tomizuka, M.; and Zhan,
+W. 2023. Active finetuning: Exploiting annotation budget
+in the pretraining-finetuning paradigm. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, 23715–23724.
+
+Yang, Y.; Ma, Z.; Nie, F.; Chang, X.; and Hauptmann, A.
+2015. Multi-Class Active Learning by Uncertainty Sampling with Diversity Maximization. International Journal of
+Computer Vision, 113.
+Yehuda, O.; Dekel, A.; Hacohen, G.; and Weinshall, D. 2022.
+Active learning through a covering lens. Advances in Neural
+Information Processing Systems, 35: 22354–22367.
+Yuan, D.; Chang, X.; Liu, Q.; Yang, Y.; Wang, D.; Shu, M.;
+He, Z.; and Shi, G. 2023. Active learning for deep visual
+tracking. IEEE Transactions on Neural Networks and Learning Systems.
+Zbontar, J.; Jing, L.; Misra, I.; LeCun, Y.; and Deny, S. 2021.
+Barlow twins: Self-supervised learning via redundancy reduction. In International conference on machine learning,
+12310–12320. PMLR.
+Zhang, B.; Wang, Y.; Hou, W.; Wu, H.; Wang, J.; Okumura,
+M.; and Shinozaki, T. 2021. Flexmatch: Boosting semisupervised learning with curriculum pseudo labeling. Advances in Neural Information Processing Systems, 34: 18408–
+18419.
+Zhao, G.; Dougherty, E.; Yoon, B.-J.; Alexander, F.; and Qian,
+X. 2021. Uncertainty-aware Active Learning for Optimal
+Bayesian Classifier. In International Conference on Learning
+Representations.
+
+A
+
+Appendix
+Implementation details
+
+The source code for this study can be found in the zip file
+included in the supplementary material. This zip file contains
+a USAGE.md file that provides instructions on how to run
+the algorithm. The code in the zip file is based on the GitHub
+repositories of Yehuda et al. (2022) and Munjal et al. (2022).
+Our GitHub repository will be made public upon acceptance.
+DCoM necessitates the computation of the initial delta
+for each dataset representation. The values utilized in our
+experiments can be found in Table 2. The δ values of CIFAR10 and CIFAR-100 are sourced from (Yehuda et al. 2022).
+Information on the computation of δ values for other datasets
+can be located in Appendix E.1.
+Dataset
+
+SSL method
+
+δ0
+
+STL-10
+SVHN
+CIFAR-10
+CIFAR-100
+ImageNet-50
+ImageNet-100
+ImageNet-200
+CIFAR-100
+CIFAR-100
+CIFAR-100
+
+SimCLR
+SimCLR
+SimCLR
+SimCLR
+DINOv2
+DINOv2
+DINOv2
+MOCOv2+
+BYOL
+Barlow Twins
+
+0.55
+0.4
+0.75
+0.65
+0.75
+0.7
+0.65
+0.5
+0.5
+0.55
+
+Table 2: Initial delta values used in experiments
+
+Additionally, throughout our experiments we used identical algorithm parameters, distinguishing between those
+for datasets with smaller class amounts (10) and larger
+
+
+ones (50+). These parameters encompass the adaptive purity threshold τ from Alg 2 and the logistic function parameters for the competence score SL (L, ∆) in (5), (a, k).
+Specifically, we employed τ = 0.2 cover + 0.4, with logistic parameters a = 0.9 and k = 30 for CIFAR-10, SVHN,
+and STL-10, and a = 0.8 and k = 30 for CIFAR-100 and
+ImageNet subsets. The δ resolution for the binary search in
+DCoM was set to 0.05. Our ablation study, detailed in Appendix C, demonstrates that these selections have negligible
+impact on performance.
+
+A.1
+
+Supervised training
+
+When training on STL-10, SVHN, CIFAR-10 and CIFAR100 datasets, we utilized a ResNet-18 architecture trained for
+200 epochs. Our optimization strategy involved using an SGD
+optimizer with a Nesterov momentum of 0.9, weight decay
+set to 0.0003, and cosine learning rate scheduling starting at
+a base rate of 0.025. Training was performed with a batch
+size of 100 examples, and we applied random cropping and
+horizontal flips for data augmentation. For an illustration of
+these parameters in use, refer to (Munjal et al. 2022).
+When training ImageNet-50, we used the same hyperparameters, only changing the base learning rate to 0.01,
+the batch size to 50 and the epoch amount to 50.
+When training ImageNet-100/200, we used the same hyperparameters as ImageNet-50, only changing the epoch amount
+to 100.
+The train and test partitions followed the original sets from
+the corresponding paper, with 10% of the train set used for
+validation in all datasets except for ImageNet-200, where 5%
+was used for validation.
+
+A.2
+
+Semi-supervised training
+
+When training FlexMatch (Zhang et al. 2021), we used the
+semi supervised framework by (Wang et al. 2022), and the AL
+framework by (Munjal et al. 2022). All experiments involved
+3 repetitions.
+We relied on the standard hyper-parameters used by
+FlexMatch (Zhang et al. 2021). Specifically, we trained
+WideResNet-28 for 512 epochs using the SGD optimizer,
+with 0.03 learning rate, 64 batch size, 0.9 SGD momentum,
+0.999 EMA momentum, 0.001 weight decay and 2 widen
+factor.
+
+A.3
+
+Self-supervised feature extraction
+
+STL-10, SVHN, CIFAR-10, CIFAR-100. To extract semantically meaningful features, we trained SimCLR using the
+code provided by (Van Gansbeke et al. 2020) for STL-10,
+SVHN, CIFAR-10 and CIFAR-100. Specifically, we used
+ResNet-18 (He et al. 2016) with an MLP projection layer
+to a 128-dim vector, trained for 512 epochs. All the training
+hyper-parameters were identical to those used by SCAN (all
+details can be found in (Van Gansbeke et al. 2020)). After
+training, we used the 512 dimensional penultimate layer as
+the representation space.
+Representation learning: ImageNet-50/100/200. We extracted features from the official (ViT-S/14) DINOv2 weights
+pre-trained on ImageNet (Oquab et al. 2023). We employed
+
+the L2-normalized penultimate layer for the embedding,
+which has a dimensionality of 384.
+Ablation embeddings – CIFAR-100. We extracted more
+features as BYOL (Grill et al. 2020), MOCOv2+ (He et al.
+2020), and Barlow Twins (Zbontar et al. 2021) using pretrained weights from (da Costa et al. 2022).
+
+B
+
+Purity Calculation in nNN
+
+When transitioning from 1NN to nNN, the structure of the
+problem remains unchanged, with the key difference being
+that the radius δ is adjusted for each labeled example. Next,
+we demonstrate that the purity of each ball in the nNN problem can be precisely computed using these δ-values. This
+is because when a labeled example c ∈ L assigns a label to
+a point x, it must also cover x. Therefore, any mislabeling
+by c would reduce the purity, as illustrated by the following
+statement:
+Proposition. If c ∈ L is labeling x and x ∈ C(L, ∆), then
+x ∈ Bδc (c).
+Proof. Let c ∈ L be the nearest neighbor (nNN) of x,
+and let δc be the corresponding radius for c. By definition, f nN N (x) = f (x), and since c is labeled, we have
+f (c) = f nN N (c) ≡ f N (c).
+Given that x ∈ C(L, ∆), there exists a labeled example
+c′ ∈ L that covers x, meaning d(x, c′ ) < δc′ . Suppose that
+c ̸= c′ . Since c is the nNN of x, it follows that:
+d(x, c)
+d(x, c′ )
+<
+δc
+δc ′
+Given d(x, c′ ) < δc′ , we get:
+d(x, c)
+< 1 ⇒ d(x, c) < δc
+δc
+Thus, x ∈ Bδc (c), meaning c covers x within the radius δc .
+This implies that if x were wrongly labeled, c would still
+cover x, indicating lower purity in Bδc (c).
+
+C
+
+Hyper-parameters exploring
+
+Theoretical basis for the Choice of a and k. The parameter
+a represents the center of the sigmoid function. Our objective
+is for the algorithm to assign increased weight to Ohigh only
+after it has covered a substantial portion of the dataset. Consequently, we choose a ∈ (0.5, 1). The parameter k controls
+the steepness of the sigmoid curve. The function must yield
+0 in the absence of coverage and approach 1 as coverage
+becomes complete. To achieve this, we configure the numerator of the fraction to be equal to the denominator when the
+cover’s probability is 1. Although the function cannot pass
+precisely through (0, 0), it can asymptotically approach (0, ε)
+for an infinitesimally small ε ∈ ℜ.
+We now investigate the relationship between this approximation error and the parameter k. Define the function f (x)
+as SL for simplicity:
+f (x) =
+
+1 + e−k(1−a)
+1 + e−k(x−a)
+
+
+The limit of f (x) as x approaches 0 is
+1 + e−k(1−a)
+x→0
+1 + eka
+For the function to approach 0, we require:
+lim f (x) =
+
+1 + e−k(1−a)
+≪1
+1 + eka
+This implies:
+1 + e−k(1−a) ≪ 1 + eka
+e−k(1−a) ≪ eka
+e−k ≪ eka
+e−k ≪ 1
+Next, we calculate f (0):
+f (0) =
+
+(*)
+
+1 + e−k(1−a)
+=ε
+1 + eka
+
+Solving for k:
+1 + e−k(1−a) = ε(1 + eka )
+1 − ε = εeka − e−k(1−a)
+1 − ε = eka (ε − e−k )
+1−ε
+eka =
+ε − e−k
+Approximating eka using (*):
+1−ε
+eka ≈
+ε
+So:
+
+
+1−ε
+ka ≈ ln
+ε
+Finally:
+
+
+
+ln 1ε
+1
+1
+k ≈ ln
+−1 ≈
+a
+ε
+a
+To minimize the approximation error, we should choose
+a larger k. In our experiments with a = 0.8 or 0.9 and ε =
+10−10 , we determined:
+k(a = 0.9, ε = 10−10 ) ≈ 25.58
+k(a = 0.8, ε = 10−10 ) ≈ 28.78
+The value of ε was chosen to be asymptotically smaller than
+the dimension of the initial graphs constructed for all the
+datasets. In accordance, we chose k = 30.
+Experimental assessment of DCoM hyper-parameter consistency As described before, DCoM has 3 hyper-parameters:
+a, k and τ . When running the main experiments described in
+Section 4.2, we maintained consistency by employing identical parameters for STL-10, SVHN, and CIFAR-10, as well as
+for CIFAR-100 and the subsets of ImageNet. This approach
+helps to demonstrate that the choice of the hyper-parameters
+is not critical and does not significantly affect the results.
+Here, we conduct experiments with DCoM using STL-10
+and CIFAR-100 datasets and several values for a and k from
+the definition of the competence score SL (L, ∆) in (5). We
+observe that while certain choices may be slightly better than
+others, all choices yield similar results, and DCoM consistently outperforms or matches the performance of previous
+methods.
+
+(a) STL-10
+
+(b) CIFAR-100
+
+Figure 8: Evaluation of DCoM across different settings of the logistic function hyper-parameters a and k. Each plot displays the mean
+and standard error over 3 − 5 repetitions. The findings indicate that
+fine-tuning these parameters has negligible effects on performance.
+
+D
+
+Time and space complexity of DCoM
+
+For the complexity analysis below, let n represent the number
+of examples in the combined unlabeled and labeled pool
+|U ∪ L|, d the dimension of the data embedding space, b the given budget (|L|) and q - the size of the query set. As
+previously stated, DCoM can be divided into three distinct
+steps:
+
+D.1
+
+Selection of initial δ delta
+
+Time Complexity: The process begins by creating t adjacency graphs, each corresponding to a different δ value
+being evaluated. Here, t denotes the number of δ’s being
+examined. The time complexity of each graph generation
+is O(n2 · d) time. The computation of purity requires the
+prediction of pseudo-labels by k-means at a cost of O(n2 ).
+The complexity of computing ball purity for one example
+is O(n2 ), so totally the ball purity computing for one graph
+takes O(n3 ). This adds up to overall time complexity of
+O(tdn2 + n2 + tn3 ) = O(tn3 ). We can construct the initial
+graph using the largest δ-value and then, instead of building
+a new graph for each δ-value in O(tdn2 ), we can filter distances above the current δ in O(dn2 +n2 ). However, the total
+complexity remains O(tn3 ). Although it may seem significant, this step doesn’t occur during the active learning algorithm process. Additionally, it’s possible to confine the data
+employed for purity computation to the densest points, effectively lowering the complexity to O(dn2 ). This approach
+mandates the use of at least the number of points equivalent to the number of classes for purity computation. This
+technique yields similar δ0 values (consistent for CIFAR-10,
+CIFAR-100, and ImageNet-50, and with a variation of 0.05
+for ImageNet-100/200 and STL-10 and 0.15 for SVHN).
+Space complexity: Naively, the space complexity is O(n2 ),
+which might be impractical for large datasets like ImageNet.
+However, (Yehuda et al. 2022) demonstrates that utilizing a
+sparse matrix in coordinate list (COO) format and using limited δ values, the space complexity becomes O(|E|), where
+
+
+E represents the set of edges in the graph. Although O(|E|)
+remains O(n2 ) in the worst-case scenario, in practice, the
+average vertex degree with a limited radius is less than n.
+
+D.2
+
+the purity function across various δ values, along with the
+selected δ values for each dataset. As mentioned previously,
+the δ values for CIFAR-10 and CIFAR-100 are derived from
+(Yehuda et al. 2022).
+
+∆-Adjustment
+
+Time complexity: Each iteration of DCoM starts with customizing δ values for each labeled example from the last
+active step. In the worst case, there are |L| examples. Customizing ∆ involves building the adjacency graph using
+δmax , running all examples on the model to obtain their
+predictions, and applying binary search over δ values between 0 and δmax for each example from the last active step.
+The binary search is performed on a continuous parameter (δ) with a search resolution r. This implies that there
+are δmax
+r available values for δ. For each δ value, the algorithm computes its purity value. Overall, this process takes
+δmax
+2
+2
+2
+O(dn2 +n+|L|·log( δmax
+r )·n ) = O(dn +b·log( r )·n ).
+In practical terms, due to the vectorization of these processes,
+it requires approximately 27 minutes to construct an adjacency graph for ImageNet-200 and update deltas for 1000
+examples on a single CPU.
+Space complexity: Similar to the space complexity analysis
+in Appendix D.1, which is O(n2 ).
+
+D.3
+
+Active sampling
+
+Time complexity: Active sampling involves balancing model
+min-margin and example density based on the current adjacency graph. Initially, the margin of each example is computed using the softmax output from the model’s last layer,
+requiring O(n) time. Subsequently, the current adjacency is
+created using δavg , which is the average over the L δ values
+list - ∆. As discussed in Appendix D.1, this step has a time
+complexity of O(dn2 ). Following this, the iterative process
+for selecting a single sample includes the following steps:
+
+(a) STL-10
+
+(b) SVHN
+
+(c) ImageNet-50
+
+(d) ImageNet-100
+
+Figure 9: π(δ), estimated from the unlabeled data and using k-means
+algorithm for labeling. The dashed line indicates the highest δ, after
+which purity drops below α = 0.95.
+
+E.2
+
+∆ distribution evolution throughout training
+
+The experiment in Fig. 10 illustrates the distribution of ∆
+throughout the active selection and training phases of DCoM.
+The significant standard deviation of ∆ compared to the minor standard error underscores the significance of employing
+a dynamic method that assigns a distinct radius to each ball.
+
+• Calculating node degrees – O(|E|) time.
+• Finding the node with maximal degree – O(n) time.
+• Removing incoming edges from the graph for covered
+points – O(|E|) time.
+Samples are iteratively selected from the current sparse
+graph, with incoming edges to newly covered samples being
+removed. Unlike adjacency graph creation, sample selection
+cannot be parallelized, as each step depends on the previous
+one. Overall, the time complexity for selecting a sample is
+O(|E| + n), resulting in a worst-case overall complexity of
+O(dn2 ). However, as more points are selected, the removal of
+edges speeds up the selection of later samples. Practically, it
+consumes about 15 minutes to construct an adjacency graph
+and select 1000 samples from ImageNet-200 on a single
+CPU.
+Space complexity: Similar to the previous space complexity
+analysis – O(n2 ).
+
+E
+E.1
+
+Additional empirical results
+
+δ0 Initialization
+
+To set the initial value δ0 , we adopted the method outlined in
+(Yehuda et al. 2022), as detailed in Section 3. Fig. 9 displays
+
+(a) CIFAR-10
+
+(b) CIFAR-100
+
+Figure 10: The ∆ distribution through DCoM algorithm. Each plot
+displays the distribution over 5-10 repetitions. The results indicate
+that as the emphasis shifts towards maximizing the purity of sample
+balls, rather than solely focusing on maximum coverage, the radii
+adapt accordingly. This, combined with the improved performance
+observed with DCoM, highlights the necessity of the dynamic algorithm in enhancing the effectiveness of active sampling.
+
+E.3
+
+Empirical evaluation of SL
+
+Fig. 11 tracks the behavior of the competence score SL across
+3 datasets. In all cases, the comparison of Figs.11a,11b reveals that SL increases monotonically with competence as
+
+
+|L|
+
+Random
+
+Prob Cover
+
+BADGE
+
+BALD
+
+Coreset
+
+Uncertainty
+
+Entropy
+
+DBAL
+
+Margin
+
+LDM-s
+
+DCoM
+
+10
+20
+30
+40
+50
+200
+400
+600
+800
+1,400
+2,600
+3,800
+5,000
+6,200
+7,400
+
+14.53±0.60
+16.82±0.44
+18.82±0.71
+20.89±0.55
+22.75±0.42
+31.53±0.29
+38.64±0.36
+43.66±0.44
+46.84±0.29
+54.35±0.27
+62.93±0.31
+68.61±0.44
+73.61±0.23
+75.95±0.18
+78.49±0.14
+
+20.39±0.23
+24.64±0.73
+27.19±0.25
+29.46±0.38
+29.80±0.21
+38.83±0.18
+45.36±0.51
+49.13±0.36
+51.49±0.37
+56.33±0.26
+62.16±0.18
+66.83±0.25
+70.95±0.23
+73.51±0.30
+75.71±0.35
+
+15.17±0.94
+17.85±0.77
+20.38±0.67
+22.19±0.45
+22.41±0.35
+32.10±0.42
+37.92±0.37
+42.69±0.35
+46.34±0.32
+54.06±0.42
+64.67±0.31
+71.36±0.32
+75.93±0.21
+78.90±0.27
+80.88±0.22
+
+10.81±0.61
+13.79±0.89
+16.25±0.83
+17.93±0.67
+18.36±0.54
+27.95±0.29
+35.10±0.33
+40.75±0.29
+44.12±0.49
+53.08±0.34
+64.19±0.24
+70.77±0.53
+75.86±0.27
+77.92±0.36
+80.94±0.16
+
+14.65±0.74
+16.09±0.74
+18.22±0.93
+19.79±0.61
+21.26±0.63
+30.91±0.76
+37.85±0.70
+42.48±0.39
+46.21±0.25
+52.31±0.31
+61.94±0.40
+68.41±0.34
+72.92±0.36
+77.00±0.19
+79.39±0.30
+
+12.99±0.77
+16.38±0.52
+18.00±0.68
+19.00±0.70
+21.63±0.70
+30.69±0.27
+36.48±0.46
+41.96±0.24
+45.50±0.17
+53.13±0.28
+64.98±0.59
+71.90±0.36
+75.82±0.31
+78.84±0.27
+81.19±0.15
+
+12.78±0.72
+17.07±0.62
+19.26±0.44
+19.98±0.60
+22.17±0.48
+29.51±0.42
+36.71±0.38
+40.75±0.23
+43.89±0.31
+52.93±0.34
+64.62±0.46
+71.30±0.36
+76.13±0.31
+78.37±0.20
+81.02±0.19
+
+11.74±0.69
+17.00±0.49
+18.34±0.50
+20.30±0.35
+21.06±0.45
+28.91±0.50
+36.01±0.32
+41.19±0.53
+44.93±0.42
+53.28±0.50
+63.53±0.44
+70.55±0.25
+75.24±0.47
+78.54±0.26
+81.10±0.24
+
+14.39±0.88
+17.33±0.85
+18.55±0.87
+20.61±0.68
+22.00±0.61
+31.83±0.48
+38.65±0.62
+43.75±0.22
+46.97±0.40
+54.97±0.35
+64.54±0.45
+71.60±0.21
+75.46±0.31
+78.62±0.22
+80.76±0.29
+
+50.30±0.00
+57.01±0.01
+61.30±0.01
+64.09±0.00
+65.79±0.00
+67.28±0.01
+
+19.72±0.40
+22.28±0.75
+26.98±0.35
+28.91±0.46
+30.39±0.12
+38.86±0.40
+45.72±0.27
+49.71±0.39
+52.10±0.58
+57.54±0.10
+65.76±0.21
+71.84±0.36
+76.36±0.05
+78.66±0.16
+81.30±0.34
+
+CIFAR-10 dataset
+|L|
+
+Random
+
+Prob Cover
+
+BADGE
+
+BALD
+
+Coreset
+
+Uncertainty
+
+Entropy
+
+DBAL
+
+Margin
+
+LDM-s
+
+DCoM
+
+200
+400
+600
+1,000
+3,000
+5,000
+7,000
+11,000
+15,000
+19,000
+23,000
+
+6.39±0.19
+8.74±0.07
+10.73±0.13
+13.49±0.18
+24.02±0.27
+31.52±0.39
+37.69±0.16
+45.66±0.22
+50.57±0.09
+54.95±0.09
+57.74±0.14
+
+10.79±0.08
+13.53±0.22
+15.86±0.16
+19.49±0.20
+29.31±0.42
+34.64±0.15
+38.36±0.13
+44.69±0.20
+49.58±0.46
+52.90±0.14
+56.29±0.21
+
+6.31±0.09
+8.27±0.14
+10.29±0.27
+13.66±0.26
+24.24±0.28
+32.18±0.33
+38.09±0.10
+47.00±0.16
+52.42±0.17
+56.32±0.07
+59.60±0.16
+
+3.30±0.11
+6.63±0.23
+8.33±0.31
+11.42±0.26
+22.10±0.11
+29.58±0.38
+34.36±0.20
+44.37±0.28
+51.02±0.09
+55.55±0.27
+59.96±0.35
+
+6.39±0.19
+8.62±0.17
+10.39±0.25
+12.94±0.21
+23.00±0.28
+31.41±0.26
+38.24±0.16
+46.53±0.18
+52.19±0.29
+56.72±0.31
+59.59±0.22
+
+2.59±0.05
+4.59±0.23
+6.52±0.38
+9.98±0.38
+21.93±0.26
+30.60±0.40
+35.87±0.19
+45.23±0.20
+51.82±0.16
+56.55±0.21
+59.79±0.23
+
+2.74±0.17
+4.68±0.23
+6.32±0.27
+9.31±0.22
+20.15±0.33
+29.15±0.46
+35.11±0.11
+45.01±0.17
+51.43±0.21
+55.76±0.31
+59.91±0.08
+
+2.61±0.18
+4.41±0.30
+5.94±0.28
+8.47±0.35
+20.29±0.23
+29.60±0.28
+35.67±0.35
+44.31±0.24
+51.30±0.35
+55.75±0.14
+59.72±0.21
+
+5.09±0.37
+7.58±0.17
+10.20±0.16
+13.28±0.19
+23.71±0.31
+31.66±0.23
+38.16±0.17
+46.37±0.36
+52.37±0.19
+56.73±0.24
+59.88±0.21
+
+31.85±0.00
+40.88±0.01
+46.59±0.01
+49.41±0.01
+52.48±0.00
+
+10.59±0.19
+14.11±0.11
+16.66±0.11
+20.21±0.07
+30.36±0.08
+36.95±0.10
+41.52±0.25
+46.86±0.28
+52.33±0.22
+56.53±0.07
+59.60±0.33
+
+CIFAR-100 dataset
+|L|
+
+Random
+
+Prob Cover
+
+BADGE
+
+BALD
+
+Coreset
+
+Uncertainty
+
+Entropy
+
+DBAL
+
+Margin
+
+DCoM
+
+200
+400
+600
+1,000
+3,000
+5,000
+7,000
+11,000
+15,000
+19,000
+23,000
+
+8.25±0.65
+12.18±0.29
+14.85±0.53
+19.71±0.53
+39.06±0.21
+48.33±0.27
+55.12±0.09
+63.46±0.15
+69.42±0.20
+72.54±0.21
+75.99±0.16
+
+12.33±0.34
+16.64±0.29
+20.38±0.47
+25.76±0.34
+39.98±0.23
+45.08±0.16
+47.34±0.44
+52.79±0.17
+55.04±0.06
+62.66±0.19
+70.06±0.27
+
+8.82±0.18
+12.73±0.42
+15.69±0.38
+20.91±0.43
+38.51±0.15
+49.47±0.26
+55.25±0.34
+64.68±0.15
+70.27±0.25
+73.70±0.29
+76.65±0.11
+
+4.46±0.31
+9.49±0.84
+11.21±0.41
+14.85±0.35
+32.40±0.40
+45.04±0.47
+53.48±0.38
+63.65±0.32
+70.08±0.21
+73.63±0.21
+77.17±0.06
+
+8.31±0.52
+9.40±0.59
+10.68±0.35
+13.47±0.32
+28.80±0.45
+40.10±0.31
+49.48±0.19
+60.13±0.11
+67.38±0.17
+71.87±0.14
+75.30±0.24
+
+4.26±0.26
+7.74±0.41
+10.38±0.27
+16.30±0.60
+32.52±0.63
+42.05±0.29
+51.30±0.68
+60.10±0.50
+67.49±0.19
+72.78±0.41
+76.37±0.29
+
+4.11±0.09
+7.01±0.37
+11.28±0.54
+16.52±0.12
+32.97±0.34
+41.65±0.22
+49.74±0.21
+60.89±0.34
+66.34±0.16
+71.55±0.27
+75.73±0.25
+
+4.26±0.24
+6.45±0.33
+10.34±0.46
+15.10±0.65
+31.60±0.60
+42.41±0.52
+49.67±0.46
+60.58±0.25
+66.65±0.23
+71.85±0.17
+75.64±0.27
+
+6.50±0.94
+11.48±0.72
+14.74±0.35
+19.47±0.45
+37.00±0.65
+47.24±0.50
+54.78±0.29
+63.90±0.22
+69.36±0.24
+73.52±0.23
+77.12±0.30
+
+12.27±0.04
+18.03±0.21
+21.77±0.62
+26.88±0.00
+43.40±0.29
+50.76±0.08
+55.17±0.34
+63.51±0.31
+70.19±0.45
+74.29±0.50
+76.68±0.20
+
+ImageNet-50 dataset
+|L|
+
+Random
+
+Prob Cover
+
+BADGE
+
+BALD
+
+Coreset
+
+Uncertainty
+
+Entropy
+
+DBAL
+
+Margin
+
+DCoM
+
+200
+400
+600
+1,000
+3,000
+5,000
+7,000
+11,000
+15,000
+19,000
+23,000
+
+4.58±0.13
+6.61±0.17
+8.11±0.42
+11.43±0.17
+27.59±0.76
+39.25±0.26
+46.88±0.25
+55.31±0.26
+61.69±0.09
+66.39±0.26
+68.92±0.15
+
+6.72±0.07
+9.30±0.23
+12.71±0.42
+17.71±0.27
+34.01±0.15
+41.91±0.20
+48.41±0.42
+54.01±0.15
+57.04±0.43
+59.69±0.16
+61.99±0.41
+
+4.67±0.16
+6.42±0.23
+8.01±0.20
+11.56±0.38
+27.58±0.72
+39.13±0.06
+46.42±0.41
+56.61±0.11
+63.05±0.42
+66.82±0.33
+70.54±0.21
+
+1.99±0.22
+4.39±0.39
+6.42±0.24
+9.42±0.19
+24.96±0.23
+36.50±0.25
+43.49±0.42
+55.29±0.32
+62.19±0.21
+66.19±0.19
+69.62±0.32
+
+4.58±0.13
+5.53±0.16
+6.45±0.37
+9.04±0.66
+19.41±0.32
+29.35±0.39
+38.45±0.12
+50.63±0.33
+58.71±0.05
+64.77±0.32
+68.49±0.06
+
+2.01±0.06
+3.50±0.32
+4.93±0.29
+7.97±0.82
+23.10±0.60
+33.78±0.46
+42.09±0.54
+53.25±0.31
+60.07±0.07
+65.59±0.27
+69.03±0.20
+
+1.99±0.10
+4.17±0.33
+5.51±0.33
+8.39±0.18
+20.97±0.33
+31.89±0.24
+41.19±0.17
+52.52±0.26
+59.76±0.22
+64.65±0.23
+68.47±0.50
+
+1.83±0.06
+3.65±0.25
+4.96±0.22
+7.45±0.18
+20.88±0.52
+31.25±0.21
+40.47±0.83
+53.09±0.29
+59.64±0.30
+64.93±0.23
+67.65±0.14
+
+1.84±0.12
+4.71±0.10
+6.46±0.12
+10.43±0.11
+26.51±0.79
+38.37±0.10
+45.69±0.26
+56.86±0.10
+62.71±0.27
+66.89±0.28
+70.81±0.35
+
+6.87±0.18
+10.59±0.26
+13.61±0.15
+17.53±0.23
+34.85±0.23
+44.09±0.83
+49.22±0.29
+58.45±0.15
+64.57±0.22
+67.60±0.08
+70.21±0.32
+
+ImageNet-100 dataset
+
+Table 3: Model accuracy for different sizes of labeled set L and AL strategies.
+
+
+|L|
+
+Random
+
+Prob Cover
+
+BALD
+
+Coreset
+
+Uncertainty
+
+Entropy
+
+DBAL
+
+Margin
+
+DCoM
+
+400
+800
+1,200
+2,000
+6,000
+10,000
+15,000
+20,000
+40,000
+
+3.10±0.07
+4.61±0.10
+5.88±0.25
+9.51±0.33
+25.67±0.16
+37.49±0.26
+46.22±0.30
+52.20±0.19
+64.57±0.17
+
+5.28±0.08
+7.56±0.15
+10.10±0.08
+15.25±0.26
+32.89±0.12
+42.00±0.16
+48.89±0.09
+51.70±0.32
+57.60±0.05
+
+1.18±0.21
+2.90±0.29
+4.32±0.33
+6.73±0.26
+19.85±0.26
+31.36±0.46
+41.16±0.49
+48.79±0.58
+64.02±0.37
+
+3.10±0.07
+3.68±0.12
+4.84±0.14
+6.78±0.15
+17.98±0.10
+28.31±0.10
+38.53±0.18
+46.59±0.15
+61.78±0.30
+
+1.19±0.07
+2.06±0.24
+3.42±0.19
+5.72±0.41
+20.12±0.11
+32.13±0.16
+42.53±0.29
+49.50±0.25
+63.94±0.27
+
+1.17±0.13
+2.20±0.19
+3.71±0.26
+6.15±0.04
+19.89±0.35
+31.57±0.28
+41.88±0.31
+48.07±0.36
+63.14±0.37
+
+1.29±0.06
+2.15±0.20
+3.42±0.16
+5.72±0.15
+18.72±0.08
+31.00±0.59
+41.42±0.13
+47.89±0.13
+63.21±0.13
+
+2.22±0.50
+3.85±0.34
+5.54±0.23
+9.17±0.34
+26.03±0.08
+37.33±0.08
+46.37±0.17
+53.01±0.19
+65.19±0.24
+
+5.20±0.02
+8.39±0.07
+11.56±0.07
+16.27±0.08
+32.76±0.13
+41.97±0.44
+49.47±0.27
+54.25±0.26
+65.69±0.17
+
+ImageNet-200 dataset
+|L|
+
+Random
+
+Prob Cover
+
+BADGE
+
+BALD
+
+Coreset
+
+Uncertainty
+
+Entropy
+
+DBAL
+
+Margin
+
+DCoM
+
+10
+20
+30
+40
+50
+200
+400
+600
+800
+1,400
+2,600
+3,800
+
+15.73±0.90
+16.68±0.77
+19.78±0.79
+21.49±0.48
+22.19±0.33
+36.04±0.59
+44.07±0.60
+50.02±0.44
+53.69±0.36
+62.00±0.26
+70.18±0.27
+75.51±0.21
+
+17.26±0.78
+22.81±0.28
+24.91±0.49
+26.56±0.48
+28.30±0.42
+40.91±0.33
+49.52±0.23
+52.65±0.35
+54.45±0.56
+61.54±0.30
+70.50±0.08
+72.97±0.17
+
+14.92±0.98
+18.24±0.46
+19.80±0.38
+21.57±0.48
+24.40±0.45
+35.50±0.57
+44.18±0.54
+50.10±0.44
+54.57±0.63
+63.38±0.25
+72.76±0.19
+76.75±0.15
+
+12.22±0.91
+15.28±0.98
+18.37±1.06
+21.25±0.95
+22.13±0.56
+32.89±0.50
+43.33±0.45
+49.56±0.32
+54.20±0.51
+62.82±0.51
+72.72±0.26
+76.69±0.11
+
+15.58±1.03
+18.25±0.97
+19.41±0.92
+20.45±1.00
+21.76±1.07
+33.22±0.55
+41.83±0.39
+48.91±0.32
+54.42±0.21
+62.72±0.42
+71.41±0.13
+75.75±0.09
+
+11.88±0.83
+16.05±0.94
+17.75±1.05
+20.86±0.77
+22.11±0.81
+33.44±0.76
+42.39±0.64
+49.46±0.48
+53.48±0.38
+62.42±0.27
+72.53±0.23
+76.80±0.21
+
+11.67±0.48
+18.48±0.67
+19.33±0.74
+21.45±0.74
+22.75±0.60
+34.38±0.58
+42.51±0.46
+48.85±0.38
+53.70±0.38
+62.24±0.23
+72.35±0.18
+77.05±0.15
+
+11.79±1.06
+18.19±0.63
+20.35±0.90
+21.70±0.88
+22.76±0.91
+34.95±0.46
+43.67±0.47
+49.23±0.49
+53.98±0.31
+63.04±0.23
+72.97±0.18
+76.85±0.09
+
+12.81±0.65
+15.65±1.35
+18.49±1.16
+20.97±0.71
+23.57±0.59
+36.05±0.53
+44.35±0.52
+49.27±0.59
+54.05±0.56
+63.11±0.25
+72.12±0.40
+76.91±0.10
+
+16.72±0.94
+23.47±0.75
+26.72±0.79
+28.58±0.69
+29.20±0.87
+41.74±0.49
+47.02±0.73
+51.54±0.86
+55.05±0.71
+63.04±0.57
+72.93±0.33
+76.92±0.18
+
+STL-10 dataset
+|L|
+
+Random
+
+Prob Cover
+
+BADGE
+
+BALD
+
+Coreset
+
+Uncertainty
+
+Entropy
+
+DBAL
+
+Margin
+
+LDM-s
+
+DCoM
+
+10
+20
+30
+40
+50
+200
+400
+600
+800
+1,400
+2,600
+3,800
+5,000
+6,200
+7,400
+
+11.36±0.50
+11.05±0.41
+11.16±0.36
+11.85±0.46
+12.55±0.49
+22.32±0.84
+36.24±1.24
+47.29±0.98
+56.32±0.50
+74.00±0.38
+83.24±0.48
+87.18±0.14
+88.79±0.15
+90.16±0.04
+90.99±0.11
+
+11.80±0.08
+10.96±0.19
+12.19±0.52
+12.11±0.20
+12.86±0.36
+24.34±0.44
+40.42±0.67
+52.67±0.75
+62.96±0.51
+73.16±0.21
+81.94±0.08
+85.34±0.11
+87.58±0.20
+88.55±0.10
+89.71±0.08
+
+13.26±0.79
+12.19±0.67
+12.12±0.51
+12.71±0.70
+12.47±0.89
+20.18±1.09
+35.13±0.40
+46.46±0.87
+56.48±1.33
+75.53±0.77
+86.56±0.24
+89.61±0.25
+91.72±0.15
+92.64±0.09
+93.56±0.05
+
+13.84±1.64
+12.74±1.26
+14.22±2.01
+13.98±2.06
+13.18±2.00
+19.00±1.66
+28.74±2.78
+37.26±1.56
+47.47±2.46
+65.33±3.30
+83.33±0.96
+88.91±0.54
+90.93±0.14
+92.46±0.04
+93.26±0.10
+
+11.36±0.50
+10.99±0.59
+11.10±0.29
+11.57±0.57
+11.76±0.38
+17.42±1.03
+28.88±1.47
+40.24±1.24
+49.74±1.42
+68.44±0.69
+83.83±0.39
+88.86±0.14
+91.24±0.17
+92.35±0.03
+93.02±0.14
+
+11.41±0.85
+11.81±0.84
+12.66±1.28
+14.16±1.63
+14.12±1.00
+21.99±1.11
+29.58±0.55
+42.65±0.68
+50.62±2.03
+72.13±0.98
+85.80±0.31
+89.64±0.09
+91.55±0.04
+92.63±0.08
+93.33±0.05
+
+11.06±1.38
+10.86±0.58
+11.86±0.65
+12.28±0.47
+12.72±0.54
+20.38±1.08
+33.01±1.36
+42.89±1.38
+53.17±1.64
+72.81±1.09
+84.72±0.54
+88.79±0.14
+91.13±0.11
+92.56±0.16
+93.38±0.07
+
+11.66±0.56
+14.94±0.36
+13.50±0.46
+13.10±0.41
+12.88±0.54
+20.98±0.99
+33.06±1.82
+43.99±0.46
+46.45±1.14
+73.14±0.69
+84.83±0.59
+89.36±0.15
+91.28±0.12
+92.65±0.10
+93.38±0.11
+
+10.80±0.66
+12.50±0.95
+11.56±0.79
+11.76±0.75
+12.04±0.68
+22.03±0.87
+34.01±0.18
+46.69±0.50
+55.27±1.05
+74.53±0.74
+86.33±0.13
+89.34±0.18
+91.75±0.17
+92.55±0.12
+93.43±0.13
+
+79.02±0.01
+83.76±0.00
+86.08±0.00
+87.58±0.00
+88.64±0.00
+89.56±0.00
+
+12.62±0.60
+13.30±0.26
+13.91±0.32
+14.32±0.14
+15.09±0.25
+24.58±1.10
+46.90±1.56
+58.34±1.25
+65.90±0.97
+78.36±0.36
+86.31±0.26
+89.28±0.13
+91.50±0.08
+92.54±0.12
+93.47±0.09
+
+SVHN dataset
+
+Table 4: Model accuracy for different sizes of labeled set L and AL strategies.
+
+measured by accuracy. Interestingly, while the critical point
+where SL changes from favoring Olow (small values) to favoring Ohigh (large values) corresponds to an intermediate level
+of accuracy, this transition is delayed for the more difficult
+datasets.
+
+E.4
+
+Different embedding space
+
+In Section 4.3, we present an ablation study where we repeat
+the basic fully-supervised experiments while varying the
+embedding employed by DCoM. In Fig. 12 you can see the
+same ablation using BYOL (Grill et al. 2020) representation.
+
+E.5
+
+Comparison per dataset
+
+Tables 3-4 present the empirical accuracy values of several
+datasets using different active learning algorithms. In each
+active step, a new learner is trained from scratch over all
+available labeled data, and the results are presented as the
+[mean ± STE] over 5 − 10 repetitions (3 for ImageNet subsets). As mentioned earlier, the results for LDM-s algorithm
+were acquired from the study by (Cho et al. 2023). Their
+lack of code provision suggests discrepancies in the running
+setup. Nonetheless, the disparity between their method and
+random selection in their setup is smaller than that observed
+in ours, implying the superiority of our method. The table
+
+
+(a) Accuracy with random sampling.
+
+(b) SL during DCoM training.
+
+Figure 11: (a) Accuracy (mean and standard error) as a function
+of budget b, learning to classify CIFAR-100, ImageNet-50, and
+ImageNet-100 using a random sample of b points. (b) The competence score SL as a function of budget.
+
+Figure 12: Performance over CIFAR-100, using BYOL feature
+space over DCoM and ProbCover, see details in the caption of
+Fig. 3. Clearly, DCoM consistently achieves the best results.
+
+includes the results for all datasets, with the name of each
+dataset below it.

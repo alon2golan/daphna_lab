@@ -1,0 +1,4 @@
+dataset,num_points,num_classes,features_normalized,features_tag,class_intra_distance_mean,class_inter_centroid_distance_mean,class_separability_ratio,nearest_centroid_train_accuracy
+CIFAR10,50000,10,True,,0.7958406209945679,0.5335419178009033,0.6704130245753629,0.8379
+CIFAR100,50000,100,True,,0.7576757073402405,0.589028000831604,0.7774143939487507,0.53632
+TINYIMAGENET,100000,200,True,maor,0.7318246364593506,0.4780234098434448,0.6531939292945582,0.29426

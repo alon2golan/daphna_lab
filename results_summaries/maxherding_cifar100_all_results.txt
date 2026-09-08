@@ -1,0 +1,96 @@
+MaxHerding low-budget results summary for CIFAR100
+
+Episode x-axis:
+[200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000]
+
+=== Seed 0 ===
+global_sigma
+final_test=48.87
+curve=[39.379999999999995, 42.91, 44.65, 45.58, 46.160000000000004, 46.7, 47.3, 47.32, 47.53, 47.88, 48.13, 48.339999999999996, 48.559999999999995, 48.8, 48.87]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/global_sigma/reference/maxherding_cifar100_global_ref_seed0-29586353.txt
+
+local_sigma | K=3
+final_test=47.84
+curve=[29.48, 35.57, 38.7, 40.57, 42.089999999999996, 43.34, 44.0, 44.5, 45.15, 45.69, 46.0, 46.52, 47.04, 47.69, 47.84]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/k_sweep/maxherding_cifar100_local_sigma_k0_seed0-29586355.txt
+
+local_sigma | K=5
+final_test=47.89
+curve=[29.26, 36.09, 38.87, 40.52, 42.54, 43.46, 44.32, 44.86, 45.76, 45.98, 46.550000000000004, 46.94, 47.28, 47.54, 47.89]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/k_sweep/maxherding_cifar100_local_sigma_k1_seed0-29586355.txt
+
+local_sigma | K=7
+final_test=47.74
+curve=[30.79, 36.8, 39.43, 41.44, 42.52, 43.7, 44.7, 45.12, 45.68, 45.92, 46.42, 47.11, 47.44, 47.620000000000005, 47.74]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/k_sweep/maxherding_cifar100_local_sigma_k2_seed0-29586355.txt
+
+local_sigma | K=15
+final_test=48.33
+curve=[33.46, 39.129999999999995, 42.63, 43.88, 44.629999999999995, 45.46, 46.06, 46.83, 46.660000000000004, 47.010000000000005, 47.38, 47.53, 47.97, 48.13, 48.33]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/k_sweep/maxherding_cifar100_local_sigma_k3_seed0-29586355.txt
+
+=== Seed 1 ===
+global_sigma
+final_test=48.92
+curve=[40.050000000000004, 43.08, 44.68, 45.69, 46.36, 46.760000000000005, 47.13, 47.22, 47.65, 48.05, 48.449999999999996, 48.67, 48.75, 48.82, 48.92]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/global_sigma/reference/maxherding_cifar100_global_ref_seed0-29596303.txt
+
+local_sigma | K=7
+final_test=48.07
+curve=[31.47, 38.09, 40.65, 42.24, 43.51, 44.58, 45.019999999999996, 45.59, 46.08, 46.53, 47.18, 47.599999999999994, 47.72, 48.010000000000005, 48.07]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/k_sweep/maxherding_cifar100_local_sigma_k0_seed0-29596305.txt
+
+local_sigma | K=15
+final_test=48.35
+curve=[33.76, 39.78, 42.57, 44.03, 45.0, 45.65, 46.11, 46.589999999999996, 47.17, 47.370000000000005, 47.55, 47.82, 47.97, 48.18, 48.35]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/k_sweep/maxherding_cifar100_local_sigma_k1_seed0-29596305.txt
+
+local_sigma | K=30
+final_test=47.65
+curve=[35.89, 41.3, 43.5, 44.42, 44.800000000000004, 45.51, 45.85, 46.39, 46.87, 47.010000000000005, 47.43, 47.42, 47.349999999999994, 47.43, 47.65]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/k_sweep/maxherding_cifar100_local_sigma_k2_seed0-29596305.txt
+
+local_sigma | K=60
+final_test=48.36
+curve=[36.93, 41.94, 43.75, 44.87, 45.540000000000006, 45.96, 46.339999999999996, 46.739999999999995, 47.14, 47.65, 48.04, 48.209999999999994, 48.15, 48.36, 48.36]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/large_k_sweep/maxherding_cifar100_local_sigma_large_k0_seed1-29596648.txt
+
+local_sigma | K=120
+final_test=48.72
+curve=[38.75, 42.730000000000004, 44.07, 45.45, 46.28, 46.48, 46.81, 47.260000000000005, 47.63, 47.83, 48.03, 48.199999999999996, 48.39, 48.44, 48.72]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/large_k_sweep/maxherding_cifar100_local_sigma_large_k1_seed1-29596648.txt
+
+local_sigma | K=480
+final_test=48.79
+curve=[39.989999999999995, 43.35, 44.89, 45.629999999999995, 46.27, 46.58, 47.160000000000004, 47.4, 47.92, 48.38, 48.54, 48.65, 48.79, 48.84, 48.79]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/ultra_wide_k_sweep/maxherding_cifar100_local_sigma_ultra_k0_seed1-29596785.txt
+
+local_sigma | K=960
+final_test=49.12
+curve=[40.93, 43.79, 45.22, 45.94, 46.300000000000004, 46.739999999999995, 47.3, 47.9, 48.26, 48.49, 48.63, 48.730000000000004, 48.83, 48.83, 49.12]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/ultra_wide_k_sweep/maxherding_cifar100_local_sigma_ultra_k1_seed1-29596785.txt
+
+local_sigma | K=1440
+final_test=48.81
+curve=[41.099999999999994, 43.55, 44.99, 45.97, 46.61, 47.04, 47.5, 47.599999999999994, 48.05, 48.449999999999996, 48.64, 48.61, 48.77, 48.72, 48.81]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/ultra_wide_k_sweep/maxherding_cifar100_local_sigma_ultra_k2_seed1-29596785.txt
+
+local_sigma | K=2880
+final_test=49.06
+curve=[40.510000000000005, 43.51, 44.89, 46.2, 46.53, 46.96, 47.33, 47.63, 47.96, 48.02, 48.209999999999994, 48.39, 48.559999999999995, 48.94, 49.06]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/ultra_wide_k_sweep/maxherding_cifar100_local_sigma_ultra_k4_seed1-29596785.txt
+
+local_sigma | K=3840
+final_test=49.44
+curve=[41.099999999999994, 43.14, 45.050000000000004, 45.839999999999996, 46.48, 47.21, 47.68, 48.1, 48.480000000000004, 48.730000000000004, 48.9, 48.93, 49.220000000000006, 49.419999999999995, 49.44]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/ultra_wide_k_sweep/maxherding_cifar100_local_sigma_ultra_k5_seed1-29596785.txt
+
+local_sigma | K=5760
+final_test=49.19
+curve=[40.67, 43.09, 44.62, 45.65, 46.160000000000004, 46.69, 47.47, 47.72, 48.370000000000005, 48.46, 48.5, 48.99, 49.01, 49.120000000000005, 49.19]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/ultra_wide_k_sweep/maxherding_cifar100_local_sigma_ultra_k6_seed1-29596785.txt
+
+local_sigma | K=7680
+final_test=49.18
+curve=[39.82, 43.72, 44.7, 45.43, 46.550000000000004, 47.19, 47.61, 47.910000000000004, 48.5, 48.75, 49.11, 49.02, 49.15, 49.370000000000005, 49.18]
+log=/cs/labs/daphna/ido.dotan/projects/daphna_lab/outputs/maxherding/low_budget_k_sweep/cifar100/local_sigma/ultra_wide_k_sweep/maxherding_cifar100_local_sigma_ultra_k7_seed1-29596785.txt
