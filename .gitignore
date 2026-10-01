@@ -35,3 +35,5 @@ data/
 results/
 /datasets/
 /scan/datasets/
+# Dedicated VAST environment
+.venv-vast/

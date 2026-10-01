@@ -1,0 +1,17 @@
+# Replace paths and the alignment statement with verified lab metadata.
+# For other datasets use imagenet100 (100 classes) or tinyimagenet (200).
+dataset: cifar100
+representation:
+  name: current-lab-simclr
+  source: current_lab_features
+  paper_embedding: false
+alignment: "Replace with the verified extraction ordering and label/ID provenance."
+class_ids: metadata/class_ids.json
+train:
+  features: /cs/labs/daphna/itai.david/representations_bank/cifar-100_simclr/cifar100_simclr_train.npy
+  labels: metadata/train_labels.npy
+  sample_ids: metadata/train_sample_ids.npy
+test:
+  features: /cs/labs/daphna/itai.david/representations_bank/cifar-100_simclr/cifar100_simclr_test.npy
+  labels: metadata/test_labels.npy
+  sample_ids: metadata/test_sample_ids.npy
