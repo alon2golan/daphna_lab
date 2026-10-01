@@ -72,3 +72,7 @@ dataset conventions. Its legacy noisy-AL runner and image wrappers are not copie
 into this feature-only runner. The new `onboarding/VAST_smoke.sh` and
 `VAST_full.sh` follow existing onboarding Slurm resource/path conventions.
 The synthetic smoke-data generator is new and does not measure paper accuracy.
+
+The propagation observer, compressed per-sample replay files, fixed PCA layout
+and Streamlit viewer are new visualization code. They do not change propagation
+updates, selection, or training. PCA uses a separate fixed visualization RNG.

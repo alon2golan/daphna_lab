@@ -17,6 +17,7 @@ from .data import DATASETS, file_hash, load_manifest, read_config, select_labele
 from .graph import cached_kernel
 from .inference import require_propagation, seed_evidence, propagate_literal, prepare_targets
 from .training import train_classifier, predict
+from .trace import PropagationTrace
 
 DEFAULTS = {"seed": 0, "epochs": 300, "device": "auto", "backend": "faiss",
             "max_neighbors": 512, "max_rounds": None, "propagation": "unresolved",
@@ -130,7 +131,10 @@ def run(args):
                                            config["max_neighbors"], config["cache_dir"])
         write_json(output / "graph.json", graph_info)
         initial = seed_evidence(kernel, labeled, data.train_labels[labeled], data.classes)
-        evidence, propagation_info = propagate_literal(kernel, initial, labeled_mask, config["max_rounds"])
+        trace = PropagationTrace(output / "propagation_trace", data.train_features,
+                                 data.train_ids, labeled_mask, data.provenance["class_ids"])
+        evidence, propagation_info = propagate_literal(kernel, initial, labeled_mask,
+                                                       config["max_rounds"], observer=trace)
         edge_bound = 1 / np.sqrt(np.log(2))
         mass = args.labels_per_class * edge_bound
         propagation_info.update({"theoretical_initial_confidence_ceiling": (1 / data.classes + mass) / (1 + mass),

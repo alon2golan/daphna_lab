@@ -33,3 +33,15 @@ not establish reproduction of its numbers. Current lab embeddings also differ.
 
 [Technical run details](RUN_DETAILS.md) · [Code provenance](PROVENANCE.md) ·
 [Specification and open question](../../docs/VAST_REPRODUCTION_SPEC.md)
+
+To replay a new run after training (no GPU needed for viewing):
+
+```bash
+.venv-vast/bin/python -m pip install -r deep_al/vast/requirements-viewer.txt
+.venv-vast/bin/python -m streamlit run deep_al/tools/view_vast.py -- --run-dir /path/to/run
+```
+
+Move the iteration slider to inspect senders, receivers and newly frozen samples.
+For a smoke run, use its `run/` subfolder. You can copy that run folder to your
+laptop and view it there; original feature files are not needed. Older runs must
+be rerun to create the sample-level replay logs.

@@ -130,3 +130,38 @@ Tests cover graph/reference equivalence, explicit self exclusion, kernel/evidenc
 arithmetic, the propagation discrepancy, gate cases, reverse KL and gradients,
 balanced batches, manifest checks, one-seed grids, final-checkpoint reload,
 repeatability and training invariance when only test labels change.
+
+## Propagation replay
+
+Every new run writes `propagation_trace/` automatically. `samples.npz` stores
+all training sample IDs, labeled-seed membership and a fixed 2D PCA projection
+of normalized features. PCA is fitted on a deterministic sample of at most
+10,000 rows (visualization seed 0, independent of the experiment RNG); all rows
+are projected in batches. This layout is only for display and never enters the
+propagation or classifier.
+
+Frame 0 records initialization with no sender/receiver activity. Each later
+`round_*.npz` records the algorithm's sender and receiver eligibility masks
+**before** the synchronous update and predicted class, maximum confidence,
+frozen mask and newly frozen mask **after** that update. This includes the final
+no-new-freeze round. Labeled seeds count as frozen from initialization; initial
+high-confidence unlabeled samples may also already be frozen. Sender and receiver
+roles overlap. Eligibility does not imply that a sample has an active neighbor;
+these logs do not record individual messages along graph edges.
+
+Frames are compressed and written incrementally; memory does not grow with the
+number of rounds. Storage is O(samples × rounds), without full class-probability
+matrices. The metadata index is updated atomically after each completed frame.
+The trace is self-contained; no original features or training environment are
+needed to view it. Install `requirements-viewer.txt` alongside the base requirements
+and run the command in the README. The viewer defaults to at most 20,000 displayed
+samples with a stable sample across rounds; counters always cover the full dataset.
+Raise the display limit to see all samples, or select `Newly frozen` to inspect
+that set directly. Symbols identify freeze status, colors identify propagation
+role, and hovering shows the sample ID, estimated class and confidence. The class
+estimate shown for labeled seeds is also the propagated estimate, not their known
+training label. The table lists the same displayed samples.
+
+For a cluster run, copy its output directory to your laptop and launch Streamlit
+locally. The app does not submit jobs or require a GPU. Old aggregate logs cannot
+recover missing sample roles: rerun with the updated code to produce replay files.

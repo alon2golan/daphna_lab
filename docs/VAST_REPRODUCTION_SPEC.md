@@ -404,3 +404,20 @@ experimental settings. No message has been sent to Itai as part of this work.
 Progress states are distinct: specification complete; independent components
 tested; propagation confirmed; lab-feature runs complete; published results
 reproduced. Do not treat completion of an earlier state as evidence of a later one.
+
+## Propagation replay addition
+
+New runs must persist initialization and every propagation iteration, including
+the stopping iteration. Save exact sender/receiver masks before each update and
+predicted classes, confidence, cumulative frozen masks and newly frozen masks
+after it. Store row-aligned sample IDs and labeled-seed membership. Sender and
+receiver sets may overlap; seed nodes count as frozen from initialization.
+
+A Streamlit viewer loads these saved artifacts after training and exposes an
+iteration slider, role/freeze filters and sample details. A fixed PCA projection
+of normalized input features keeps positions stable; fit on at most 10,000
+uniformly selected samples using a private visualization seed, then project all
+samples. Visualization must not consume the experiment RNG or affect results.
+The viewer must distinguish initialization from updates and show the actual
+one-round/no-new-freezes outcome when it occurs. Old runs without per-sample
+snapshots require rerunning; counts alone cannot reconstruct them.

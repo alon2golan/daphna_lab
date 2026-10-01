@@ -289,3 +289,48 @@ def test_entrypoint_from_different_working_directory(tmp_path):
     result = subprocess.run([sys.executable, str(script), "--help"], cwd=tmp_path,
                             capture_output=True, text=True)
     assert result.returncode == 0 and "--seed" in result.stdout
+
+
+def test_trace_records_exact_roles_without_changing_propagation(tmp_path):
+    from deep_al.vast.trace import PropagationTrace
+    kernel = sp.csr_matrix([[0, 1, 0], [1, 0, 1], [0, 1, 0]], dtype=float)
+    evidence = np.array([[9., 1.], [1., 1.], [2., 1.]])
+    labeled = np.array([True, False, False])
+    trace = PropagationTrace(tmp_path / "trace", np.array([[1., 0], [1., 1], [0., 1]]),
+                             np.array(["a", "b", "c"]), labeled, ["class-a", "class-b"])
+    plain, expected = propagate_literal(kernel, evidence, labeled)
+    actual, info = propagate_literal(kernel, evidence, labeled, observer=trace)
+    np.testing.assert_array_equal(actual, plain)
+    assert info == expected
+    meta = json.loads((tmp_path / "trace/metadata.json").read_text())
+    assert [f["iteration"] for f in meta["frames"]] == [0, 1, 2, 3]
+    with np.load(tmp_path / "trace/round_000000.npz") as frame:
+        assert not frame["senders"].any() and not frame["receivers"].any()
+        np.testing.assert_array_equal(frame["frozen"], labeled)
+    with np.load(tmp_path / "trace/round_000001.npz") as frame:
+        np.testing.assert_array_equal(frame["senders"], [True, False, True])
+        np.testing.assert_array_equal(frame["receivers"], [False, True, True])
+        np.testing.assert_array_equal(frame["newly_frozen"], [False, True, False])
+        np.testing.assert_allclose(frame["confidence"], [.9, .8, 2/3])
+    with np.load(tmp_path / "trace/round_000002.npz") as frame:
+        np.testing.assert_array_equal(frame["receivers"], [False, False, True])
+        np.testing.assert_array_equal(frame["newly_frozen"], [False, False, True])
+    with np.load(tmp_path / "trace/round_000003.npz") as frame:
+        assert not frame["newly_frozen"].any()
+        assert frame["frozen"].all()
+
+
+def test_projection_is_fixed_and_does_not_consume_experiment_rng():
+    from deep_al.vast.trace import project_pca
+    features = np.random.RandomState(44).normal(size=(20, 5))
+    np.random.seed(71)
+    expected = np.random.random(3)
+    np.random.seed(71)
+    first, info = project_pca(features, fit_limit=10)
+    np.testing.assert_array_equal(np.random.random(3), expected)
+    second, _ = project_pca(features, fit_limit=10)
+    np.testing.assert_allclose(first, second)
+    assert first.shape == (20, 2) and np.isfinite(first).all()
+    assert info["fit_count"] == 10
+    flat, _ = project_pca(np.ones((10, 1)))
+    np.testing.assert_array_equal(flat, np.zeros((10, 2)))

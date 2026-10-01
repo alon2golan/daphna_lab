@@ -35,7 +35,7 @@ def seed_evidence(kernel, labeled_indices, labeled_labels, classes):
     return evidence
 
 
-def propagate_literal(kernel, evidence, labeled_mask, max_rounds=None):
+def propagate_literal(kernel, evidence, labeled_mask, max_rounds=None, observer=None):
     """Literal Eq.5 diagnostic, NOT the confirmed implementation behind results.
 
     Adapts author sparse multiplication/frozen-row structure, replacing its
@@ -50,6 +50,9 @@ def propagate_literal(kernel, evidence, labeled_mask, max_rounds=None):
     limit = bound if max_rounds is None else min(bound, max_rounds)
     if limit < 1:
         raise ValueError("Propagation round limit must be positive")
+    if observer is not None:
+        empty = np.zeros(len(current), dtype=bool)
+        observer(0, q, empty, empty, frozen, empty)
     history = []
     for iteration in range(limit):
         confidence = q.max(axis=1)
@@ -60,7 +63,10 @@ def propagate_literal(kernel, evidence, labeled_mask, max_rounds=None):
         updated[receivers] += (kernel @ (current * senders[:, None]))[receivers]
         new_q = normalize_evidence(updated)
         new_frozen = frozen | ((new_q.max(axis=1) >= 0.75) & ~labeled_mask)
-        newly_frozen = int((new_frozen & ~frozen).sum())
+        newly_frozen_mask = new_frozen & ~frozen
+        newly_frozen = int(newly_frozen_mask.sum())
+        if observer is not None:
+            observer(iteration + 1, new_q, senders, receivers, new_frozen, newly_frozen_mask)
         history.append({"round": iteration + 1, "senders": int(senders.sum()),
                         "receivers_before": int(receivers.sum()), "newly_frozen": newly_frozen,
                         "max_confidence": float(new_q.max())})
