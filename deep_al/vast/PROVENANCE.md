@@ -14,6 +14,14 @@ the pinned originals and are identical; imports are local to the extracted file.
 | `_apply_degree_normalization_sparse` | `deep-al/pycls/al/kernel_utils.py`, lines 39-103 |
 | `MLPClassifierTorch` | `deep-al/pycls/core/builders.py`, lines 113-159 |
 
+`author_reference.py` additionally preserves `normalize_C`,
+`compute_sender_mask`, `compute_receiver_mask` and `propagate_labels` from
+`deep-al/tools/train_al.py` at the same pinned commit. All four function ASTs
+were verified identical to the original. Only imports, a module logger and
+source metadata were supplied. These are reference functions for diagnostics,
+not an enabled reproduction default. The newer September lab copy and an
+actual author run log were also inspected; see `docs/VAST_PROPAGATION_AUDIT.md`.
+
 The original kernel helper's prose describes its log mode imprecisely; its
 actual code uses `sqrt(log(1 + degree_i * degree_j))`, as required by the paper.
 We call only that mode and remove self-edges beforehand.
@@ -73,6 +81,15 @@ to each labeled row; repeated updates retain the original zero diagonal. It
 does not modify the shared initializer or establish a reproduction default.
 Six real-data checks still produced one update and zero new freezes; see the
 specification's initialization-only self-influence check and author questions.
+
+The literal-paper sender mask now tests whether a positive evidence row is
+nonuniform, which is mathematically equivalent to `max(q) > 1/M`. This avoids
+uniform `.01`/`.005` rows becoming senders when normalization rounds just above
+chance. It does not change initialization, the update formula or stopping rule.
+Previously saved traces are retained; their sender counts include this rounding
+error. `deep_al/tools/audit_vast_propagation.py` compares early source-code rounds
+with the corrected diagnostic on identical cached graphs and saved seed labels,
+and checks parity against one call to the unmodified author multi-round function.
 
 ## Lab integration and launch scripts
 

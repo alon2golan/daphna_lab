@@ -43,7 +43,6 @@ def propagate_literal(kernel, evidence, labeled_mask, max_rounds=None, observer=
     """
     current = np.asarray(evidence, dtype=np.float64).copy()
     labeled_mask = np.asarray(labeled_mask, dtype=bool)
-    classes = current.shape[1]
     q = normalize_evidence(current)
     frozen = labeled_mask | (q.max(axis=1) >= 0.75)
     bound = int((~labeled_mask).sum()) + 1
@@ -55,8 +54,10 @@ def propagate_literal(kernel, evidence, labeled_mask, max_rounds=None, observer=
         observer(0, q, empty, empty, frozen, empty)
     history = []
     for iteration in range(limit):
-        confidence = q.max(axis=1)
-        senders = confidence > 1.0 / classes
+        # For positive evidence, max(q) > 1/classes iff the row is nonuniform.
+        # Compare evidence entries directly: normalizing a uniform .01 row can
+        # yield .010000000000000002 and falsely classify it as informed.
+        senders = current.max(axis=1) > current.min(axis=1)
         receivers = ~frozen
         # Synchronous: every sender reads current, before any receiver is updated.
         updated = current.copy()

@@ -170,6 +170,19 @@ def test_no_silent_propagation_default():
     require_propagation("literal-paper")
 
 
+@pytest.mark.parametrize("classes", [100, 200])
+def test_uninformed_uniform_rows_do_not_send(classes):
+    kernel = sp.csr_matrix([[0., 1., 0.], [1., 0., 1.], [0., 1., 0.]])
+    initial = seed_evidence(kernel, np.array([0]), np.array([0]), classes)
+    frames = []
+    propagate_literal(kernel, initial, np.array([True, False, False]),
+                      observer=lambda *frame: frames.append(frame))
+    # Only the seed's neighbor has class evidence at initialization. The seed
+    # itself and the two-hop point have uniform priors, even if normalized
+    # floating-point confidence rounds slightly above 1/classes.
+    np.testing.assert_array_equal(frames[1][2], [False, True, False])
+
+
 def test_histogram_golden_boundary_modes_and_fallback():
     value, bimodal = mode_threshold(np.r_[np.full(100, .1), np.full(50, .9)])
     assert bimodal and value == pytest.approx(.884)

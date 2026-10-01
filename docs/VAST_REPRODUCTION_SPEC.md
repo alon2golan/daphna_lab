@@ -1,6 +1,7 @@
 # VAST reproduction specification
 
-Status: pipeline implemented; propagation semantics awaiting clarification from Itai.
+Status: pipeline implemented; source-supported propagation differences identified,
+with the exact paper experiment configuration awaiting clarification from Itai.
 
 Updated: 2026-10-01. Branch: `codex/vast-paper-reproduction`, based on
 `tomn_noisy_al` at `be0cd78b65632ada6bf2c0dcc75fae220a60c20e`.
@@ -24,12 +25,13 @@ implemented; the propagation rule remains an explicit unresolved item.
   This does not resolve the author question or select a reproduction default.
 - The FAISS exact-search worker is isolated from PyTorch to avoid native OpenMP
   runtime conflicts. Graphs are cached by normalized features and graph settings.
-- No real-data result is claimed; the lab feature arrays/alignment metadata
-  are absent from this checkout.
-- Validation: 29 automated tests passed on Python 3.12 / CPU, including FAISS
-  neighbor search, checkpoint reload and test-label isolation. A separate
-  one-seed synthetic run completed all 300 default epochs with FAISS and
-  nonempty soft-label distillation. CUDA and real lab datasets are not yet tested.
+- Real-data diagnostic runs completed on CIFAR100 BYOL and paired TinyImageNet
+  SimCLR exports with seed 0, 300 epochs and CUDA. Numerical paper reproduction
+  is not established; ImageNet100 inputs remain pending access/alignment.
+- Validation: 38 automated tests passed on Python 3.13, including FAISS neighbor
+  search, checkpoint reload, test-label isolation, replay, early author-code
+  propagation and uninformed-sender exclusion. Six real-data source-reference
+  checks passed parity against the unmodified author multi-round function.
 
 | Decision | Agreed behavior |
 |---|---|
@@ -69,7 +71,7 @@ total**, rather than the paper's repeated-seed experiment grid.
 
 | Dataset | Classes | Labels per class | Total labels | Current lab representation | Paper representation | Batch | Distillation weight |
 |---|---:|---|---|---|---|---:|---:|
-| CIFAR-100 | 100 | 1, 2, 4 | 100, 200, 400 | SimCLR | BYOL | 200 | 64 |
+| CIFAR-100 | 100 | 1, 2, 4 | 100, 200, 400 | Paired BYOL bank; exact checkpoint unverified | BYOL | 200 | 64 |
 | ImageNet100 | 100 | 1, 2, 4 | 100, 200, 400 | DINOv2, subset alignment required | BYOL | 200 | 64 |
 | TinyImageNet | 200 | 1, 2, 4 | 200, 400, 800 | SimCLR, provenance/order to verify | SimCLR | 100 | 32 |
 
@@ -413,6 +415,13 @@ python deep_al/tools/check_vast_initial_self.py \
 ```
 
 ### Questions to resolve with Itai
+
+**Audit update:** The September lab source and an actual CIFAR100 run now
+confirm prior-subtracted propagation and an early-stop rule that ignores the
+initial receiver plateau. See [the source and first-round audit](VAST_PROPAGATION_AUDIT.md)
+for verified settings, numerical sender-mask correction and controlled tests.
+The questions below are retained as history; the audit ends with more precise
+remaining questions about which implementation produced the paper's tables.
 
 > Which initialization, propagation update and stopping rules produced the
 > paper's reported 12-27 rounds? Were labeled rows overwritten with one-hot or
