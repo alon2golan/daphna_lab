@@ -143,6 +143,24 @@ The per-dataset launcher requests 24 hours and 8 GB of GPU memory: features
 stay on CPU and the classifier transfers only each batch to CUDA. These are
 starting allocations; adjust the wall time if a real run needs longer.
 
+## Author-source propagation experiment
+
+To run the source-based recurrence found in Itai's public code, use the
+separate launcher below. It runs budgets 1, 2, and 4 for one dataset and seed,
+uses the lab's initial receiver-plateau stopping rule, and defaults to the
+inspected CIFAR100-log thresholds (sender 0.05, receiver 0.75) with a 50-round
+cap. The sender threshold is documented for Itai's CIFAR100 log; applying it
+to TinyImageNet is an experimental assumption. Provide a pre-existing graph
+cache from a run with the same verified feature bank to avoid rebuilding it.
+The output is explicitly marked `author-source` and is not a confirmed paper
+reproduction.
+
+```bash
+VAST_MANIFEST="$PWD/data/vast/cifar100.yaml" \
+VAST_CACHE_DIR="$PWD/results/vast/cifar100_seed0_<previous-job>/graph_cache" \
+sbatch onboarding/VAST_author_source_dataset.sh
+```
+
 ## Results and inference
 
 Each run saves resolved configuration, input/code hashes and provenance,

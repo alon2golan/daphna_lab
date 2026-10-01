@@ -8,10 +8,10 @@ class UnresolvedPropagationError(ValueError):
 
 
 def require_propagation(mode):
-    if mode != "literal-paper":
+    if mode not in ("literal-paper", "author-source"):
         raise UnresolvedPropagationError(
             "Propagation is unresolved with Itai. No reproduction default is available. "
-            "For an explicitly non-reproduction diagnostic, select --propagation literal-paper. "
+            "For an explicit experimental run, select --propagation literal-paper or author-source. "
             "See docs/VAST_REPRODUCTION_SPEC.md section 6.")
 
 

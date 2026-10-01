@@ -14,6 +14,7 @@ from deep_al.vast.data import load_manifest, select_labeled
 from deep_al.vast.graph import build_kernel, cached_kernel, neighbor_indices, normalize_features, union_graph
 from deep_al.vast.inference import (UnresolvedPropagationError, require_propagation, seed_evidence,
                                     propagate_literal, prepare_targets, mode_threshold)
+from deep_al.vast.source_propagation import propagate_source
 from deep_al.vast.run import main, grid_commands
 from deep_al.vast.training import balanced_batches, distillation_loss, predict_checkpoint
 from deep_al.vast.upstream import _apply_degree_normalization_sparse, MLPClassifierTorch
@@ -145,6 +146,25 @@ def test_literal_propagation_synchronous_and_frozen_rows():
     assert [r["newly_frozen"] for r in info["history"]] == [1, 1, 0]
     with pytest.raises(RuntimeError, match="cap"):
         propagate_literal(kernel, evidence, np.array([True, False, False]), max_rounds=1)
+
+
+def test_author_source_propagation_passes_initial_plateaus_and_logs_freezes():
+    kernel = sp.diags([np.ones(4), np.ones(4)], [-1, 1], shape=(5, 5), format="csr")
+    labeled = np.array([True, False, False, False, False])
+    indices = np.array([0])
+    labels = np.array([0])
+    initial = seed_evidence(kernel, indices, labels, 100)
+    frames = []
+    result, info = propagate_source(kernel, initial, labeled, indices, labels,
+                                    max_rounds=20, sender_threshold=.05,
+                                    receiver_threshold=.75,
+                                    observer=lambda *frame: frames.append(frame))
+    assert info["mode"] == "author-source"
+    assert info["termination"] == "receiver_plateau_after_initial_decrease"
+    assert info["rounds"] > 3  # Initial equal receiver counts must not stop propagation.
+    assert [int(frame[5].sum()) for frame in frames][1:4] == [0, 0, 1]
+    assert frames[0][4][0] and np.all(result[0] == initial[0])
+    assert not frames[4][3][np.flatnonzero(frames[3][5])].any()
 
 
 @pytest.mark.parametrize("classes", [100, 200])

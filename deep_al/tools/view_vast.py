@@ -50,7 +50,8 @@ def main():
     except (OSError, ValueError, KeyError) as exc:
         st.error(f"Could not read replay: {exc}")
         return
-    st.caption("Experimental literal-paper propagation. Sender and receiver roles are recorded before each update; confidence, predictions and frozen states are shown after it. A sample can both send and receive.")
+    mode = meta.get("propagation_mode", "literal-paper")
+    st.caption(f"Experimental {mode} propagation. Sender and receiver roles are recorded before each update; confidence, predictions and frozen states are shown after it. A sample can both send and receive.")
     if iteration == 0:
         st.info("Initialization: no update has happened yet. Diamonds mark labeled seeds; frozen seeds are included in the frozen count.")
     elif len(frames) == 2 and not frame["newly_frozen"].any():

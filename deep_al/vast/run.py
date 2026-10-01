@@ -16,12 +16,14 @@ from . import SOURCE_COMMIT
 from .data import DATASETS, file_hash, load_manifest, read_config, select_labeled
 from .graph import cached_kernel
 from .inference import require_propagation, seed_evidence, propagate_literal, prepare_targets
+from .source_propagation import propagate_source
 from .training import train_classifier, predict
 from .trace import PropagationTrace
 
 DEFAULTS = {"seed": 0, "epochs": 300, "device": "auto", "backend": "faiss",
             "max_neighbors": 512, "max_rounds": None, "propagation": "unresolved",
-            "cache_dir": None, "cpu_threads": 1}
+            "cache_dir": None, "cpu_threads": 1,
+            "sender_threshold": .05, "receiver_threshold": .75}
 CONFIG_KEYS = set(DEFAULTS) | {"batch_size", "distillation_weight"}
 
 
@@ -55,8 +57,15 @@ def config_for(args, dataset):
         raise ValueError("distillation_weight must be finite and nonnegative")
     if cfg["backend"] not in ("dense", "faiss") or cfg["device"] not in ("auto", "cpu", "cuda"):
         raise ValueError("Invalid backend/device")
-    if cfg["propagation"] not in ("unresolved", "literal-paper"):
+    if cfg["propagation"] not in ("unresolved", "literal-paper", "author-source"):
         raise ValueError("No confirmed propagation mode is available")
+    for key in ("sender_threshold", "receiver_threshold"):
+        if not isinstance(cfg[key], (int, float)) or not np.isfinite(cfg[key]):
+            raise ValueError(f"{key} must be finite")
+    if not (0 <= cfg["sender_threshold"] < 1 and 0 < cfg["receiver_threshold"] <= 1):
+        raise ValueError("Invalid propagation thresholds")
+    if cfg["propagation"] == "author-source" and cfg["max_rounds"] is None:
+        cfg["max_rounds"] = 50
     if cfg["cache_dir"] is not None and not isinstance(cfg["cache_dir"], str):
         raise ValueError("cache_dir must be a path string")
     return cfg
@@ -72,11 +81,13 @@ def parser():
     for key in ("seed", "epochs", "batch_size", "max_neighbors", "max_rounds", "cpu_threads"):
         p.add_argument("--" + key.replace("_", "-"), type=int)
     p.add_argument("--distillation-weight", type=float)
+    p.add_argument("--sender-threshold", type=float)
+    p.add_argument("--receiver-threshold", type=float)
     p.add_argument("--device", choices=("auto", "cpu", "cuda"))
     p.add_argument("--backend", choices=("faiss", "dense"))
     p.add_argument("--cache-dir")
-    p.add_argument("--propagation", choices=("unresolved", "literal-paper"),
-                   help="Explicit literal-paper diagnostic only; not confirmed numerical reproduction")
+    p.add_argument("--propagation", choices=("unresolved", "literal-paper", "author-source"),
+                   help="Explicit experimental protocol; neither mode confirms numerical reproduction")
     return p
 
 
@@ -104,7 +115,7 @@ def run(args):
     output.mkdir(parents=True, exist_ok=False)
     write_json(output / "status.json", {"status": "running", "confirmed_reproduction": False})
     try:
-        print("EXPERIMENTAL literal-paper mode: known propagation contradiction; not confirmed reproduction.", flush=True)
+        print(f"EXPERIMENTAL {config['propagation']} mode; not confirmed paper reproduction.", flush=True)
         config.update({"dataset": data.dataset, "labels_per_class": args.labels_per_class,
                        "source_commit": SOURCE_COMMIT, "classifier_input": "raw",
                        "confirmed_reproduction": False})
@@ -133,12 +144,25 @@ def run(args):
         initial = seed_evidence(kernel, labeled, data.train_labels[labeled], data.classes)
         trace = PropagationTrace(output / "propagation_trace", data.train_features,
                                  data.train_ids, labeled_mask, data.provenance["class_ids"])
-        evidence, propagation_info = propagate_literal(kernel, initial, labeled_mask,
-                                                       config["max_rounds"], observer=trace)
-        edge_bound = 1 / np.sqrt(np.log(2))
-        mass = args.labels_per_class * edge_bound
-        propagation_info.update({"theoretical_initial_confidence_ceiling": (1 / data.classes + mass) / (1 + mass),
-                                 "initial_max_confidence": float((initial / initial.sum(axis=1, keepdims=True)).max())})
+        trace.metadata["propagation_mode"] = config["propagation"]
+        if config["propagation"] == "author-source":
+            evidence, propagation_info = propagate_source(
+                kernel, initial, labeled_mask, labeled, data.train_labels[labeled],
+                config["max_rounds"], config["sender_threshold"], config["receiver_threshold"],
+                observer=trace)
+        else:
+            evidence, propagation_info = propagate_literal(kernel, initial, labeled_mask,
+                                                           config["max_rounds"], observer=trace)
+        initial_max = float((initial / initial.sum(axis=1, keepdims=True)).max())
+        if config["propagation"] == "literal-paper":
+            edge_bound = 1 / np.sqrt(np.log(2))
+            mass = args.labels_per_class * edge_bound
+            propagation_info["theoretical_initial_confidence_ceiling"] = (1 / data.classes + mass) / (1 + mass)
+        propagation_info["initial_max_confidence"] = initial_max
+        if config["propagation"] == "author-source":
+            propagation_info["sender_threshold_provenance"] = (
+                "0.05 is reported in Itai's inspected CIFAR100 run log; reused for other datasets as an experiment"
+            )
         write_json(output / "propagation.json", propagation_info)
         targets, confidence, admitted, gate_info = prepare_targets(evidence, labeled_mask)
         write_json(output / "gate.json", gate_info)
@@ -209,7 +233,7 @@ def grid_main(argv=None):
     p.add_argument("--output-dir", required=True)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--epochs", type=int, default=300)
-    p.add_argument("--propagation", choices=("unresolved", "literal-paper"), default="unresolved")
+    p.add_argument("--propagation", choices=("unresolved", "literal-paper", "author-source"), default="unresolved")
     p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)
