@@ -65,6 +65,15 @@ checkpoint. See the specification's section 6 for the confidence-bound proof and
 the question for Itai. No inferred repair, one-hot clamping or author-code mode
 has been silently introduced.
 
+The separate `deep_al/tools/check_vast_initial_self.py` diagnostic is new code.
+It reuses `seed_evidence`, `normalize_evidence`, `propagate_literal` and
+`prepare_targets` with each completed run's cached graph and saved label
+selection. The sole initialization change adds one unit of own-label evidence
+to each labeled row; repeated updates retain the original zero diagonal. It
+does not modify the shared initializer or establish a reproduction default.
+Six real-data checks still produced one update and zero new freezes; see the
+specification's initialization-only self-influence check and author questions.
+
 ## Lab integration and launch scripts
 
 The lab repository supplies the package location, current feature-bank paths and

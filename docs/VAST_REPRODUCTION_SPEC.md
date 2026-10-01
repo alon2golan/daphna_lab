@@ -353,13 +353,90 @@ every round, independent of features or random seed under these assumptions.
 At r=1 and r=2, no unlabeled receiver ever reaches 0.75; the first round has
 zero newly frozen points and triggers the specified stopping condition.
 
-### Question to resolve with Itai
+### Initialization-only self-influence check (2026-10-01)
+
+The user proposed allowing a labeled point to affect its own evidence during
+initialization only. The tested interpretation adds the raw RBF self-similarity
+`K(x_i, x_i) = 1` once to `V[i, known_label_i]`, after the existing neighboring
+label contributions. The off-diagonal graph, its degrees, propagation kernel,
+prior `alpha0 = 1/M`, receiver threshold and stopping rule are unchanged.
+This is not one-hot clamping and does not add self-loops to repeated updates.
+
+An otherwise uninformed labeled row then has confidence
+`(1 + 1/M) / 2`: 0.505 for CIFAR100 and 0.5025 for TinyImageNet. Different
+neighbor contributions can make labeled confidences differ. Freezing a labeled
+row preserves this distribution; it does not make its confidence one.
+
+The positive-mixture argument still holds. At budgets one and two, the original
+global ceilings also still apply: the own-label self contribution replaces a
+missing contribution from one of the r selected labels in that class, and its
+unit weight is below B. Thus it cannot fix freezing at those budgets with the
+current prior and threshold. A different diagonal-weight normalization must be
+specified explicitly rather than silently treating a self-loop as certain truth.
+
+`deep_al/tools/check_vast_initial_self.py` reconstructs initialization from a
+completed run's cached kernel and exact saved selected labels, verifies the
+original initial maximum and label-file hash, adds unit self-evidence, and runs
+the unchanged propagation and admission gate. It records graph/selection
+provenance and checks that labeled rows and the kernel diagonal stay unchanged
+during propagation. It is a diagnostic, not a new production mode; it performs
+no classifier training and does not change the shared initializer used by the
+separate noisy-experiment package.
+
+CPU job `31832030` completed successfully (exit 0, 38 seconds), checking both
+validated datasets at seed 0 and the saved 1/2/4-label selections. All six
+variants stopped after one update with zero new freezes:
+
+| Dataset | Labels/class | Highest initial confidence with self-evidence | Updates | New freezes | Unlabeled samples admitted by separate gate |
+|---|---:|---:|---:|---:|---:|
+| CIFAR100 | 1 | 0.50500 | 1 | 0 | 0 |
+| CIFAR100 | 2 | 0.58211 | 1 | 0 | 3 |
+| CIFAR100 | 4 | 0.64267 | 1 | 0 | 1 |
+| TinyImageNet | 1 | 0.50250 | 1 | 0 | 18 |
+| TinyImageNet | 2 | 0.50984 | 1 | 0 | 12 |
+| TinyImageNet | 4 | 0.60887 | 1 | 0 | 14 |
+
+The admission gate's class-adjusted thresholds differ from the fixed freezing
+threshold, so admission does not imply freezing. No additional 300-epoch runs
+were launched for this change because it did not solve the requested multi-round
+propagation issue. ImageNet100 remains pending data access and alignment.
+The isolated-seed check reproduced confidence 0.505, and all 34 existing VAST
+and replay regression tests passed. Production propagation APIs were unchanged.
+The full diagnostic record is saved locally and on the cluster as
+`results/vast/initial_self_unit_31832030.json`. Re-run against completed outputs:
+
+```bash
+python deep_al/tools/check_vast_initial_self.py \
+  --run-root results/vast/cifar100_seed0_31831247 \
+  --run-root results/vast/tinyimagenet_seed0_31831606 \
+  --output results/vast/initial_self_unit_new_check.json
+```
+
+### Questions to resolve with Itai
 
 > Which initialization, propagation update and stopping rules produced the
 > paper's reported 12-27 rounds? Were labeled rows overwritten with one-hot or
 > stronger evidence, was the prior subtracted during propagation, or was a
 > different stopping criterion used? Please identify the source function and
 > exact configuration for at least one one-label-per-class experiment.
+
+Additional questions prompted by the initialization-only self-influence test:
+
+1. Are self-edges excluded only during propagation, or during initialization
+   too? Does a labeled point contribute its own known label to its initial row?
+2. If self-influence is included, is its weight raw `K_ii = 1`, a
+   degree-corrected diagonal, a stronger observation weight, or a one-hot clamp?
+   If degree-corrected, do the initialization degrees include the self-edge,
+   and are they distinct from the propagation graph's degrees?
+3. Are labeled rows initially certain (`c_i = 1`), or do they retain the same
+   finite symmetric prior as unlabeled rows? With one unit of own-label evidence
+   and `alpha0 = 1/M`, an isolated labeled point has `c_i = (1 + 1/M)/2`,
+   below 0.75. What source implementation supplies the stronger initial
+   distributions needed to reach the freezing threshold?
+4. Can you confirm both `alpha0 = 1/M` per class (total prior mass one) and
+   stopping after the first update with no new freezes, even if probabilities
+   are still changing? Please provide the exact configuration for the reported
+   multi-round experiments.
 
 The public source uses a different recurrence:
 
