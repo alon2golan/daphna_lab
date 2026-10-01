@@ -11,13 +11,18 @@ specification proves.
 
 ## Environment
 
-Use Python 3.11 or 3.12 in a separate environment:
+Use Python 3.11, 3.12 or 3.13 in a separate environment:
 
 ```bash
-python3.12 -m venv .venv-vast
+python3.13 -m venv .venv-vast
 source .venv-vast/bin/activate
-python -m pip install -r deep_al/vast/requirements.txt
+python -m pip install --only-binary=:all: -r deep_al/vast/requirements.txt
 ```
+
+The pins use NumPy 2.2.6, PyTorch 2.6.0 and FAISS 1.9.0.post1, which have
+Python 3.13 wheels. A fresh Python 3.13.13 environment passed all 33 tests
+and the CPU smoke launcher, including replay and viewer checks. Linux x86-64
+binary dependency resolution was also checked; cluster GPU execution is pending.
 
 FAISS CPU builds the graph; PyTorch uses CUDA for training when available, or
 CPU otherwise. FAISS runs in a separate process to avoid conflicting OpenMP

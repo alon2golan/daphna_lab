@@ -334,3 +334,11 @@ def test_projection_is_fixed_and_does_not_consume_experiment_rng():
     assert info["fit_count"] == 10
     flat, _ = project_pca(np.ones((10, 1)))
     np.testing.assert_array_equal(flat, np.zeros((10, 2)))
+
+
+def test_pca_projection_remains_finite_under_numpy2_strict_errors():
+    from deep_al.vast.trace import project_pca
+    features = np.random.RandomState(0).normal(size=(400, 8))
+    with np.errstate(divide="raise", over="raise", invalid="raise"):
+        xy, _ = project_pca(features)
+    assert np.isfinite(xy).all()

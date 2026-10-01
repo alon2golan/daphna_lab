@@ -1,7 +1,8 @@
-# Isolated feature-only environment; no torchvision/SCAN dependency needed.
-numpy==1.26.4
+# Isolated feature-only environment for Python 3.11-3.13.
+# No torchvision/SCAN dependency needed.
+numpy==2.2.6
 scipy==1.14.1
-torch==2.4.1
+torch==2.6.0
 PyYAML==6.0.2
-faiss-cpu==1.8.0.post1
+faiss-cpu==1.9.0.post1
 pytest==8.3.5

@@ -3,11 +3,11 @@
 GPU is optional; CPU works too. These scripts request a cluster GPU using the
 repo's Slurm conventions. Graph construction uses CPU FAISS; the MLP uses GPU.
 
-Install once from the repo root (Python 3.11 or 3.12):
+Install once from the repo root (Python 3.11, 3.12 or 3.13):
 
 ```bash
-python3.12 -m venv .venv-vast
-.venv-vast/bin/python -m pip install -r deep_al/vast/requirements.txt
+python3.13 -m venv .venv-vast
+.venv-vast/bin/python -m pip install --only-binary=:all: -r deep_al/vast/requirements.txt
 ```
 
 1. **Short check:** `sbatch onboarding/VAST_smoke.sh`

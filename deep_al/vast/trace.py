@@ -30,7 +30,12 @@ def project_pca(features, fit_limit=10000):
             row *= -1
     xy = np.zeros((n, 2), dtype=np.float32)
     for start in range(0, n, 4096):
-        block = (unit_rows(features[start:start + 4096]) - mean) @ components.T
+        # Only two dot products per row; avoid BLAS matmul warnings observed
+        # with NumPy 2 / Accelerate on macOS, keeping the same PCA projection.
+        centered = unit_rows(features[start:start + 4096]) - mean
+        block = np.einsum("ij,kj->ik", centered, components, optimize=False)
+        if not np.isfinite(block).all():
+            raise ValueError("PCA projection produced nonfinite coordinates")
         xy[start:start + len(block), :block.shape[1]] = block
     return xy, {"method": "PCA", "geometry": "L2-normalized train features",
                 "fit_count": len(indices), "fit_seed": 0, "fixed_across_iterations": True}
