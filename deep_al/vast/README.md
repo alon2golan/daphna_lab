@@ -3,12 +3,15 @@
 GPU is optional; CPU works too. These scripts request a cluster GPU using the
 repo's Slurm conventions. Graph construction uses CPU FAISS; the MLP uses GPU.
 
-Install once from the repo root (Python 3.11, 3.12 or 3.13):
+On the cluster, install once from the repo root:
 
 ```bash
-python3.13 -m venv .venv-vast
-.venv-vast/bin/python -m pip install --only-binary=:all: -r deep_al/vast/requirements.txt
+bash onboarding/VAST_setup_env.sh
 ```
+
+This puts Python 3.13 and the environment on shared storage, so jobs do not
+depend on a node's `/usr/bin/python3.13`. It also repairs an existing VAST venv.
+Local setup with Python 3.11–3.13 is in [the run details](RUN_DETAILS.md#environment).
 
 1. **Short check:** `sbatch onboarding/VAST_smoke.sh`
    Runs the complete pipeline with 400 synthetic training examples and 2 epochs.

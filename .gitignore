@@ -37,3 +37,7 @@ results/
 /scan/datasets/
 # Dedicated VAST environment
 .venv-vast/
+.vast-bootstrap/
+.vast-python/
+.vast-python-bin/
+.vast-cache/

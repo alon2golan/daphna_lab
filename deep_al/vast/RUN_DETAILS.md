@@ -11,6 +11,20 @@ specification proves.
 
 ## Environment
 
+On the cluster, run `bash onboarding/VAST_setup_env.sh` from the repo root.
+It installs a shared Python 3.13.5 with uv, repairs the venv's interpreter links
+without clearing installed packages, and installs the pinned requirements.
+The bootstrap uses `/usr/bin/python3`; override `VAST_BOOTSTRAP_PYTHON` if needed.
+The helper backs up existing interpreter links and `pyvenv.cfg` under
+`results/vast/env_backup_*` before repair.
+
+The cluster's Debian 12 nodes lack `/usr/bin/python3.13`; a venv created with
+that path on a Debian 13 node cannot run there. Shared Python avoids this
+dependency. GPU nodes still need a working NVIDIA driver; the temporary
+Debian 13 test node `dumfries-004` lacked the driver library during diagnosis.
+
+For local setup:
+
 Use Python 3.11, 3.12 or 3.13 in a separate environment:
 
 ```bash
@@ -21,8 +35,13 @@ python -m pip install --only-binary=:all: -r deep_al/vast/requirements.txt
 
 The pins use NumPy 2.2.6, PyTorch 2.6.0 and FAISS 1.9.0.post1, which have
 Python 3.13 wheels. A fresh Python 3.13.13 environment passed all 33 tests
-and the CPU smoke launcher, including replay and viewer checks. Linux x86-64
-binary dependency resolution was also checked; cluster GPU execution is pending.
+and the CPU smoke launcher, including replay and viewer checks. Cluster GPU
+smoke job `31831088` completed on `dumfries-007` on 2026-10-01 in 2 minutes
+2 seconds (Slurm exit `0:0`), with Python 3.13.5 and PyTorch 2.6.0+cu124.
+It trained both epochs on CUDA and saved the checkpoint and propagation replay.
+The submission excluded the temporary Debian 13 reservation's nodes while
+their driver setup was being diagnosed. This is a synthetic execution check;
+real-data alignment and paper accuracy remain unverified.
 
 FAISS CPU builds the graph; PyTorch uses CUDA for training when available, or
 CPU otherwise. FAISS runs in a separate process to avoid conflicting OpenMP
