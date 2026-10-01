@@ -150,6 +150,10 @@ def run(args):
                                          data.classes, targets, confidence, admitted, config, output)
         predictions = predict(model, data.test_features, device)
         np.save(output / "test_predictions.npy", predictions)
+        # Export evaluation metadata only after training/prediction, so copied
+        # run folders support confusion matrices without the original data bank.
+        np.save(output / "test_labels.npy", data.test_labels)
+        np.save(output / "test_sample_ids.npy", data.test_ids)
         accuracy = float(100 * np.mean(predictions == data.test_labels))
         reference = DATASETS[data.dataset]["reference"][args.labels_per_class]
         result = {"dataset": data.dataset, "labels_per_class": args.labels_per_class,

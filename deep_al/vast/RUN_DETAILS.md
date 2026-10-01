@@ -125,6 +125,21 @@ commands. Remove `--dry-run` to execute sequentially. Graphs are cached across
 budgets and `summary.csv` is updated after each successful run. Use a separate
 grid root for another representation. There is no implicit multi-seed loop.
 
+To submit datasets independently (300 epochs for each of 1/2/4 labels per class):
+
+```bash
+VAST_MANIFEST="$PWD/data/vast/cifar100.yaml" sbatch onboarding/VAST_dataset.sh
+```
+
+Repeat with the ImageNet100 and TinyImageNet manifests once their inputs are
+verified and readable. Each job writes a separate output root and updates its
+`summary.csv` after every completed budget. Per-budget folders retain
+`training.jsonl`, `result.json`, predictions, input hashes, the final checkpoint,
+and `propagation_trace/`. Evaluation labels and sample IDs are saved alongside
+predictions after training, allowing per-class statistics and confusion
+matrices from a copied folder. Copy a per-budget folder to your laptop and
+select that folder in Streamlit. Graph caches are shared across budgets within a job.
+
 ## Results and inference
 
 Each run saves resolved configuration, input/code hashes and provenance,
