@@ -42,3 +42,23 @@ def test_viewer_slider_roles_filters_and_missing_trace(tmp_path):
     final_plot = json.loads(at.get("plotly_chart")[0].proto.spec)
     assert initial_plot["layout"]["xaxis"]["range"] == final_plot["layout"]["xaxis"]["range"]
     assert initial_plot["layout"]["yaxis"]["range"] == final_plot["layout"]["yaxis"]["range"]
+
+
+def test_viewer_selects_runs_in_dataset_output_root(tmp_path):
+    app = Path(__file__).resolve().parents[2] / "tools/view_vast.py"
+    for name, seed_mask in (("labels1", [True, False, False]),
+                            ("labels2", [True, True, False])):
+        trace = PropagationTrace(tmp_path / name / "propagation_trace",
+                                 np.array([[1., 0], [1., 1], [0., 1]]),
+                                 np.array(["a", "b", "c"]), np.array(seed_mask), ["A", "B"])
+        mask = np.array(seed_mask)
+        trace(0, np.full((3, 2), .5), np.zeros(3, bool), np.zeros(3, bool),
+              mask, np.zeros(3, bool))
+    at = AppTest.from_file(str(app), default_timeout=20).run()
+    at.sidebar.text_input[0].set_value(str(tmp_path)).run()
+    assert not at.exception
+    assert at.sidebar.selectbox[0].value == "labels1"
+    assert at.metric[3].value == "1"
+    at.sidebar.selectbox[0].select("labels2").run()
+    assert not at.exception
+    assert at.metric[3].value == "2"

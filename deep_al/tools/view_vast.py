@@ -25,6 +25,12 @@ def main():
         st.info("Enter the output directory of a new VAST run (the folder containing result.json).")
         return
     root = Path(run_path).expanduser()
+    if root.is_dir() and not (root / "propagation_trace/metadata.json").is_file():
+        runs = sorted(child.name for child in root.iterdir()
+                      if (child / "propagation_trace/metadata.json").is_file())
+        if runs:
+            selected = st.sidebar.selectbox("Run", runs)
+            root = root / selected
     trace = root / "propagation_trace"
     if not (trace / "metadata.json").is_file():
         st.warning("This run has no propagation replay logs. Run VAST again with the updated code; old summary logs cannot reconstruct sample roles.")
@@ -48,7 +54,7 @@ def main():
     if iteration == 0:
         st.info("Initialization: no update has happened yet. Diamonds mark labeled seeds; frozen seeds are included in the frozen count.")
     elif len(frames) == 2 and not frame["newly_frozen"].any():
-        st.info("Propagation stopped after one update with no new freezes. This is the known literal-paper behavior at the smaller label budgets.")
+        st.info("Propagation stopped after one update with no new freezes in this run.")
     columns = st.columns(4)
     for column, key, title in zip(columns, ("senders", "receivers", "newly_frozen", "frozen"),
                                   ("Senders", "Receivers", "Newly frozen", "All frozen (including seeds)")):
