@@ -139,6 +139,9 @@ and `propagation_trace/`. Evaluation labels and sample IDs are saved alongside
 predictions after training, allowing per-class statistics and confusion
 matrices from a copied folder. Copy a per-budget folder to your laptop and
 select that folder in Streamlit. Graph caches are shared across budgets within a job.
+The per-dataset launcher requests 24 hours and 8 GB of GPU memory: features
+stay on CPU and the classifier transfers only each batch to CUDA. These are
+starting allocations; adjust the wall time if a real run needs longer.
 
 ## Results and inference
 

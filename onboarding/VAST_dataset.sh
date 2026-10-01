@@ -2,8 +2,8 @@
 # One dataset, three full label budgets, one seed. Each dataset can run separately.
 #SBATCH --mem=40g
 #SBATCH -c 8
-#SBATCH --time=96:00:00
-#SBATCH --gres=gg:g0:1,vmem:20g
+#SBATCH --time=24:00:00
+#SBATCH --gres=gg:g0:1,vmem:8g
 #SBATCH --output=vast_dataset_%j.log
 #SBATCH --error=vast_dataset_%j.log
 set -euo pipefail
