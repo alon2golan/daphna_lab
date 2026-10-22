@@ -20,6 +20,47 @@ from deep_al.pycls.datasets.imagenet import ImageNet
 
 logger = lu.get_logger(__name__)
 
+
+class IndexedDatasetWrapper(torch.utils.data.Dataset):
+    """
+    Wraps a dataset so each item also carries its global index: (image, label, index)
+    instead of (image, label). Used only by the opt-in distillation-aware loader path
+    (getIndexesDataLoader(..., return_index=True)) so per-sample soft targets/masks/
+    weights (see pycls.al.distillation) can be looked up per batch during training.
+
+    Attribute access (e.g. .no_aug, .features, .targets) transparently proxies
+    reads AND writes to the wrapped dataset for any attribute already defined
+    there, so existing code that pokes at loader.dataset.<attr> keeps working.
+    New attributes (e.g. soft_targets, set by attach_distillation_targets) are
+    stored on the wrapper itself.
+    """
+
+    def __init__(self, dataset):
+        object.__setattr__(self, 'dataset', dataset)
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        item = self.dataset[index]
+        return (*item, index)
+
+    def __getattr__(self, name):
+        # __getattr__ only fires when normal attribute lookup fails, so 'dataset'
+        # itself must come from __dict__ directly -- looking it up via self.dataset
+        # would re-enter this method and recurse infinitely whenever 'dataset' isn't
+        # set yet (e.g. mid-unpickling, before __init__/__setstate__ has run).
+        if name == 'dataset':
+            raise AttributeError(name)
+        return getattr(object.__getattribute__(self, 'dataset'), name)
+
+    def __setattr__(self, name, value):
+        if name != 'dataset' and hasattr(object.__getattribute__(self, 'dataset'), name):
+            setattr(self.dataset, name, value)
+        else:
+            object.__setattr__(self, name, value)
+
+
 class _RepeatSampler(object):
     """ Sampler that repeats forever.
     Args:
@@ -446,7 +487,7 @@ class Data:
         
         return f'{save_dir}/uSet.npy', f'{save_dir}/valSet.npy'
 
-    def getIndexesDataLoader(self, indexes, batch_size, data):
+    def getIndexesDataLoader(self, indexes, batch_size, data, return_index=False):
         """
         Gets reference to the data loader which provides batches of <batch_size> by randomly sampling
         from indexes set. We use SubsetRandomSampler as sampler in returned DataLoader.
@@ -459,6 +500,11 @@ class Data:
         batch_size: int, Specifies the batchsize used by data loader.
 
         data: reference to dataset instance. This can be obtained by calling getDataset function of Data class.
+
+        return_index: bool, when True each batch item is (image, label, index) instead of
+            (image, label) -- opt-in, for callers that need the global sample index (e.g.
+            distillation soft-target lookup). Default False preserves existing behavior
+            for all other callers.
 
         OUTPUT
         ------
@@ -481,7 +527,8 @@ class Data:
         if batch_size == 0:
             return None
 
-        loader = MultiEpochsDataLoader(dataset=data, num_workers=8, batch_size=batch_size,
+        loader_dataset = IndexedDatasetWrapper(data) if return_index else data
+        loader = MultiEpochsDataLoader(dataset=loader_dataset, num_workers=8, batch_size=batch_size,
                                        sampler=subsetSampler, pin_memory=True, drop_last=True)
         return loader
 

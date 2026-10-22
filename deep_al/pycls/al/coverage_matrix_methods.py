@@ -77,6 +77,7 @@ class   CoverageMatrixMethod:
 
         self.C_general = torch.full((self.all_features.shape[0], unique_labels.size), self.alpha, device=self.device,
                                         dtype=self.matrices_type)
+        self.labeled_points_mask_general = torch.zeros(self.all_features.shape[0], dtype=torch.bool, device=self.device)
 
 
     def init_sampling_loop(self, lset, uset):
@@ -156,6 +157,7 @@ class   CoverageMatrixMethod:
         activeSet = self.relevant_indices[selected]
 
         self.C_general[self.relevant_indices] = self.C
+        self.labeled_points_mask_general[activeSet] = True
         remainSet = np.array(sorted(list(set(self.uSet) - set(activeSet))))
         self.activeSet = activeSet
         print(f'Finished the selection of {len(activeSet)} samples.')

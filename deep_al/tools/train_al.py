@@ -14,6 +14,8 @@ import torch
 from copy import deepcopy
 
 from deep_al.pycls.al.active_learning import ActiveLearning
+from deep_al.pycls.al.distillation import prepare_distillation_targets
+from deep_al.pycls.al.propagation import propagate_labels, build_al_resample_fn
 from deep_al.pycls.core.config import cfg, dump_cfg, setup_cfg
 import deep_al.pycls.core.losses as losses
 import deep_al.pycls.core.optimizer as optim
@@ -67,7 +69,139 @@ def argparser():
                         help='Use MLP head instead of linear probe for from_features evaluation')
     parser.add_argument('--mlp_hidden', default=None, type=int, help='MLP hidden layer size (default 256)')
     parser.add_argument('--mlp_dropout', default=None, type=float, help='MLP dropout rate')
+    parser.add_argument('--calc_method', default='max', type=str,
+                        help='BAYES_MISP scoring rule: max, entropy, margin, or margin_not_normalized')
+    parser.add_argument('--distribution_cont_weight_method', default='weighted', type=str,
+                        choices=['weighted', 'equal'], help='BAYES_MISP per-point weighting for the contribution sum')
+    parser.add_argument('--c_normalization', default='sum', type=str, choices=['sum', 'softmax'],
+                        help='BAYES_MISP normalization applied to the C matrix before weighting')
+    parser.add_argument('--k_sparsity_threshold', default=0.0, type=float,
+                        help='BAYES_MISP minimum kernel value kept when SPARSE_K is set')
+    parser.add_argument('--local_alpha', action='store_true',
+                        help='BAYES_MISP: init C from per-point priors instead of a constant alpha')
+    parser.add_argument('--local_alpha_oracle_method', default='entropy', type=str, choices=['entropy', 'max'])
+    parser.add_argument('--alpha_lower_bound', default=0.01, type=float)
+    parser.add_argument('--alpha_upper_bound', default=1.0, type=float)
+    parser.add_argument('--kernel_build_batch_size', default=1024, type=int)
+    parser.add_argument('--class_weighting_method', default='none', type=str,
+                        choices=['none', 'linear', 'square', 'exp'])
+
+    # --- Distillation / propagation (see pycls.al.distillation / pycls.al.propagation) ---
+    parser.add_argument('--distillation_training', action='store_true',
+                        help='Enable soft-target distillation loss alongside CE during training '
+                             '(requires the AL algorithm to expose C_general, e.g. bayes_misp)')
+    parser.add_argument('--distillation_threshold', default=0.5, type=float,
+                        help='Minimum normalized max-probability for a point to participate in distillation')
+    parser.add_argument('--distillation_temperature', default=3.0, type=float,
+                        help='Temperature for the distillation KL loss')
+    parser.add_argument('--distill_factor', default=1.0, type=float,
+                        help='Scalar weight applied to the distillation loss term before adding it to CE')
+    parser.add_argument('--ck_c_normalization', default='sum', type=str, choices=['sum', 'softmax'],
+                        help='Normalization applied to C_general when preparing distillation soft targets')
+    parser.add_argument('--propagate_c_labels', action='store_true',
+                        help='Apply label propagation to C_general before preparing distillation targets '
+                             '(requires --distillation_training)')
+    parser.add_argument('--propagation_iterations', default=1, type=int)
+    parser.add_argument('--propagation_sender_mode', default='all', type=str,
+                        choices=['all', 'high_confidence', 'al_constant', 'al_updated'])
+    parser.add_argument('--propagation_sender_threshold', default=0.5, type=float)
+    parser.add_argument('--propagation_sender_budget', default=None, type=int)
+    parser.add_argument('--propagation_receiver_mode', default='all', type=str,
+                        choices=['all', 'high_confidence', 'al_constant', 'al_updated'])
+    parser.add_argument('--propagation_receiver_threshold', default=None, type=float)
+    parser.add_argument('--propagation_receiver_budget', default=None, type=int)
     return parser
+
+
+def build_distillation_targets(cfg, al_obj, train_labels, lSet, uSet):
+    """
+    Build soft targets/mask/weights for distillation from the AL algorithm's
+    evidence matrix, optionally propagating labels first.
+
+    Requires the AL algorithm (al_obj.al_algorithm) to expose C_general and
+    labeled_points_mask_general (BAYES_MISP and CoverageMatrixMethod both do).
+    Returns None if the algorithm doesn't expose what's needed, so callers can
+    skip distillation gracefully instead of crashing on unsupported AL methods.
+    """
+    al_algorithm = al_obj.al_algorithm
+    if not hasattr(al_algorithm, 'C_general') or not hasattr(al_algorithm, 'labeled_points_mask_general'):
+        print(f'[Distillation] Warning: {type(al_algorithm).__name__} does not expose '
+              f'C_general/labeled_points_mask_general — skipping distillation this episode')
+        return None
+
+    C_matrix = al_algorithm.C_general
+    labeled_mask = al_algorithm.labeled_points_mask_general
+
+    if getattr(cfg, 'PROPAGATE_C_LABELS', False):
+        K_matrix = getattr(al_algorithm, 'K_general', None)
+        if K_matrix is None:
+            print('[Distillation] Warning: PROPAGATE_C_LABELS set but algorithm has no K_general — skipping propagation')
+        else:
+            labeled_mask_np = np.asarray(
+                labeled_mask.cpu() if torch.is_tensor(labeled_mask) else labeled_mask, dtype=bool)
+            source_indices = np.where(labeled_mask_np)[0]
+            source_labels = np.asarray(train_labels)[source_indices]
+
+            sender_mode = getattr(cfg, 'PROPAGATION_SENDER_MODE', 'all')
+            receiver_mode = getattr(cfg, 'PROPAGATION_RECEIVER_MODE', 'all')
+            sender_budget = getattr(cfg, 'PROPAGATION_SENDER_BUDGET', None)
+            receiver_budget = getattr(cfg, 'PROPAGATION_RECEIVER_BUDGET', None)
+
+            al_resample_fn = None
+            if sender_mode == 'al_updated' or receiver_mode == 'al_updated':
+                al_resample_fn = build_al_resample_fn(al_algorithm, cfg, lSet, uSet, budget=sender_budget)
+
+            print(f'[Distillation] Applying label propagation: '
+                  f'{getattr(cfg, "PROPAGATION_ITERATIONS", 1)} iterations, '
+                  f'sender_mode={sender_mode!r}, receiver_mode={receiver_mode!r}')
+            C_matrix = propagate_labels(
+                C_matrix, K_matrix, labeled_mask, source_indices, source_labels,
+                alpha=getattr(al_algorithm, 'alpha', getattr(cfg, 'ALPHA', 0.5)),
+                num_iterations=getattr(cfg, 'PROPAGATION_ITERATIONS', 1),
+                sender_mode=sender_mode,
+                sender_threshold=getattr(cfg, 'PROPAGATION_SENDER_THRESHOLD', 0.5),
+                sender_budget=sender_budget,
+                receiver_mode=receiver_mode,
+                receiver_threshold=getattr(cfg, 'PROPAGATION_RECEIVER_THRESHOLD', None),
+                receiver_budget=receiver_budget,
+                al_resample_fn=al_resample_fn,
+                receiver_al_resample_fn=al_resample_fn,
+                normalization=getattr(cfg, 'CK_C_NORMALIZATION', 'sum'),
+            )
+            print('[Distillation] Label propagation complete.')
+
+    soft_targets, distill_mask, distill_weights = prepare_distillation_targets(
+        C_matrix, threshold=getattr(cfg, 'DISTILLATION_THRESHOLD', 0.5),
+        labeled_mask=labeled_mask, train_labels=train_labels,
+        normalization=getattr(cfg, 'CK_C_NORMALIZATION', 'sum'),
+    )
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    return soft_targets.to(device), distill_mask.to(device), distill_weights.to(device)
+
+
+def attach_distillation_targets(cfg, al_obj, train_labels, lSet, uSet, lSet_loader):
+    """
+    Compute distillation targets from the current AL algorithm state and attach
+    them to lSet_loader.dataset, where train_epoch looks them up per batch by
+    the global sample index (see IndexedDatasetWrapper / getIndexesDataLoader's
+    return_index=True). No-op (with a warning) if the AL algorithm doesn't
+    expose what's needed.
+    """
+    if lSet_loader is None:
+        return
+    targets = build_distillation_targets(cfg, al_obj, train_labels, lSet, uSet)
+    if targets is None:
+        lSet_loader.dataset.soft_targets = None
+        lSet_loader.dataset.distill_mask = None
+        lSet_loader.dataset.distill_weights = None
+        return
+    soft_targets, distill_mask, distill_weights = targets
+    lSet_loader.dataset.soft_targets = soft_targets
+    lSet_loader.dataset.distill_mask = distill_mask
+    lSet_loader.dataset.distill_weights = distill_weights
+    al_algorithm = al_obj.al_algorithm
+    lSet_loader.dataset.labeled_mask = getattr(al_algorithm, 'labeled_points_mask_general', None)
 
 
 def is_eval_epoch(cur_epoch):
@@ -209,13 +343,19 @@ def main(cfg):
     print("Data Partitioning Complete. \nLabeled Set: {}, Unlabeled Set: {}, Validation Set: {}\n".format(len(lSet), len(uSet), len(valSet)))
     logger.info("Labeled Set: {}, Unlabeled Set: {}, Validation Set: {}\n".format(len(lSet), len(uSet), len(valSet)))
 
+    distillation_enabled = getattr(cfg, 'DISTILLATION_TRAINING', False)
+
     # Preparing dataloaders for initial training
-    lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
+    lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data,
+                                                return_index=distillation_enabled)
     valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
     test_loader = data_obj.getTestLoader(data=test_data, test_batch_size=cfg.TRAIN.BATCH_SIZE, seed_id=cfg.RNG_SEED)
 
     if valSet_loader is None:
         valSet_loader = lSet_loader
+
+    if distillation_enabled:
+        attach_distillation_targets(cfg, al_obj, train_labels, lSet, uSet, lSet_loader)
 
     # Initialize the model.  
     print("model: {}\n".format(cfg.MODEL.TYPE))
@@ -275,7 +415,7 @@ def main(cfg):
         al_start_time = time.time()
         lSet, lSet_loader, uSet, valSet_loader = active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet,
                                                                       lSet_loader, train_data, uSet, valSet,
-                                                                      valSet_loader, al_obj)
+                                                                      valSet_loader, al_obj, train_labels=train_labels)
         al_time = time.time() - al_start_time
         episode_al_times.append(al_time)
         print(f"AL_STATS ep={cur_episode} time={al_time:.2f}s lSet={len(lSet)} uSet={len(uSet)}")
@@ -317,7 +457,7 @@ def main(cfg):
 
 
 def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet_loader, train_data, uSet, valSet,
-                         valSet_loader, al_obj):
+                         valSet_loader, al_obj, train_labels=None):
     print("======== ACTIVE SAMPLING ========\n")
     logger.info("======== ACTIVE SAMPLING ========\n")
     clf_model = mh.get_model(cfg, checkpoint_file)
@@ -330,10 +470,14 @@ def active_sampling_part(cfg, checkpoint_file, cur_episode, data_obj, lSet, lSet
     # Add activeSet to lSet, save new_uSet as uSet and update dataloader for the next episode
     lSet = np.append(lSet, activeSet)
     uSet = new_uSet
-    lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
+    distillation_enabled = getattr(cfg, 'DISTILLATION_TRAINING', False)
+    lSet_loader = data_obj.getIndexesDataLoader(indexes=lSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data,
+                                                return_index=distillation_enabled)
     valSet_loader = data_obj.getIndexesDataLoader(indexes=valSet, batch_size=cfg.TRAIN.BATCH_SIZE, data=train_data)
     if valSet_loader is None:
         valSet_loader = lSet_loader
+    if distillation_enabled:
+        attach_distillation_targets(cfg, al_obj, train_labels, lSet, uSet, lSet_loader)
     print(
         "Active Sampling Complete. After Episode {}:\nNew Labeled Set: {}, New Unlabeled Set: {}, Active Set: {}\n".format(
             cur_episode, len(lSet), len(uSet), len(activeSet)))
@@ -520,15 +664,55 @@ def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch
     model.train()
     train_meter.iter_tic() #This basically notes the start time in timer class defined in utils/timer.py
 
+    distillation_enabled = (
+        getattr(cfg, 'DISTILLATION_TRAINING', False)
+        and getattr(train_loader.dataset, 'soft_targets', None) is not None
+    )
+
     len_train_loader = len(train_loader)
-    for cur_iter, (inputs, labels) in enumerate(train_loader):
+    for cur_iter, batch in enumerate(train_loader):
+        if distillation_enabled:
+            inputs, labels, idx = batch
+        else:
+            inputs, labels = batch
         #ensuring that inputs are floatTensor as model weights are
         inputs = inputs.type(torch.cuda.FloatTensor)
         inputs, labels = inputs.cuda(), labels.cuda(non_blocking=True)
         # Perform the forward pass
         preds = model(inputs)
         # Compute the loss
-        loss = loss_fun(preds, labels)
+        if distillation_enabled:
+            dataset = train_loader.dataset
+            idx_device = dataset.soft_targets.device
+            idx = idx.to(idx_device)
+
+            soft_targets_batch = dataset.soft_targets[idx].to(dtype=preds.dtype)
+            distill_mask_batch = dataset.distill_mask[idx]
+            distill_weights_batch = dataset.distill_weights[idx]
+            labeled_mask_batch = (
+                dataset.labeled_mask.to(idx_device)[idx]
+                if dataset.labeled_mask is not None
+                else torch.ones_like(distill_mask_batch)
+            )
+
+            # Only unlabeled, gated points contribute to the distillation loss --
+            # labeled points already have ground-truth in the CE term below.
+            distill_only_mask = distill_mask_batch & ~labeled_mask_batch
+
+            ce_loss = loss_fun(preds, labels)
+
+            distill_temp = getattr(cfg, 'DISTILLATION_TEMPERATURE', 3.0)
+            distill_loss_raw = losses.distillation_loss(
+                preds, soft_targets_batch, distill_only_mask, temperature=distill_temp)
+
+            distill_factor = getattr(cfg, 'DISTILL_FACTOR', 1.0)
+            if distill_only_mask.any():
+                avg_weight = distill_weights_batch[distill_only_mask].mean()
+                loss = ce_loss + distill_loss_raw * distill_factor * avg_weight
+            else:
+                loss = ce_loss
+        else:
+            loss = loss_fun(preds, labels)
         # Perform the backward pass
         optimizer.zero_grad()
         loss.backward()

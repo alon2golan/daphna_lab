@@ -11,6 +11,7 @@ from .typiclust import TypiClust
 from .maxherding import MaxHerding
 from .DCoM import DCoM
 from .coverage_matrix_methods import CoverageMatrixMethod
+from .bayes_misp import BAYES_MISP
 import deep_al.pycls.utils.logging as lu
 import deep_al.pycls.datasets.utils as ds_utils
 
@@ -107,6 +108,11 @@ class ActiveLearning:
                 self.cfg['KERNEL_TYPE'] = 'rbf'
             cmm = CoverageMatrixMethod(self.cfg, train_labels=train_labels)
             return cmm
+
+        elif sampling_fn == "bayes_misp":
+            return BAYES_MISP(self.cfg, budgetSize=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE,
+                            train_labels=train_labels, delta=self.cfg.ACTIVE_LEARNING.INITIAL_DELTA,
+                            lset=lset if lset is not None else np.array([]))
 
         # DCoM (handles its own delta initialization internally)
         elif sampling_fn == "dcom":
