@@ -36,6 +36,5 @@ data/
 results/
 /datasets/
 /scan/datasets/
-# /audio_embeddings/data/
 /audio_embeddings/checkpoints/
-/audio_embeddings/outputs/
+
