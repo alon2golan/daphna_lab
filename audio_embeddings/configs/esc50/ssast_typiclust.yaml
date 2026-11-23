@@ -1,0 +1,4 @@
+﻿base_config: base_ssast.yaml
+acquisition:
+  method: typiclust
+

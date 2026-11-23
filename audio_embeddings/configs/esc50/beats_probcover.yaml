@@ -1,0 +1,5 @@
+﻿base_config: base_beats.yaml
+acquisition:
+  method: probcover
+  deltas: [0.25]
+

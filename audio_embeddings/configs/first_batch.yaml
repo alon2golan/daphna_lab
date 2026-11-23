@@ -1,0 +1,55 @@
+# Copy and edit paths. All result/cache outputs belong outside the repository.
+dataset:
+  name: esc50                 # esc50 | dcase2016 | as20k
+  manifest: D:/manifests/esc50.jsonl
+  # For DCASE, set pool_splits/development_splits/evaluation_splits to match
+  # the official split names recorded in your normalized official manifest.
+  pool_splits: [train]
+  development_splits: [development, validation, dev]
+  evaluation_splits: [evaluation, eval, test]
+
+model:
+  name: ssast                 # ssast | beats
+  checkpoint: D:/checkpoints/ssast_pretrained.pth
+  source: D:/src/ssast/src
+  checkpoint_metadata: D:/checkpoints/ssast_pretrained.provenance.json
+
+adaptation: frozen_representation # frozen_representation | linearprob | fine_tune
+objective: {}                 # defaults by dataset; supports name/task/output/target/reduction/threshold
+device: cuda:0
+output: D:/audio-al-runs/esc50-ssast
+report_full_label_reference: true # full-pool frozen-classifier context, separate from AL rows
+seeds: [42, 43, 44, 45, 46]
+# ESC-50 defaults to all official folds if omitted.
+# folds: [1, 2, 3, 4, 5]
+
+budget:
+  unit: percent              # percent | count; values are cumulative global pool budgets
+  values: [2, 5, 10]
+
+acquisition:
+  method: core_set           # random, core_set, min_margin, max_entropy, bald,
+                             # typiclust, max_herding, probcover, cls_al
+  initial_random_count: 1    # warm start used by prediction-based methods
+  delta: 0.25                # cosine distance for ProbCover; kernel scale for MaxHerding
+  # For ProbCover, each delta is a separate experiment setting:
+  # method: probcover
+  # deltas: [0.05, 0.1, 0.2]
+  mc_passes: 20              # BALD only; requires training.dropout > 0
+
+training:
+  epochs: 20
+  batch_size: 128
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  hidden_sizes: [512]        # frozen shared classifier; LinearProb overrides to []
+  dropout: 0.2
+  cls_alpha_long: 0.9999
+  cls_alpha_short: 0.85
+
+extraction:
+  batch_size: 16
+preprocessing:
+  # Omit window_seconds to use the selected backbone's official default.
+  channel_mode: mean         # mean | first
+  pad_mode: constant         # constant | edge | reflect

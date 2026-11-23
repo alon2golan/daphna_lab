@@ -24,6 +24,7 @@ TypiClust is a novel active learning method implemented in this repository. For 
 - `deep-al/` - Deep active learning implementations and tools
 - `scan/` - Self-supervised clustering code
 - `onboarding/` - Lab onboarding materials and scripts
+- `audio_embeddings/` - Isolated manifests and frozen audio embedding extraction for BEATs, CLAP, and PANNs ([guide](audio_embeddings/README.md))
 - `stats_parquets/` - Experiment results and statistics
 
 ## Key Features

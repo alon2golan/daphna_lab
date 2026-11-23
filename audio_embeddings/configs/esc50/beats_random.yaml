@@ -1,0 +1,4 @@
+﻿base_config: base_beats.yaml
+acquisition:
+  method: random
+

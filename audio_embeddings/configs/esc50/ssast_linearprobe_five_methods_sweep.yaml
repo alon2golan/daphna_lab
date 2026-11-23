@@ -1,0 +1,13 @@
+base_config: ssast_all_methods_sweep.yaml
+sweep:
+  jobs:
+    - acquisition.method: max_herding
+      adaptation: linearprob
+    - acquisition.method: probcover
+      adaptation: linearprob
+    - acquisition.method: margin
+      adaptation: linearprob
+    - acquisition.method: uncertainty
+      adaptation: linearprob
+    - acquisition.method: typiclust
+      adaptation: linearprob

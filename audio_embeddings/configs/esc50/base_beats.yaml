@@ -1,0 +1,39 @@
+dataset:
+  name: esc50
+  manifest: D:/manifests/esc50.jsonl
+model:
+  name: beats
+  checkpoint: audio_embeddings/models_src/BEATs/ckpts/BEATs_iter3_plus_AS2M.pt
+  checkpoint_metadata: D:/checkpoints/beats_pretrained.provenance.json
+adaptation: frozen_representation
+objective:
+  name: cross_entropy
+  task: multiclass
+  target: class_index
+device: cpu
+output: D:/audio-al-runs/esc50
+report_full_label_reference: true
+seeds: [42, 43, 44, 45, 46]
+budget:
+  unit: percent
+  values: [1, 2.5, 5]
+training:
+  epochs: 20
+  batch_size: 128
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  hidden_sizes: [512]
+  dropout: 0.2
+  cls_alpha_long: 0.9999
+  cls_alpha_short: 0.85
+extraction:
+  batch_size: 16
+preprocessing:
+  channel_mode: mean
+  pad_mode: constant
+  window_seconds: 10
+acquisition:
+  initial_random_count: 1
+  feature_transform: l2
+  delta: 0.25
+  mc_passes: 20

@@ -1,0 +1,76 @@
+# Replace the shared paths below with locations visible to every SLURM node.
+# This sweep creates one independent AL job per canonical acquisition method.
+dataset:
+  name: esc50
+  manifest: /shared/audio/esc50/esc50.jsonl
+model:
+  name: ssast
+  checkpoint: /shared/audio/checkpoints/SSAST-Base-Frame-400.pth
+  checkpoint_metadata: /shared/audio/checkpoints/ssast_pretrained.provenance.json
+adaptation: linearprob
+objective:
+  name: cross_entropy
+  task: multiclass
+  target: class_index
+device: cuda:0
+output: /shared/audio/al-runs/esc50-ssast
+feature_cache: /shared/audio/features/esc50-ssast/feature_cache
+audio_index: /shared/audio/esc50/compact/audio_index.json
+temporary_audio_root: /scratch/audio-al
+report_full_label_reference: false
+seeds: [42, 43, 44, 45, 46]
+folds: [1, 2, 3, 4, 5]
+budget:
+  unit: percent
+  values: [1, 2.5, 5]
+training:
+  epochs: 20
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  hidden_sizes: [512]
+  dropout: 0.2
+  cls_alpha_long: 0.9999
+  cls_alpha_short: 0.85
+extraction:
+  batch_size: 16
+preprocessing:
+  channel_mode: mean
+  pad_mode: constant
+  window_seconds: 10.24
+acquisition:
+  initial_random_count: 1
+  feature_transform: l2
+  delta: 0.25
+  sigma: 0.25
+  mc_passes: 20
+
+sweep:
+  jobs:
+    - acquisition.method: random
+      adaptation: linearprob
+    - acquisition.method: uncertainty
+      adaptation: linearprob
+    - acquisition.method: core_set
+      adaptation: linearprob
+    - acquisition.method: min_margin
+      adaptation: linearprob
+    - acquisition.method: max_entropy
+      adaptation: linearprob
+    - acquisition.method: bald
+      adaptation: frozen_representation
+    - acquisition.method: typiclust
+      adaptation: linearprob
+    - acquisition.method: max_herding
+      adaptation: linearprob
+    - acquisition.method: probcover
+      adaptation: linearprob
+    - acquisition.method: cls_al
+      adaptation: fine_tune
+  slurm:
+    time: "24:00:00"
+    mem: 32G
+    cpus-per-task: 4
+    gres: "gpu:1"
+    activate: /shared/envs/audio/bin/activate
+    working_directory: /shared/projects/daphna_lab
