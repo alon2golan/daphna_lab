@@ -1,22 +1,22 @@
 dataset:
   name: esc50
-  manifest: D:/manifests/esc50.jsonl
+  manifest: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/data/datasets/ESC-50/ecs50.jsonl
 model:
   name: ssast
-  checkpoint: audio_embeddings/models_src/SSAST/pretrained_model/SSAST-Base-Frame-400.pth
+  checkpoint: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/models_src/SSAST/pretrained_model/SSAST-Base-Frame-400.pth
   checkpoint_metadata: D:/checkpoints/ssast_pretrained.provenance.json
 adaptation: frozen_representation
 objective:
   name: cross_entropy
   task: multiclass
   target: class_index
-device: cpu
-output: D:/audio-al-runs/esc50
+device: cuda
+output: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/outputs/esc50
 report_full_label_reference: true
-seeds: [42, 43, 44, 45, 46]
+seeds: [42, 44, 46]
 budget:
   unit: percent
-  values: [1, 2.5, 5]
+  values: [2.5, 5, 7.5, 10]
 training:
   epochs: 20
   batch_size: 128

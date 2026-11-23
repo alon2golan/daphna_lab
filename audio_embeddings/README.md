@@ -142,3 +142,19 @@ Audio loading and resampling use torchaudio only. Audio is converted to mono by 
 ## Evaluation and licensing
 
 Extraction does not train or tune a model. Downstream evaluation must use each manifest's `split`/`fold` protocol and must keep evaluation data held out. Task 1 uses multiclass scene metrics. Task 4 mAP and segment ER/F-score are measured from 10-second window tags; thresholded tags are expanded over each window for `sed_eval` at one-second resolution, so these predictions do not support event-timing F-score. FSD50K per-clip license metadata is retained when present; check the source license for every dataset and model checkpoint. AudioSet uses YouTube source segments and may have unavailable audio; failures are recorded without changing its split assignment.
+
+ssast_pretrained.provenance.json is a small JSON sidecar that records where the checkpoint came from and what data or training it involved. It does not contain model weights. For SSAST, extraction requires these fields:
+
+{
+  "source": "Official SSAST repository and checkpoint name or URL",
+  "pretraining_data": "Datasets used for pretraining, as documented by the source",
+  "license": "Checkpoint or source license",
+  "evaluation_audio_excluded": true,
+  "supervised_finetuning": false
+}
+
+The last two values are checked before SSAST extraction: held-out evaluation audio must be excluded, and the checkpoint must not be supervised-finetuned. Only set evaluation_audio_excluded to true when the checkpoint documentation supports that claim. The JSON is supplied with --checkpoint-metadata and copied into run.json for experiment records. See README.md (/C:/Users/User/Documents/thesis/codebase/daphna_lab/audio_embeddings/README.md:22) and the validation in extractor.py (/C:/Users/User/Documents/thesis/codebase/daphna_lab/audio_embeddings/extraction/extractor.py:111).
+
+For BEATs, the repository’s config also points to a provenance JSON (for example, beats_pretrained.provenance.json). Use the same five fields and provide the path through model.checkpoint_metadata in your config. The checkpoint itself comes from the official BEATs model links in the vendored BEATs README (/C:/Users/User/Documents/thesis/codebase/daphna_lab/audio_embeddings/models_src/BEATs/beats_README.md:8). Choose the pre-trained model link that matches the checkpoint you intend to use, such as BEATs_iter3_plus_AS2M.pt; the documentation distinguishes these from AudioSet fine-tuned checkpoints. Record the actual checkpoint variant and source link in source, its documented pretraining data in pretraining_data, and the applicable license in license.
+
+One distinction: the current extraction code requires and validates this metadata only for SSAST. BEATs metadata is optional during direct extraction, but the experiment configs and README expect it for BEATs runs too. Don’t claim evaluation audio was excluded or that supervised fine-tuning was absent unless the checkpoint’s documentation establishes it. If either is uncertain, check the source/model card or ask the checkpoint provider before using those claims.
