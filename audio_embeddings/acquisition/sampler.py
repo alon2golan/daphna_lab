@@ -58,7 +58,7 @@ class Sampler:
         if matched_method == "probcover":
             return self.probcover(context, budget, delta)
         if matched_method == "max_herding":
-            return self.max_herding(context, budget, sigma=sigma, delta=delta)
+            return self.max_herding(context, budget, sigma=sigma)
         return self.typiclust(context, budget)
 
     def random(self, context: AcquisitionContext, budget: int) -> QueryResult:
