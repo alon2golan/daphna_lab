@@ -117,8 +117,13 @@ class SsastModel(AudioModel):
         self.torch, self.torchaudio = torch, torchaudio
         # Official patch-based base model architecture. Loading is intentionally
         # delegated to ASTModel so official checkpoint key handling is retained.
-        self.model = ASTModel(label_dim=527, fshape=16, tshape=16, fstride=10,
-                              tstride=10, input_fdim=128, input_tdim=1024,
+        # self.model = ASTModel(label_dim=527, fshape=16, tshape=16, fstride=10,
+        #                       tstride=10, input_fdim=128, input_tdim=1024,
+        #                       model_size="base", pretrain_stage=False,
+        #                       load_pretrained_mdl_path=str(self.checkpoint))
+        # Official frame-based base model
+        self.model = ASTModel(label_dim=527, fshape=128, tshape=2, fstride=128,
+                              tstride=2, input_fdim=128, input_tdim=1024,
                               model_size="base", pretrain_stage=False,
                               load_pretrained_mdl_path=str(self.checkpoint))
         checkpoint_state = self.torch.load(str(self.checkpoint), map_location="cpu", weights_only=False)
