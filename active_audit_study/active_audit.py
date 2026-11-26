@@ -63,6 +63,18 @@ def coverage_order(neighbors, size, seed):
     return order
 
 
+def replay_order(neighbors, rows, size, seed, acquired_rows=None):
+    if acquired_rows is None:
+        return coverage_order(neighbors, size, seed)
+    requested = np.asarray(acquired_rows)[:size]
+    if requested.shape != (size,) or requested.dtype.kind not in 'iu' or len(np.unique(requested)) != size:
+        raise ValueError('Expected a complete order of distinct global rows')
+    order = np.searchsorted(rows, requested)
+    if np.any(order == len(rows)) or not np.array_equal(rows[order], requested):
+        raise ValueError('Archived acquisition is outside the eligible pool')
+    return order
+
+
 def path_counts(neighbors, evaluation_neighbors, anchors, depth):
     active = np.zeros((len(neighbors), len(anchors)), dtype=np.int16)
     active[anchors, np.arange(len(anchors))] = 1
@@ -232,7 +244,8 @@ def human_annotations(truth):
     return aligned_human_annotations(fixture, truth)
 
 
-def replay(seed, prepared, output, human=False, signed=False):
+def replay(seed, prepared, output, human=False, signed=False, *,
+           budgets=None, conditions=None, acquired_rows=None):
     if output.exists():
         raise FileExistsError(output)
     with np.load(prepared, allow_pickle=False) as payload:
@@ -243,26 +256,29 @@ def replay(seed, prepared, output, human=False, signed=False):
     clean = np.load(BANK / 'train_targets.npy', allow_pickle=False)
     truth = np.load(BANK / 'test_targets.npy', allow_pickle=False)
     eyes = np.eye(CLASSES, dtype=np.float32)
-    budgets = SIGNED_BUDGETS if signed else BUDGETS
-    conditions = SIGNED_CONDITIONS if signed else CONDITIONS
+    if budgets is None:
+        budgets = SIGNED_BUDGETS if signed else BUDGETS
+    if conditions is None:
+        conditions = HUMAN_CONDITIONS if human else SIGNED_CONDITIONS if signed else CONDITIONS
+    synthetic = [(name, rate) for name, rate in conditions if name != 'cifar100n']
     corrupted = {}
-    if not human:
+    if synthetic:
         groups = list(json.loads(GROUPS.read_text()).values())
         if len(groups) != 20 or any(len(group) != 5 for group in groups) or sorted(sum(groups, [])) != list(range(CLASSES)):
             raise ValueError('Expected 20 disjoint groups of five CIFAR-100 classes')
         successor = np.empty(CLASSES, dtype=np.int64)
         for group in groups:
             successor[group] = np.roll(group, -1)
-        for name, rate in conditions:
-            if name != 'cifar100n':
-                corrupted[name] = corrupt_labels(clean, name, rate, seed, successor)
+        for name, rate in synthetic:
+            corrupted[name] = corrupt_labels(clean, name, rate, seed, successor)
         if seed == 0:
             for name, observed in corrupted.items():
                 np.testing.assert_array_equal(observed, np.load(PRIOR / f'{name}_observed.npy', allow_pickle=False))
-    if human or signed:
+    if any(name == 'cifar100n' for name, _ in conditions):
         corrupted['cifar100n'] = human_annotations(clean)
         provenance['human_sha256'] = HUMAN_SHA256
-    order = coverage_order(neighbors, max(budgets) * 11 // 10, seed)
+    size = max(budgets) + max(budgets) // 10
+    order = replay_order(neighbors, rows, size, seed, acquired_rows)
     if len(np.unique(order)) != len(order):
         raise ValueError('Repeated acquisition')
     train_votes, test_votes = path_counts(neighbors, test_neighbors, order, DEPTH)

@@ -2,7 +2,10 @@ import unittest
 
 import numpy as np
 
-from active_audit import aligned_human_annotations, coverage_order, leave_one_out, path_counts, rank_audits, signed_peer_utility
+from active_audit import (
+    aligned_human_annotations, coverage_order, leave_one_out, path_counts,
+    rank_audits, replay_order, signed_peer_utility,
+)
 
 
 class ActiveAuditTests(unittest.TestCase):
@@ -41,6 +44,14 @@ class ActiveAuditTests(unittest.TestCase):
     def test_seeded_coverage_updates_remaining_marginal_gains(self):
         neighbors = np.array([[1], [0], [0], [2], [3]])
         np.testing.assert_array_equal(coverage_order(neighbors, 2, 1), [0, 3])
+
+    def test_archived_order_maps_global_rows_and_rejects_unavailable_rows(self):
+        neighbors = np.array([[1], [2], [0]])
+        rows = np.array([2, 5, 9])
+        np.testing.assert_array_equal(replay_order(neighbors, rows, 2, 0, [9, 2, 5]), [2, 0])
+        for order in ([9, 3], [9, 10], [9, 9], [9]):
+            with self.assertRaises(ValueError):
+                replay_order(neighbors, rows, 2, 0, order)
 
 
 if __name__ == '__main__':

@@ -17,18 +17,23 @@ POLICIES = ('no_audit', 'random_audit', 'loo_audit', 'single_footprint', 'divers
 METRICS = ('test_correct', 'test_1nn_correct', 'pool_correct')
 
 
-def collect(root, conditions, seeds, budgets, policies):
+def collect(root, conditions, seeds, budgets, policies, acquired_rows=None):
     runs = {seed: json.loads((root / f'seed_{seed}.json').read_text()) for seed in seeds}
     for key in ('geometry_sha256', 'source_sha256'):
         assert len({run[key] for run in runs.values()}) == 1, key
     if (root / 'geometry.npz').exists():
         with (root / 'geometry.npz').open('rb') as source:
             assert hashlib.file_digest(source, 'sha256').hexdigest() == runs[seeds[0]]['geometry_sha256']
-    assert len({tuple(run['acquisition_rows']) for run in runs.values()}) == len(seeds)
+    size = max(budgets) + max(budgets) // 10
+    orders = {tuple(run['acquisition_rows']) for run in runs.values()}
+    if acquired_rows is None:
+        assert len(orders) == len(seeds)
+    else:
+        assert orders == {tuple(acquired_rows[:size])}, 'Archived acquisition order mismatch'
     indexed = {}
     for seed, run in runs.items():
         order = run['acquisition_rows']
-        assert len(order) == len(set(order)) == 880
+        assert len(order) == len(set(order)) == size
         for row in run['rows']:
             budget, condition, policy = row['budget'], row['condition'], row['policy']
             key = (seed, budget, condition, policy)
@@ -79,7 +84,7 @@ def summary(indexed, conditions, seeds, budgets, policies):
 
 def write_csv(path, rows):
     with path.open('x', newline='') as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]), lineterminator='\n')
         writer.writeheader()
         writer.writerows(rows)
 

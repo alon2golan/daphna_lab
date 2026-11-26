@@ -1,0 +1,73 @@
+{
+  "coverage": {
+    "geometry_sha256": "486509610f2947676c2bf5dfc7d3e6950e79805580290f9ca0d54790058e682b",
+    "source_sha256": "72df76b08512438890caa902f8df8f81f0c9f61fe6b5e652833e9b401c10337d",
+    "provenance": {
+      "bank_sha256": {
+        "test_features": "d7ba6cfb072039698da1b4e67fe97636ab0d4e6b6158bd9d66b42959bab18e36",
+        "test_targets": "7827272d0fbeee517a81b235f35fae2128af64393371c2fdde1c8f9a638e4a1a",
+        "train_features": "4e91020dcd15d77dcbe35ad32e63020bd156ad610808866ae49eb696d2035476",
+        "train_targets": "233cdd4afc94cd00f3ddec6f8640168bf76a6872168cf6c5a9990ac9f144be3b"
+      },
+      "faiss": "1.9.0",
+      "graph_sha256": "fd806145da93d36f1e96665dc4cf85a1a211369abba932f1020c981a4a7256dc",
+      "groups_sha256": "cd0b84973042743f1719cccfb94939d784659737e2aa74f46e86e8bcf25886ce",
+      "human_sha256": "bd2d80409754d420292d622e15e25248ba21e37d27429efac49c8da723f44394",
+      "test_rows": 10000,
+      "train_rows": 45000
+    },
+    "depth": 3,
+    "numpy": "2.2.6",
+    "seeds": [
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19
+    ],
+    "budgets": [
+      400,
+      600,
+      800,
+      1200
+    ],
+    "evaluations": 2240
+  },
+  "maxherding": {
+    "geometry_sha256": "486509610f2947676c2bf5dfc7d3e6950e79805580290f9ca0d54790058e682b",
+    "source_sha256": "72df76b08512438890caa902f8df8f81f0c9f61fe6b5e652833e9b401c10337d",
+    "provenance": {
+      "bank_sha256": {
+        "test_features": "d7ba6cfb072039698da1b4e67fe97636ab0d4e6b6158bd9d66b42959bab18e36",
+        "test_targets": "7827272d0fbeee517a81b235f35fae2128af64393371c2fdde1c8f9a638e4a1a",
+        "train_features": "4e91020dcd15d77dcbe35ad32e63020bd156ad610808866ae49eb696d2035476",
+        "train_targets": "233cdd4afc94cd00f3ddec6f8640168bf76a6872168cf6c5a9990ac9f144be3b"
+      },
+      "faiss": "1.9.0",
+      "graph_sha256": "fd806145da93d36f1e96665dc4cf85a1a211369abba932f1020c981a4a7256dc",
+      "groups_sha256": "cd0b84973042743f1719cccfb94939d784659737e2aa74f46e86e8bcf25886ce",
+      "test_rows": 10000,
+      "train_rows": 45000
+    },
+    "depth": 3,
+    "numpy": "2.2.6",
+    "seeds": [
+      20,
+      21,
+      22,
+      23,
+      24
+    ],
+    "budgets": [
+      800,
+      1200
+    ],
+    "evaluations": 420,
+    "order_sha256": "16b6cd661ee51205418176c8260eb025ea437021ae3cd2d8e1570deadc579c82"
+  }
+}
