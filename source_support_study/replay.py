@@ -92,16 +92,28 @@ def run_case(archive, output, budget, condition):
     plain_margin = confidence - np.partition(probabilities, -2, axis=1)[:, -2]
     candidates = np.zeros(len(initial), dtype=bool)
     candidates[unlabeled] = True
-    candidates &= confidence > 1.0 / classes + 1e-6
-    selections = {
-        "itai": admitted,
-        "confidence": rerank(candidates, admitted, predicted, confidence, confidence, classes),
-        "margin": rerank(candidates, admitted, predicted, plain_margin, confidence, classes),
-        "source_stability": rerank(candidates, admitted, predicted, margin, confidence, classes),
-        "bounded_discount": rerank(candidates, admitted, predicted,
-                                   confidence * (1.0 - 0.25 * winning_share), confidence, classes),
+    candidates &= (confidence > 1.0 / classes + 1e-6) | admitted
+    scores = {
+        "confidence": confidence,
+        "margin": plain_margin,
+        "source_stability": margin,
+        "bounded_discount": confidence * (1.0 - 0.25 * winning_share),
     }
-    quotas = np.bincount(predicted[admitted], minlength=classes)
+    coverage = int(np.ceil(0.10 * len(unlabeled)))
+    eligible_rows = np.flatnonzero(candidates)
+    top = eligible_rows[np.lexsort((eligible_rows, -confidence[eligible_rows]))[:coverage]]
+    shortlist = np.zeros_like(admitted)
+    shortlist[top] = True
+
+    def selections(reference):
+        return {
+            "reference": reference,
+            **{arm: rerank(candidates, reference, predicted, score, confidence, classes)
+               for arm, score in scores.items()},
+        }
+
+    full = selections(admitted)
+    top10 = selections(shortlist)
 
     # Truth first enters here, after the admission decisions are complete.
     truth = np.load(checked_file(Path(provenance["files"]["train.labels"]),
@@ -113,30 +125,39 @@ def run_case(archive, output, budget, condition):
         "graph_sha256": graph_info["kernel_sha256"], "teacher_max_abs_error": parity_error,
         "source_max_abs_error": reconstruction_error, "pool_count": len(unlabeled),
         "seed_accuracy": float(np.mean(observed == truth[labeled])),
-        "supported_classes": int(np.count_nonzero(quotas)),
-        "arms": {},
+        "arms": summarize(full, predicted, correct, fraction, margin, classes),
+        "top10": summarize(top10, predicted, correct, fraction, margin, classes),
     }
-    for arm, selection in selections.items():
-        np.testing.assert_equal(quotas, np.bincount(predicted[selection], minlength=classes))
-        hits = np.bincount(predicted[selection & correct], minlength=classes)
-        result["arms"][arm] = {
-            "admitted": int(selection.sum()),
-            "precision": float(correct[selection].mean()),
-            "macro_precision": float(np.mean(hits[quotas > 0] / quotas[quotas > 0])),
-            "replaced": int(np.sum(selection & ~admitted)),
-            "mean_anchor_fraction": float(fraction[selection].mean()),
-            "stable_fraction": float((margin[selection] > 0).mean()),
-        }
 
     output.mkdir(parents=True, exist_ok=True)
     if (output / "summary.json").exists():
         raise FileExistsError(f"Completed output already exists: {output}")
     with (output / "membership.npz.tmp").open("wb") as stream:
-        np.savez_compressed(stream, **{arm: np.flatnonzero(mask) for arm, mask in selections.items()})
+        np.savez_compressed(stream, winning_share=winning_share,
+                            **{arm: np.flatnonzero(mask) for arm, mask in full.items()},
+                            **{f"top10_{arm}": np.flatnonzero(mask) for arm, mask in top10.items()})
     (output / "membership.npz.tmp").replace(output / "membership.npz")
     temporary = output / "summary.json.tmp"
     temporary.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n")
     temporary.replace(output / "summary.json")
+    return result
+
+
+def summarize(selections, predicted, correct, fraction, margin, classes):
+    reference = selections["reference"]
+    quotas = np.bincount(predicted[reference], minlength=classes)
+    result = {}
+    for arm, selection in selections.items():
+        np.testing.assert_equal(quotas, np.bincount(predicted[selection], minlength=classes))
+        hits = np.bincount(predicted[selection & correct], minlength=classes)
+        result[arm] = {
+            "admitted": int(selection.sum()),
+            "precision": float(correct[selection].mean()),
+            "macro_precision": float(np.mean(hits[quotas > 0] / quotas[quotas > 0])),
+            "replaced": int(np.sum(selection & ~reference)),
+            "mean_anchor_fraction": float(fraction[selection].mean()),
+            "stable_fraction": float((margin[selection] > 0).mean()),
+        }
     return result
 
 
@@ -146,11 +167,20 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     case = parser.add_mutually_exclusive_group(required=True)
     case.add_argument("--index", type=int, choices=range(len(CELLS)))
+    case.add_argument("--budget", type=int, choices=BUDGETS)
     case.add_argument("--pilot", action="store_true")
     args = parser.parse_args()
-    selected = ((200, "sym50"), (1000, "sym50")) if args.pilot else (CELLS[args.index],)
+    if args.pilot:
+        selected = ((200, "sym50"), (1000, "sym50"))
+    elif args.budget:
+        selected = tuple((args.budget, condition) for condition in CONDITIONS)
+    else:
+        selected = (CELLS[args.index],)
     for budget, condition in selected:
         output = args.output / f"b{budget}_{condition}"
+        if (output / "summary.json").is_file():
+            continue
+        print(f"Replaying {output.name}", flush=True)
         result = run_case(args.archive, output, budget, condition)
         print(json.dumps(result, allow_nan=False), flush=True)
 

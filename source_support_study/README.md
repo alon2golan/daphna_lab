@@ -18,6 +18,8 @@ Use the saved Itai protected five-update checkpoints over CIFAR-100 BYOL. Replay
 
 Fixed masks make the deletion calculation exact for the resulting linear operator. A full rerun could change the sender and receiver gates. The interpretive claim is about the dependence of the saved predictions on their sources.
 
+After the pilot showed that the full gate can admit the entire pool, we added one equal-count diagnostic before the full sweep. Use the most confident 10% of the unlabeled pool to set per-predicted-class quotas, then rerank against those quotas. This measures precision when only a small subset can be distilled.
+
 ## Related work
 
 - VAST propagates class evidence in a frozen representation and distills the result into an inductive student. [David and Weinshall, 2026](https://arxiv.org/abs/2609.14451)
@@ -35,3 +37,18 @@ python -m source_support_study.replay --archive "$fixed_depth_study" \
 ```
 
 Indices 0 through 19 follow budget-major order. Each case produces an aggregate JSON file and a separate NPZ of admitted CIFAR row IDs. The checksums and teacher reconstruction errors are recorded per case.
+
+## Experiment 2 · Matched student with a 10% shortlist
+
+The exact replay motivated a downstream test because the shortlist improved under both symmetric noise rates and declined at asymmetric 50%. Compare the confidence and deletion-margin shortlists with identical predicted-class counts. Fit the original VAST MLP for 300 epochs in both arms. Targets, observed-label cross-entropy, loss weights, optimizer steps and the clean validation schedule are shared. The choice of admitted unlabeled rows is the intervention.
+
+Run symmetric 50% at 500 and 1,000 annotations, plus clean and asymmetric 50% controls at 1,000. These cells were selected after reviewing pseudo-label precision. Both arms are compared on the same 10,000 held-out test images, with one seed. The archived full-gate MLP has a different training set and exposure and serves as context for the shortlist comparison.
+
+For local execution in the pinned CUDA environment, use `python -m source_support_study.student --archive "$fixed_depth_study" --output "$new_results" --index 0`. See `student.sbatch` for the cluster command. The code regenerates the shortlist and uses the archived student and verification routines.
+
+| Experiment | Slurm job | Scope |
+|---|---:|---|
+| Replay pilot | 32667663 | Two symmetric-50 cells |
+| Full replay | 32667824 | Four budgets × five conditions |
+| Student pilot | 32667947 | Two-epoch smoke fits |
+| Matched student | 32668024 | Four cells × two 300-epoch fits |
