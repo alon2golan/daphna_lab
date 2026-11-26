@@ -1,0 +1,197 @@
+{
+  "source_sha256": "bfbb78419f767fd0faf23134f97280ba5039503fceaa79b1a2413db48de559ef",
+  "cases": [
+    {
+      "case": "b800_sym0",
+      "budget": 800,
+      "condition": "sym0",
+      "admitted": 19768,
+      "original_sha256": "c4b9452ff43c797c211f88f12cafa1fb2afc654ca594137f7b368948fd8ab3c7",
+      "sqrt_sha256": "f1e525f0d16cf1592d5acdf17616149dd41aa1f3dd9e98facc9d04cf17351df3",
+      "arms": {
+        "raw": {
+          "entropy_nats": 1.0678441998029737,
+          "mean_true_class_probability": 0.7218058403207639,
+          "negative_log_likelihood": 0.7345537446587307,
+          "mean_top_probability": 0.7980807523387482,
+          "correct": 17013
+        },
+        "sqrt": {
+          "entropy_nats": 1.6557613848955188,
+          "mean_true_class_probability": 0.6109093463087504,
+          "negative_log_likelihood": 0.8633561045168678,
+          "mean_top_probability": 0.6544498628045337,
+          "correct": 17025
+        }
+      }
+    },
+    {
+      "case": "b800_sym30",
+      "budget": 800,
+      "condition": "sym30",
+      "admitted": 17557,
+      "original_sha256": "fb1f30307a346d185842c981181b29885531ae9588e5372be40e5be5f77ed994",
+      "sqrt_sha256": "745587e7aedbe4d6c7d82905d0a25358f6002f411c98ef35c2652e9b7b74f342",
+      "arms": {
+        "raw": {
+          "entropy_nats": 1.2418254826885577,
+          "mean_true_class_probability": 0.5696331295214768,
+          "negative_log_likelihood": 1.2195541302150705,
+          "mean_top_probability": 0.6979968167971715,
+          "correct": 13094
+        },
+        "sqrt": {
+          "entropy_nats": 2.1861840321810413,
+          "mean_true_class_probability": 0.43642911371880627,
+          "negative_log_likelihood": 1.3754311043479666,
+          "mean_top_probability": 0.5037090346826544,
+          "correct": 13749
+        }
+      }
+    },
+    {
+      "case": "b800_sym50",
+      "budget": 800,
+      "condition": "sym50",
+      "admitted": 11833,
+      "original_sha256": "122b454e97ba9f49e6c621021b6a068f1b7e1d2326eff602ae934706ba6dd8fc",
+      "sqrt_sha256": "6b1f23c5c82b509061fb104cb68552bc93645ac06eeeeb455ac0aa24e06df6a3",
+      "arms": {
+        "raw": {
+          "entropy_nats": 1.12730698312769,
+          "mean_true_class_probability": 0.4911848266443548,
+          "negative_log_likelihood": 1.8463006842349428,
+          "mean_top_probability": 0.7172182587731835,
+          "correct": 7519
+        },
+        "sqrt": {
+          "entropy_nats": 2.1784483783168658,
+          "mean_true_class_probability": 0.37039386751902814,
+          "negative_log_likelihood": 1.8163774902773147,
+          "mean_top_probability": 0.4942725155189939,
+          "correct": 7876
+        }
+      }
+    },
+    {
+      "case": "b800_asym50",
+      "budget": 800,
+      "condition": "asym50",
+      "admitted": 15056,
+      "original_sha256": "2e053928147800ccaa8075a06cef85d7e07a3f39770e22d2af0bbd1328336a5c",
+      "sqrt_sha256": "cb2a99d0eed1fc627c9effa68b16788fa049f36788127039d46ae47e2eff5965",
+      "arms": {
+        "raw": {
+          "entropy_nats": 1.0185129283103465,
+          "mean_true_class_probability": 0.4178804184403255,
+          "negative_log_likelihood": 1.9699583790377062,
+          "mean_top_probability": 0.7458160167973683,
+          "correct": 6757
+        },
+        "sqrt": {
+          "entropy_nats": 1.9354982389200064,
+          "mean_true_class_probability": 0.33399445665902816,
+          "negative_log_likelihood": 1.910831233615527,
+          "mean_top_probability": 0.5463358851616824,
+          "correct": 6702
+        }
+      }
+    },
+    {
+      "case": "b1200_sym0",
+      "budget": 1200,
+      "condition": "sym0",
+      "admitted": 22816,
+      "original_sha256": "a384d7c822e4545c576fadf05eeb97c1dc1ee72920c72cefd49e3f60a483bd69",
+      "sqrt_sha256": "526dda74c08224ffe7e933064b2d413dc0b01f46e0016af748165c4c73e527d5",
+      "arms": {
+        "raw": {
+          "entropy_nats": 1.1476098988145387,
+          "mean_true_class_probability": 0.694121906929083,
+          "negative_log_likelihood": 0.712099673309037,
+          "mean_top_probability": 0.7583165207360499,
+          "correct": 19552
+        },
+        "sqrt": {
+          "entropy_nats": 1.777051938077664,
+          "mean_true_class_probability": 0.5870360985606428,
+          "negative_log_likelihood": 0.8945337207703615,
+          "mean_top_probability": 0.6230563834372602,
+          "correct": 19529
+        }
+      }
+    },
+    {
+      "case": "b1200_sym30",
+      "budget": 1200,
+      "condition": "sym30",
+      "admitted": 16879,
+      "original_sha256": "996a83e2c8073c84c9d0d329da1f8c1c25f6091623f66d0f1c0e5f69945c3f19",
+      "sqrt_sha256": "c1b372268621528a6edd0a3db30f46054cd03fd057eda07bc1c0edfe3b807886",
+      "arms": {
+        "raw": {
+          "entropy_nats": 1.2704305163929601,
+          "mean_true_class_probability": 0.5884371284801233,
+          "negative_log_likelihood": 1.036445615063797,
+          "mean_top_probability": 0.6806166517184705,
+          "correct": 13726
+        },
+        "sqrt": {
+          "entropy_nats": 2.23139713332269,
+          "mean_true_class_probability": 0.4534758986550203,
+          "negative_log_likelihood": 1.2537196861538058,
+          "mean_top_probability": 0.5017668519709159,
+          "correct": 14164
+        }
+      }
+    },
+    {
+      "case": "b1200_sym50",
+      "budget": 1200,
+      "condition": "sym50",
+      "admitted": 43800,
+      "original_sha256": "c521c3704ca1aef8bfedaa130d7235320eb394cc8753bf9d187af91fef0a3815",
+      "sqrt_sha256": "2e76430ff51b1c95d5ae443e07269082db97e18e1b0e6683288d448cea7a174d",
+      "arms": {
+        "raw": {
+          "entropy_nats": 2.4499139407033854,
+          "mean_true_class_probability": 0.237060273551428,
+          "negative_log_likelihood": 2.447686595294892,
+          "mean_top_probability": 0.34500858390082917,
+          "correct": 17814
+        },
+        "sqrt": {
+          "entropy_nats": 3.560190825702205,
+          "mean_true_class_probability": 0.15584019939143076,
+          "negative_log_likelihood": 2.645040424513782,
+          "mean_top_probability": 0.1917774502986183,
+          "correct": 21911
+        }
+      }
+    },
+    {
+      "case": "b1200_asym50",
+      "budget": 1200,
+      "condition": "asym50",
+      "admitted": 11564,
+      "original_sha256": "2787e5dce6b18bc66b232d6df6c995d29200a0cd870a7c53a166b8f010073090",
+      "sqrt_sha256": "8de3796f0c404e845c6ff0e73fe388c78920b4f109ec8c92f14b7ceb803e2801",
+      "arms": {
+        "raw": {
+          "entropy_nats": 0.9947241018200518,
+          "mean_true_class_probability": 0.4413715245912945,
+          "negative_log_likelihood": 1.7427959766151517,
+          "mean_top_probability": 0.7376781717143805,
+          "correct": 5820
+        },
+        "sqrt": {
+          "entropy_nats": 1.9117603885090804,
+          "mean_true_class_probability": 0.3479540851374789,
+          "negative_log_likelihood": 1.7384120953123459,
+          "mean_top_probability": 0.543513221228099,
+          "correct": 5887
+        }
+      }
+    }
+  ]
+}

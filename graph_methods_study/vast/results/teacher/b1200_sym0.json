@@ -1,0 +1,25 @@
+{
+  "case": "b1200_sym0",
+  "budget": 1200,
+  "condition": "sym0",
+  "depth": 5,
+  "seed": 0,
+  "graph_sha256": "0d00e08aca15ec2da37c9b99441477c4d0ebea7a0477b37751d8833d2dc4ce69",
+  "original_sha256": "a384d7c822e4545c576fadf05eeb97c1dc1ee72920c72cefd49e3f60a483bd69",
+  "revised_sha256": "526dda74c08224ffe7e933064b2d413dc0b01f46e0016af748165c4c73e527d5",
+  "reconstruction_error": 5.332288299797483e-07,
+  "rows": {
+    "unlabeled": {
+      "samples": 43800,
+      "raw": 26120,
+      "sqrt": 26522,
+      "changed": 6119
+    },
+    "admitted": {
+      "samples": 22816,
+      "raw": 19552,
+      "sqrt": 19529,
+      "changed": 648
+    }
+  }
+}

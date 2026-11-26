@@ -1,0 +1,34 @@
+{
+  "case": "b800_asym50",
+  "budget": 800,
+  "condition": "asym50",
+  "seed": 0,
+  "depth": 5,
+  "epochs": 300,
+  "optimizer_steps": 47700,
+  "n_labeled": 800,
+  "n_admitted": 15056,
+  "revision": "9e70f229c6eefba74ec887b2d9fe8589227792ef",
+  "config_sha256": "801b656f46c9ed9530de2d1a473671cc927f696270dc741dea034ce537c7dc1f",
+  "test_count": 10000,
+  "original_target_sha256": "2e053928147800ccaa8075a06cef85d7e07a3f39770e22d2af0bbd1328336a5c",
+  "sqrt_target_sha256": "cb2a99d0eed1fc627c9effa68b16788fa049f36788127039d46ae47e2eff5965",
+  "source_sha256": "7f15c97fb3a80390212f665097dc27f37119ae8b275dfbae7ac089b3862952cb",
+  "archived_reference": {
+    "test_accuracy_percent": 29.29,
+    "best_epoch": 10,
+    "validation_accuracy_percent": 31.47999885559082,
+    "checkpoint_sha256": "55f79a89ebb1fc3685358a42e645fb3680d0658b3f486917fe1764de71b7e285",
+    "prediction_sha256": "fcad75d54f24e64bc9f0bbf7eb35f0fe7b4530e7d24dc72f25db657f4269c4f8",
+    "result_sha256": "68801a8c059ffbd8017c44d6f8f223783153e7292a05887efbff773193b1b97f"
+  },
+  "gpu": "NVIDIA GeForce RTX 2080 Ti",
+  "sqrt": {
+    "test_accuracy_percent": 28.76,
+    "best_epoch": 4,
+    "validation_accuracy_percent": 30.879999618530277,
+    "checkpoint_sha256": "0fbb50110846ff9c4146f0953ce51a8c032f86242241a39d5b5aadc9c33e1df0",
+    "prediction_sha256": "775eb5d1a15744bbb21d27d4bebe3b08ccd78f2fbe47c1eb5b3a23945b19faf2",
+    "result_sha256": "fb5a323eeaf72b0037765c0e9b599ff8b200a9fb458efa5a2e24d36553d09c5b"
+  }
+}

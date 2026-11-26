@@ -1,0 +1,1258 @@
+{
+  "seed": 13,
+  "test_count": 10000,
+  "geometry_sha256": "486509610f2947676c2bf5dfc7d3e6950e79805580290f9ca0d54790058e682b",
+  "acquisition_sha256": "c2ae3808a07fc373950ae7f8c1514f4ae7cfc23b5d7f1b12be6d49080ed0ba18",
+  "human_sha256": "fbe91e5598e2311cdd78a17f0123c76b4000446c044027f5584f096597fe5319",
+  "source_sha256": "3a6dd51f4eccb951e294e1deac96ad50df44a4363d21fbd9f06401978660c1fd",
+  "rows": [
+    {
+      "budget": 200,
+      "condition": "clean",
+      "fixed": {
+        "1": 4317,
+        "2": 4469,
+        "3": 4797,
+        "4": 4935,
+        "5": 5010,
+        "6": 5061
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 4856,
+          "selected_depths": [
+            1842,
+            4391,
+            1980,
+            679,
+            331,
+            777
+          ]
+        },
+        "standardized_margin": {
+          "correct": 4856,
+          "selected_depths": [
+            1166,
+            2986,
+            1763,
+            925,
+            520,
+            2640
+          ]
+        }
+      },
+      "published_3": 4534,
+      "equal_source_mass": 4768,
+      "oracle": 5440
+    },
+    {
+      "budget": 200,
+      "condition": "sym30",
+      "fixed": {
+        "1": 3055,
+        "2": 3220,
+        "3": 3502,
+        "4": 3649,
+        "5": 3740,
+        "6": 3784
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3540,
+          "selected_depths": [
+            1830,
+            4244,
+            2010,
+            698,
+            338,
+            880
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3540,
+          "selected_depths": [
+            1491,
+            3473,
+            1795,
+            804,
+            464,
+            1973
+          ]
+        }
+      },
+      "published_3": 3393,
+      "equal_source_mass": 3433,
+      "oracle": 4185
+    },
+    {
+      "budget": 200,
+      "condition": "sym40",
+      "fixed": {
+        "1": 2638,
+        "2": 2777,
+        "3": 3033,
+        "4": 3169,
+        "5": 3249,
+        "6": 3301
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3041,
+          "selected_depths": [
+            1829,
+            4206,
+            2012,
+            715,
+            320,
+            918
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3041,
+          "selected_depths": [
+            1591,
+            3604,
+            1785,
+            786,
+            449,
+            1785
+          ]
+        }
+      },
+      "published_3": 2920,
+      "equal_source_mass": 2953,
+      "oracle": 3677
+    },
+    {
+      "budget": 200,
+      "condition": "sym50",
+      "fixed": {
+        "1": 2358,
+        "2": 2457,
+        "3": 2689,
+        "4": 2798,
+        "5": 2881,
+        "6": 2931
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 2704,
+          "selected_depths": [
+            1829,
+            4170,
+            2027,
+            700,
+            324,
+            950
+          ]
+        },
+        "standardized_margin": {
+          "correct": 2704,
+          "selected_depths": [
+            1668,
+            3712,
+            1799,
+            771,
+            438,
+            1612
+          ]
+        }
+      },
+      "published_3": 2601,
+      "equal_source_mass": 2608,
+      "oracle": 3336
+    },
+    {
+      "budget": 200,
+      "condition": "asym30",
+      "fixed": {
+        "1": 3080,
+        "2": 3213,
+        "3": 3467,
+        "4": 3575,
+        "5": 3628,
+        "6": 3666
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3485,
+          "selected_depths": [
+            1838,
+            4338,
+            1989,
+            687,
+            300,
+            848
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3485,
+          "selected_depths": [
+            1322,
+            3210,
+            1725,
+            852,
+            475,
+            2416
+          ]
+        }
+      },
+      "published_3": 3296,
+      "equal_source_mass": 3400,
+      "oracle": 4037
+    },
+    {
+      "budget": 200,
+      "condition": "asym40",
+      "fixed": {
+        "1": 2374,
+        "2": 2492,
+        "3": 2665,
+        "4": 2705,
+        "5": 2721,
+        "6": 2736
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 2673,
+          "selected_depths": [
+            1831,
+            4277,
+            1963,
+            696,
+            311,
+            922
+          ]
+        },
+        "standardized_margin": {
+          "correct": 2673,
+          "selected_depths": [
+            1414,
+            3353,
+            1719,
+            850,
+            492,
+            2172
+          ]
+        }
+      },
+      "published_3": 2530,
+      "equal_source_mass": 2635,
+      "oracle": 3215
+    },
+    {
+      "budget": 200,
+      "condition": "asym50",
+      "fixed": {
+        "1": 2091,
+        "2": 2181,
+        "3": 2323,
+        "4": 2351,
+        "5": 2345,
+        "6": 2359
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 2330,
+          "selected_depths": [
+            1835,
+            4295,
+            1995,
+            698,
+            304,
+            873
+          ]
+        },
+        "standardized_margin": {
+          "correct": 2330,
+          "selected_depths": [
+            1429,
+            3376,
+            1705,
+            844,
+            492,
+            2154
+          ]
+        }
+      },
+      "published_3": 2197,
+      "equal_source_mass": 2291,
+      "oracle": 2850
+    },
+    {
+      "budget": 200,
+      "condition": "cifar100n",
+      "fixed": {
+        "1": 3466,
+        "2": 3580,
+        "3": 3817,
+        "4": 3937,
+        "5": 3986,
+        "6": 4020
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3858,
+          "selected_depths": [
+            1841,
+            4326,
+            1948,
+            675,
+            313,
+            897
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3858,
+          "selected_depths": [
+            1321,
+            3155,
+            1772,
+            852,
+            495,
+            2405
+          ]
+        }
+      },
+      "published_3": 3605,
+      "equal_source_mass": 3817,
+      "oracle": 4378
+    },
+    {
+      "budget": 400,
+      "condition": "clean",
+      "fixed": {
+        "1": 4821,
+        "2": 5075,
+        "3": 5400,
+        "4": 5501,
+        "5": 5573,
+        "6": 5591
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 5371,
+          "selected_depths": [
+            2855,
+            4612,
+            1203,
+            323,
+            208,
+            799
+          ]
+        },
+        "standardized_margin": {
+          "correct": 5371,
+          "selected_depths": [
+            1225,
+            2484,
+            1308,
+            671,
+            557,
+            3755
+          ]
+        }
+      },
+      "published_3": 5356,
+      "equal_source_mass": 5322,
+      "oracle": 6043
+    },
+    {
+      "budget": 400,
+      "condition": "sym30",
+      "fixed": {
+        "1": 3454,
+        "2": 3675,
+        "3": 4067,
+        "4": 4247,
+        "5": 4415,
+        "6": 4473
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3997,
+          "selected_depths": [
+            2815,
+            4379,
+            1238,
+            347,
+            231,
+            990
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3997,
+          "selected_depths": [
+            2025,
+            3160,
+            1261,
+            558,
+            397,
+            2599
+          ]
+        }
+      },
+      "published_3": 4031,
+      "equal_source_mass": 3911,
+      "oracle": 4932
+    },
+    {
+      "budget": 400,
+      "condition": "sym40",
+      "fixed": {
+        "1": 2923,
+        "2": 3137,
+        "3": 3484,
+        "4": 3670,
+        "5": 3830,
+        "6": 3901
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3428,
+          "selected_depths": [
+            2805,
+            4355,
+            1280,
+            356,
+            228,
+            976
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3428,
+          "selected_depths": [
+            2238,
+            3389,
+            1267,
+            514,
+            397,
+            2195
+          ]
+        }
+      },
+      "published_3": 3447,
+      "equal_source_mass": 3313,
+      "oracle": 4337
+    },
+    {
+      "budget": 400,
+      "condition": "sym50",
+      "fixed": {
+        "1": 2548,
+        "2": 2714,
+        "3": 3026,
+        "4": 3192,
+        "5": 3339,
+        "6": 3408
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 2962,
+          "selected_depths": [
+            2801,
+            4329,
+            1327,
+            402,
+            227,
+            914
+          ]
+        },
+        "standardized_margin": {
+          "correct": 2962,
+          "selected_depths": [
+            2432,
+            3550,
+            1289,
+            535,
+            387,
+            1807
+          ]
+        }
+      },
+      "published_3": 2997,
+      "equal_source_mass": 2866,
+      "oracle": 3896
+    },
+    {
+      "budget": 400,
+      "condition": "asym30",
+      "fixed": {
+        "1": 3403,
+        "2": 3606,
+        "3": 3840,
+        "4": 3920,
+        "5": 3968,
+        "6": 3980
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3773,
+          "selected_depths": [
+            2846,
+            4484,
+            1263,
+            376,
+            206,
+            825
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3773,
+          "selected_depths": [
+            1669,
+            3022,
+            1285,
+            654,
+            472,
+            2898
+          ]
+        }
+      },
+      "published_3": 3820,
+      "equal_source_mass": 3747,
+      "oracle": 4563
+    },
+    {
+      "budget": 400,
+      "condition": "asym40",
+      "fixed": {
+        "1": 2833,
+        "2": 2981,
+        "3": 3133,
+        "4": 3153,
+        "5": 3181,
+        "6": 3175
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3090,
+          "selected_depths": [
+            2825,
+            4414,
+            1246,
+            387,
+            220,
+            908
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3090,
+          "selected_depths": [
+            1835,
+            3100,
+            1247,
+            629,
+            466,
+            2723
+          ]
+        }
+      },
+      "published_3": 3113,
+      "equal_source_mass": 3093,
+      "oracle": 3904
+    },
+    {
+      "budget": 400,
+      "condition": "asym50",
+      "fixed": {
+        "1": 2433,
+        "2": 2553,
+        "3": 2642,
+        "4": 2653,
+        "5": 2665,
+        "6": 2655
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 2614,
+          "selected_depths": [
+            2825,
+            4439,
+            1289,
+            362,
+            218,
+            867
+          ]
+        },
+        "standardized_margin": {
+          "correct": 2614,
+          "selected_depths": [
+            1874,
+            3138,
+            1309,
+            603,
+            445,
+            2631
+          ]
+        }
+      },
+      "published_3": 2627,
+      "equal_source_mass": 2603,
+      "oracle": 3415
+    },
+    {
+      "budget": 400,
+      "condition": "cifar100n",
+      "fixed": {
+        "1": 3940,
+        "2": 4129,
+        "3": 4363,
+        "4": 4501,
+        "5": 4575,
+        "6": 4622
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 4391,
+          "selected_depths": [
+            2834,
+            4477,
+            1271,
+            336,
+            213,
+            869
+          ]
+        },
+        "standardized_margin": {
+          "correct": 4391,
+          "selected_depths": [
+            1701,
+            2858,
+            1304,
+            606,
+            450,
+            3081
+          ]
+        }
+      },
+      "published_3": 4336,
+      "equal_source_mass": 4340,
+      "oracle": 5122
+    },
+    {
+      "budget": 800,
+      "condition": "clean",
+      "fixed": {
+        "1": 5049,
+        "2": 5430,
+        "3": 5633,
+        "4": 5695,
+        "5": 5710,
+        "6": 5709
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 5627,
+          "selected_depths": [
+            4402,
+            3476,
+            857,
+            277,
+            189,
+            799
+          ]
+        },
+        "standardized_margin": {
+          "correct": 5627,
+          "selected_depths": [
+            1596,
+            1700,
+            1119,
+            722,
+            552,
+            4311
+          ]
+        }
+      },
+      "published_3": 5633,
+      "equal_source_mass": 5608,
+      "oracle": 6292
+    },
+    {
+      "budget": 800,
+      "condition": "sym30",
+      "fixed": {
+        "1": 3585,
+        "2": 3988,
+        "3": 4374,
+        "4": 4562,
+        "5": 4650,
+        "6": 4698
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 4333,
+          "selected_depths": [
+            4253,
+            3238,
+            929,
+            285,
+            209,
+            1086
+          ]
+        },
+        "standardized_margin": {
+          "correct": 4333,
+          "selected_depths": [
+            2657,
+            2107,
+            1065,
+            591,
+            452,
+            3128
+          ]
+        }
+      },
+      "published_3": 4374,
+      "equal_source_mass": 4246,
+      "oracle": 5336
+    },
+    {
+      "budget": 800,
+      "condition": "sym40",
+      "fixed": {
+        "1": 2948,
+        "2": 3326,
+        "3": 3705,
+        "4": 3928,
+        "5": 4024,
+        "6": 4100
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3629,
+          "selected_depths": [
+            4209,
+            3257,
+            998,
+            303,
+            206,
+            1027
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3629,
+          "selected_depths": [
+            3116,
+            2376,
+            1055,
+            592,
+            415,
+            2446
+          ]
+        }
+      },
+      "published_3": 3705,
+      "equal_source_mass": 3549,
+      "oracle": 4721
+    },
+    {
+      "budget": 800,
+      "condition": "sym50",
+      "fixed": {
+        "1": 2480,
+        "2": 2794,
+        "3": 3161,
+        "4": 3389,
+        "5": 3490,
+        "6": 3582
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3093,
+          "selected_depths": [
+            4176,
+            3283,
+            1032,
+            319,
+            230,
+            960
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3093,
+          "selected_depths": [
+            3484,
+            2535,
+            1090,
+            556,
+            423,
+            1912
+          ]
+        }
+      },
+      "published_3": 3161,
+      "equal_source_mass": 2989,
+      "oracle": 4206
+    },
+    {
+      "budget": 800,
+      "condition": "asym30",
+      "fixed": {
+        "1": 3703,
+        "2": 4010,
+        "3": 4210,
+        "4": 4296,
+        "5": 4285,
+        "6": 4302
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 4152,
+          "selected_depths": [
+            4267,
+            3382,
+            910,
+            282,
+            195,
+            964
+          ]
+        },
+        "standardized_margin": {
+          "correct": 4152,
+          "selected_depths": [
+            2457,
+            2268,
+            1192,
+            604,
+            434,
+            3045
+          ]
+        }
+      },
+      "published_3": 4210,
+      "equal_source_mass": 4187,
+      "oracle": 5177
+    },
+    {
+      "budget": 800,
+      "condition": "asym40",
+      "fixed": {
+        "1": 3187,
+        "2": 3364,
+        "3": 3445,
+        "4": 3477,
+        "5": 3450,
+        "6": 3451
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3408,
+          "selected_depths": [
+            4228,
+            3336,
+            956,
+            280,
+            203,
+            997
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3408,
+          "selected_depths": [
+            2640,
+            2470,
+            1160,
+            597,
+            405,
+            2728
+          ]
+        }
+      },
+      "published_3": 3445,
+      "equal_source_mass": 3465,
+      "oracle": 4547
+    },
+    {
+      "budget": 800,
+      "condition": "asym50",
+      "fixed": {
+        "1": 2719,
+        "2": 2868,
+        "3": 2869,
+        "4": 2845,
+        "5": 2792,
+        "6": 2771
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 2819,
+          "selected_depths": [
+            4247,
+            3358,
+            945,
+            292,
+            200,
+            958
+          ]
+        },
+        "standardized_margin": {
+          "correct": 2819,
+          "selected_depths": [
+            2780,
+            2522,
+            1170,
+            583,
+            434,
+            2511
+          ]
+        }
+      },
+      "published_3": 2869,
+      "equal_source_mass": 2861,
+      "oracle": 3953
+    },
+    {
+      "budget": 800,
+      "condition": "cifar100n",
+      "fixed": {
+        "1": 3938,
+        "2": 4285,
+        "3": 4544,
+        "4": 4649,
+        "5": 4714,
+        "6": 4761
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 4529,
+          "selected_depths": [
+            4285,
+            3322,
+            967,
+            292,
+            204,
+            930
+          ]
+        },
+        "standardized_margin": {
+          "correct": 4529,
+          "selected_depths": [
+            2411,
+            2107,
+            1139,
+            627,
+            504,
+            3212
+          ]
+        }
+      },
+      "published_3": 4544,
+      "equal_source_mass": 4508,
+      "oracle": 5444
+    },
+    {
+      "budget": 1200,
+      "condition": "clean",
+      "fixed": {
+        "1": 5176,
+        "2": 5603,
+        "3": 5756,
+        "4": 5776,
+        "5": 5767,
+        "6": 5750
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 5702,
+          "selected_depths": [
+            5355,
+            2639,
+            743,
+            266,
+            198,
+            799
+          ]
+        },
+        "standardized_margin": {
+          "correct": 5702,
+          "selected_depths": [
+            1758,
+            1383,
+            1040,
+            817,
+            650,
+            4352
+          ]
+        }
+      },
+      "published_3": 5756,
+      "equal_source_mass": 5768,
+      "oracle": 6439
+    },
+    {
+      "budget": 1200,
+      "condition": "sym30",
+      "fixed": {
+        "1": 3717,
+        "2": 4311,
+        "3": 4685,
+        "4": 4861,
+        "5": 4905,
+        "6": 4924
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 4569,
+          "selected_depths": [
+            5046,
+            2469,
+            778,
+            304,
+            207,
+            1196
+          ]
+        },
+        "standardized_margin": {
+          "correct": 4569,
+          "selected_depths": [
+            2945,
+            1623,
+            978,
+            638,
+            547,
+            3269
+          ]
+        }
+      },
+      "published_3": 4685,
+      "equal_source_mass": 4655,
+      "oracle": 5647
+    },
+    {
+      "budget": 1200,
+      "condition": "sym40",
+      "fixed": {
+        "1": 3112,
+        "2": 3674,
+        "3": 4116,
+        "4": 4346,
+        "5": 4424,
+        "6": 4469
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3959,
+          "selected_depths": [
+            4946,
+            2536,
+            836,
+            327,
+            198,
+            1157
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3959,
+          "selected_depths": [
+            3499,
+            1841,
+            965,
+            604,
+            450,
+            2641
+          ]
+        }
+      },
+      "published_3": 4116,
+      "equal_source_mass": 4040,
+      "oracle": 5220
+    },
+    {
+      "budget": 1200,
+      "condition": "sym50",
+      "fixed": {
+        "1": 2661,
+        "2": 3111,
+        "3": 3557,
+        "4": 3751,
+        "5": 3868,
+        "6": 3943
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3398,
+          "selected_depths": [
+            4882,
+            2629,
+            890,
+            334,
+            206,
+            1059
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3398,
+          "selected_depths": [
+            3891,
+            2021,
+            983,
+            557,
+            455,
+            2093
+          ]
+        }
+      },
+      "published_3": 3557,
+      "equal_source_mass": 3474,
+      "oracle": 4706
+    },
+    {
+      "budget": 1200,
+      "condition": "asym30",
+      "fixed": {
+        "1": 3838,
+        "2": 4247,
+        "3": 4444,
+        "4": 4486,
+        "5": 4510,
+        "6": 4507
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 4327,
+          "selected_depths": [
+            5077,
+            2630,
+            819,
+            302,
+            196,
+            976
+          ]
+        },
+        "standardized_margin": {
+          "correct": 4327,
+          "selected_depths": [
+            2848,
+            1940,
+            1166,
+            669,
+            441,
+            2936
+          ]
+        }
+      },
+      "published_3": 4444,
+      "equal_source_mass": 4416,
+      "oracle": 5496
+    },
+    {
+      "budget": 1200,
+      "condition": "asym40",
+      "fixed": {
+        "1": 3329,
+        "2": 3592,
+        "3": 3662,
+        "4": 3670,
+        "5": 3639,
+        "6": 3621
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 3574,
+          "selected_depths": [
+            5013,
+            2664,
+            835,
+            295,
+            199,
+            994
+          ]
+        },
+        "standardized_margin": {
+          "correct": 3574,
+          "selected_depths": [
+            3152,
+            2146,
+            1119,
+            575,
+            406,
+            2602
+          ]
+        }
+      },
+      "published_3": 3662,
+      "equal_source_mass": 3750,
+      "oracle": 4888
+    },
+    {
+      "budget": 1200,
+      "condition": "asym50",
+      "fixed": {
+        "1": 2857,
+        "2": 3001,
+        "3": 2961,
+        "4": 2926,
+        "5": 2854,
+        "6": 2818
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 2919,
+          "selected_depths": [
+            5032,
+            2664,
+            809,
+            313,
+            176,
+            1006
+          ]
+        },
+        "standardized_margin": {
+          "correct": 2919,
+          "selected_depths": [
+            3381,
+            2132,
+            1111,
+            580,
+            414,
+            2382
+          ]
+        }
+      },
+      "published_3": 2961,
+      "equal_source_mass": 3042,
+      "oracle": 4248
+    },
+    {
+      "budget": 1200,
+      "condition": "cifar100n",
+      "fixed": {
+        "1": 3978,
+        "2": 4431,
+        "3": 4715,
+        "4": 4857,
+        "5": 4893,
+        "6": 4922
+      },
+      "methods": {
+        "raw_margin": {
+          "correct": 4651,
+          "selected_depths": [
+            5087,
+            2602,
+            792,
+            271,
+            185,
+            1063
+          ]
+        },
+        "standardized_margin": {
+          "correct": 4651,
+          "selected_depths": [
+            2677,
+            1734,
+            1063,
+            629,
+            491,
+            3406
+          ]
+        }
+      },
+      "published_3": 4715,
+      "equal_source_mass": 4710,
+      "oracle": 5662
+    }
+  ]
+}

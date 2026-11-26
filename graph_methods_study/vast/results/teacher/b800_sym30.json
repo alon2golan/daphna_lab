@@ -1,0 +1,25 @@
+{
+  "case": "b800_sym30",
+  "budget": 800,
+  "condition": "sym30",
+  "depth": 5,
+  "seed": 0,
+  "graph_sha256": "0d00e08aca15ec2da37c9b99441477c4d0ebea7a0477b37751d8833d2dc4ce69",
+  "original_sha256": "fb1f30307a346d185842c981181b29885531ae9588e5372be40e5be5f77ed994",
+  "revised_sha256": "745587e7aedbe4d6c7d82905d0a25358f6002f411c98ef35c2652e9b7b74f342",
+  "reconstruction_error": 4.771703594474985e-07,
+  "rows": {
+    "unlabeled": {
+      "samples": 44200,
+      "raw": 21383,
+      "sqrt": 23771,
+      "changed": 8970
+    },
+    "admitted": {
+      "samples": 17557,
+      "raw": 13094,
+      "sqrt": 13749,
+      "changed": 1153
+    }
+  }
+}
