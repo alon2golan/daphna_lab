@@ -41,3 +41,7 @@ The CIFAR-100N follow-up varied acquisition seeds while holding the human annota
 LOO audits beat the greedy footprint on held-out graph accuracy in all five repeats at each budget. With 800 initial labels, LOO added 4.38 points over the initial labels and 3.73 points over buying the next 80 labels clean. The same choices on cosine 1NN gave 39.49%, 40.26%, and 43.60% for no audit, fresh clean, and LOO audit. The synthetic footprint gain was specific to severe corruption under the graph learner. The comparative benefit of verifying existing labels over expanding transferred to the human annotations.
 
 Slurm array `32668078` completed successfully and produced all 60 uniquely matched policy evaluations. The human replay source SHA256 is `f01a95358801019634840ba54bdc0cd51c29dfb68ebe15a721825ad01dad9ab6`. The verified human annotation archive SHA256 is `bd2d80409754d420292d622e15e25248ba21e37d27429efac49c8da723f44394`.
+
+## Follow-up
+
+The follow-up assessed whether a proposed prediction change agreed with the other annotations. It beat leave-one-out disagreement on the graph classifier in all five repeats of each of the three follow-up conditions. [Protocol](SIGNED_PROTOCOL.md) · [Full research report](../docs/NOISY_LABEL_RESEARCH_20261126.md)

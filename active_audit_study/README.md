@@ -26,3 +26,5 @@ There are 300 result rows with five seeds, two initial budgets, five noise setti
 ## CIFAR-100N follow-up
 
 The follow-up uses the same method, acquisition orders, test targets and geometry with the fixed CIFAR-100N human annotation vector. Seed variation here comes from acquisition. The loader checks the historical annotation file checksum, uses restricted weights-only PyTorch deserialization and verifies all 50,000 clean labels against the frozen BYOL training order before using the annotation vector. To run, place the source and `run_human.slurm.sh` in a fresh child directory of the synthetic replay. Use a 5-task array and limit concurrency to three tasks. Collect results with `python collect.py PATH --human-labels`.
+
+The signed follow-up used new acquisition seeds and added a signed estimate of the downstream utility. See the [follow-up protocol](SIGNED_PROTOCOL.md) and the [research report](../docs/NOISY_LABEL_RESEARCH_20261126.md).

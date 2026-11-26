@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from active_audit import aligned_human_annotations, coverage_order, leave_one_out, path_counts, rank_audits
+from active_audit import aligned_human_annotations, coverage_order, leave_one_out, path_counts, rank_audits, signed_peer_utility
 
 
 class ActiveAuditTests(unittest.TestCase):
@@ -31,6 +31,12 @@ class ActiveAuditTests(unittest.TestCase):
         fixture = {'clean_label': np.array([1, 2]), 'noisy_label': np.array([3, 4])}
         with self.assertRaises(AssertionError):
             aligned_human_annotations(fixture, truth)
+
+    def test_signed_utility_debits_flips_against_other_annotations(self):
+        votes = np.array([[4], [3], [4], [5]])
+        scores = np.array([[7, 4, 2], [6, 2, 5], [4, 3, 6], [5, 0, 0]])
+        score = signed_peer_utility(votes, scores, np.array([0]), np.array([1]), np.array([.75]))
+        np.testing.assert_allclose(score, [.75 * (1 / 9 - 1 / 10 - 3 / 9)])
 
     def test_seeded_coverage_updates_remaining_marginal_gains(self):
         neighbors = np.array([[1], [0], [0], [2], [3]])

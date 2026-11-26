@@ -25,6 +25,9 @@ BUDGETS = (400, 800)
 DEPTH = 3
 CONDITIONS = (('clean', 0.), ('sym20', .2), ('sym50', .5), ('asym20', .2), ('asym50', .5))
 SEEDS = (0, 1, 2, 3, 4)
+SIGNED_SEEDS = (5, 6, 7, 8, 9)
+SIGNED_CONDITIONS = (('sym50', .5), ('asym50', .5)) + HUMAN_CONDITIONS
+SIGNED_BUDGETS = (800,)
 
 
 def sha256(path):
@@ -108,6 +111,27 @@ def counterfactual_footprints(votes, scores, observed, alternative):
         )
         footprints.append(candidates[changed])
     return footprints
+
+
+def signed_peer_utility(votes, scores, observed, alternative, suspicion):
+    """Value proposed argmax moves under posterior votes from other annotations."""
+    best = scores.argmax(1)
+    total = scores.sum(1)
+    utility = np.zeros(len(observed))
+    for anchor in np.flatnonzero(suspicion > 0):
+        original, rival = observed[anchor], alternative[anchor]
+        weight = votes[:, anchor]
+        peer_mass = total - weight
+        affected = np.flatnonzero((weight > 0) & (peer_mass > 0))
+        switched = scores[affected].copy()
+        switched[:, original] -= weight[affected]
+        switched[:, rival] += weight[affected]
+        before = best[affected]
+        after = switched.argmax(1)
+        before_peer = scores[affected, before] - weight[affected] * (before == original)
+        after_peer = scores[affected, after] - weight[affected] * (after == original)
+        utility[anchor] = suspicion[anchor] * ((after_peer - before_peer) / peer_mass[affected]).sum()
+    return utility
 
 
 def rank_audits(suspicion, footprints, pool_size, count):
@@ -208,7 +232,7 @@ def human_annotations(truth):
     return aligned_human_annotations(fixture, truth)
 
 
-def replay(seed, prepared, output, human=False):
+def replay(seed, prepared, output, human=False, signed=False):
     if output.exists():
         raise FileExistsError(output)
     with np.load(prepared, allow_pickle=False) as payload:
@@ -219,21 +243,26 @@ def replay(seed, prepared, output, human=False):
     clean = np.load(BANK / 'train_targets.npy', allow_pickle=False)
     truth = np.load(BANK / 'test_targets.npy', allow_pickle=False)
     eyes = np.eye(CLASSES, dtype=np.float32)
-    if human:
-        corrupted = {'cifar100n': human_annotations(clean)}
-        provenance['human_sha256'] = HUMAN_SHA256
-    else:
+    budgets = SIGNED_BUDGETS if signed else BUDGETS
+    conditions = SIGNED_CONDITIONS if signed else CONDITIONS
+    corrupted = {}
+    if not human:
         groups = list(json.loads(GROUPS.read_text()).values())
         if len(groups) != 20 or any(len(group) != 5 for group in groups) or sorted(sum(groups, [])) != list(range(CLASSES)):
             raise ValueError('Expected 20 disjoint groups of five CIFAR-100 classes')
         successor = np.empty(CLASSES, dtype=np.int64)
         for group in groups:
             successor[group] = np.roll(group, -1)
-        corrupted = {name: corrupt_labels(clean, name, rate, seed, successor) for name, rate in CONDITIONS}
+        for name, rate in conditions:
+            if name != 'cifar100n':
+                corrupted[name] = corrupt_labels(clean, name, rate, seed, successor)
         if seed == 0:
             for name, observed in corrupted.items():
                 np.testing.assert_array_equal(observed, np.load(PRIOR / f'{name}_observed.npy', allow_pickle=False))
-    order = coverage_order(neighbors, max(BUDGETS) * 11 // 10, seed)
+    if human or signed:
+        corrupted['cifar100n'] = human_annotations(clean)
+        provenance['human_sha256'] = HUMAN_SHA256
+    order = coverage_order(neighbors, max(budgets) * 11 // 10, seed)
     if len(np.unique(order)) != len(order):
         raise ValueError('Repeated acquisition')
     train_votes, test_votes = path_counts(neighbors, test_neighbors, order, DEPTH)
@@ -243,7 +272,7 @@ def replay(seed, prepared, output, human=False):
     if not np.isfinite(nearest).all() or np.any(train_votes < 0) or np.any(test_votes < 0):
         raise ValueError('Nonfinite similarities or path count overflow')
     results = []
-    for budget in BUDGETS:
+    for budget in budgets:
         extra = budget // 10
         used = budget + extra
         warm, fresh = order[:budget], order[budget:used]
@@ -264,10 +293,15 @@ def replay(seed, prepared, output, human=False):
             single, diverse = rank_audits(suspicion, footprints, len(influence), extra)
             random = np.random.default_rng(100_000 + seed * 10_000 + budget).choice(budget, extra, replace=False)
             loo = np.argsort(-suspicion, kind='stable')[:extra]
-            for policy, audits in (
+            policies = [
                 ('no_audit', np.empty(0, dtype=int)), ('random_audit', random), ('loo_audit', loo),
                 ('single_footprint', single), ('diverse_footprint', diverse), ('fresh_clean', np.empty(0, dtype=int)),
-            ):
+            ]
+            if signed:
+                utility = signed_peer_utility(influence, scores, observed, alternative, suspicion)
+                signed_order = np.lexsort((np.arange(budget), -suspicion, -utility))[:extra]
+                policies.append(('signed_peer', signed_order))
+            for policy, audits in policies:
                 # The clean oracle is accessed only after all actions are fixed.
                 labels = observed.copy()
                 labels[audits] = clean[rows[warm[audits]]]
@@ -305,15 +339,19 @@ def main():
     run.add_argument('graph', type=Path)
     run.add_argument('output', type=Path)
     run = commands.add_parser('replay')
-    run.add_argument('seed', type=int, choices=SEEDS)
+    run.add_argument('seed', type=int, choices=SEEDS + SIGNED_SEEDS)
     run.add_argument('prepared', type=Path)
     run.add_argument('output', type=Path)
-    run.add_argument('--human-labels', action='store_true')
+    modes = run.add_mutually_exclusive_group()
+    modes.add_argument('--human-labels', action='store_true')
+    modes.add_argument('--signed-study', action='store_true')
     args = parser.parse_args()
     if args.action == 'prepare':
         prepare(args.graph, args.output)
     else:
-        replay(args.seed, args.prepared, args.output, human=args.human_labels)
+        if args.signed_study != (args.seed in SIGNED_SEEDS):
+            parser.error('Seeds 5–9 are reserved for the signed study')
+        replay(args.seed, args.prepared, args.output, human=args.human_labels, signed=args.signed_study)
 
 
 if __name__ == '__main__':
