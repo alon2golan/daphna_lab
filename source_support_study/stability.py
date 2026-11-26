@@ -37,10 +37,12 @@ def source_stability(graph, labeled, labels, probabilities, masks, block_size=32
         raise ValueError(f"Source contributions did not reconstruct the teacher: {error:g}")
 
     fraction = largest / total
-    confidence = probabilities[np.arange(rows), predicted]
-    runner_up = np.partition(probabilities, -2, axis=1)[:, -2]
-    margin = (confidence - runner_up - fraction) / (1.0 - fraction)
-    winner_excess = class_mass[np.arange(rows), predicted]
+    row_ids = np.arange(rows)
+    winner_excess = class_mass[row_ids, predicted]
+    class_mass[row_ids, predicted] = -np.inf
+    runner_excess = class_mass.max(axis=1)
+    # Subtract in evidence space so an exact tie stays a tie after normalization.
+    margin = (winner_excess - largest - runner_excess) / (total - largest)
     winning_share = np.divide(largest, winner_excess, out=np.zeros_like(largest), where=winner_excess > 0)
     return margin, fraction, winning_share, error
 

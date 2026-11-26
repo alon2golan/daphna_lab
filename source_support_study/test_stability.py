@@ -43,6 +43,19 @@ class StabilityTests(unittest.TestCase):
         self.assertAlmostEqual(winning_share[5], .6 / (.6 + .18), places=6)
         self.assertLess(error, 1e-6)
 
+    def test_deleting_the_only_annotation_is_an_exact_tie(self):
+        # Across different edge weights, removing the only label leaves just the prior.
+        weights = np.linspace(.01, .99, 192, dtype=np.float32)
+        leaves = np.arange(1, len(weights) + 1)
+        zeros = np.zeros_like(leaves)
+        graph = csr_matrix((np.r_[weights, weights], (np.r_[zeros, leaves], np.r_[leaves, zeros])),
+                           shape=(len(weights) + 1,) * 2)
+        evidence = np.full((len(weights) + 1, 100), .01, dtype=np.float32)
+        evidence[1:, 0] += weights
+        probabilities = evidence / evidence.sum(axis=1, keepdims=True)
+        margin, _, _, _ = source_stability(graph, np.array([0]), np.array([0]), probabilities, [])
+        np.testing.assert_array_equal(margin[leaves], 0)
+
     def test_admission_matches_class_counts_and_excludes_other_rows(self):
         candidates = np.array([True, True, True, True, False, True, False, True])
         admitted = np.array([True, False, False, True, False, False, False, True])
