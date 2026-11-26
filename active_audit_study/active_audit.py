@@ -11,6 +11,9 @@ import numpy as np
 BANK = Path('/cs/labs/daphna/itai.david/representations_bank/cifar-100_BYOL')
 PRIOR = Path('/cs/labs/daphna/tomn/projects/cifar100_herding_20261119/study/inputs')
 GROUPS = Path('/cs/labs/daphna/tomn/projects/vast_noisy_inputs_fc280c3/cifar100_superclasses.json')
+HUMAN = Path('/cs/labs/daphna/tomn/projects/daphna_lab/deep_al/tools/data/CIFAR-100_human.pt')
+HUMAN_SHA256 = 'bd2d80409754d420292d622e15e25248ba21e37d27429efac49c8da723f44394'
+HUMAN_CONDITIONS = (('cifar100n', .402),)
 BANK_HASHES = {
     'train_features': '4e91020dcd15d77dcbe35ad32e63020bd156ad610808866ae49eb696d2035476',
     'train_targets': '233cdd4afc94cd00f3ddec6f8640168bf76a6872168cf6c5a9990ac9f144be3b',
@@ -184,7 +187,28 @@ def prepare(graph_path, destination):
     print(json.dumps(metadata), flush=True)
 
 
-def replay(seed, prepared, output):
+def aligned_human_annotations(fixture, truth):
+    np.testing.assert_array_equal(fixture['clean_label'], truth)
+    observed = np.asarray(fixture['noisy_label'])
+    if (observed.shape != truth.shape or observed.dtype.kind not in 'iu'
+            or observed.min() < 0 or observed.max() >= CLASSES):
+        raise ValueError('Invalid CIFAR-100N observed label vector')
+    return observed
+
+
+def human_annotations(truth):
+    import torch
+
+    if sha256(HUMAN) != HUMAN_SHA256:
+        raise ValueError('Trusted CIFAR-100N annotation file checksum mismatch')
+    allowed = [(np._core.multiarray._reconstruct, 'numpy.core.multiarray._reconstruct'),
+               np.ndarray, np.dtype, np.dtypes.Int64DType, np.dtypes.Int32DType, np.dtypes.UInt8DType]
+    with torch.serialization.safe_globals(allowed):
+        fixture = torch.load(HUMAN, map_location='cpu', weights_only=True)
+    return aligned_human_annotations(fixture, truth)
+
+
+def replay(seed, prepared, output, human=False):
     if output.exists():
         raise FileExistsError(output)
     with np.load(prepared, allow_pickle=False) as payload:
@@ -195,16 +219,20 @@ def replay(seed, prepared, output):
     clean = np.load(BANK / 'train_targets.npy', allow_pickle=False)
     truth = np.load(BANK / 'test_targets.npy', allow_pickle=False)
     eyes = np.eye(CLASSES, dtype=np.float32)
-    groups = list(json.loads(GROUPS.read_text()).values())
-    if len(groups) != 20 or any(len(group) != 5 for group in groups) or sorted(sum(groups, [])) != list(range(CLASSES)):
-        raise ValueError('Expected 20 disjoint groups of five CIFAR-100 classes')
-    successor = np.empty(CLASSES, dtype=np.int64)
-    for group in groups:
-        successor[group] = np.roll(group, -1)
-    corrupted = {name: corrupt_labels(clean, name, rate, seed, successor) for name, rate in CONDITIONS}
-    if seed == 0:
-        for name, observed in corrupted.items():
-            np.testing.assert_array_equal(observed, np.load(PRIOR / f'{name}_observed.npy', allow_pickle=False))
+    if human:
+        corrupted = {'cifar100n': human_annotations(clean)}
+        provenance['human_sha256'] = HUMAN_SHA256
+    else:
+        groups = list(json.loads(GROUPS.read_text()).values())
+        if len(groups) != 20 or any(len(group) != 5 for group in groups) or sorted(sum(groups, [])) != list(range(CLASSES)):
+            raise ValueError('Expected 20 disjoint groups of five CIFAR-100 classes')
+        successor = np.empty(CLASSES, dtype=np.int64)
+        for group in groups:
+            successor[group] = np.roll(group, -1)
+        corrupted = {name: corrupt_labels(clean, name, rate, seed, successor) for name, rate in CONDITIONS}
+        if seed == 0:
+            for name, observed in corrupted.items():
+                np.testing.assert_array_equal(observed, np.load(PRIOR / f'{name}_observed.npy', allow_pickle=False))
     order = coverage_order(neighbors, max(BUDGETS) * 11 // 10, seed)
     if len(np.unique(order)) != len(order):
         raise ValueError('Repeated acquisition')
@@ -227,9 +255,9 @@ def replay(seed, prepared, output):
         nearest_full = nearest[:, :used].argmax(axis=1)
         train_matrices = (influence, train_votes[target_mask, :used].astype(np.float32))
         test_matrices = (test_votes[:, :budget].astype(np.float32), test_votes[:, :used].astype(np.float32))
-        for condition, _ in CONDITIONS:
+        for condition, corrupted_labels in corrupted.items():
             started = time.monotonic()
-            observed = corrupted[condition][rows[warm]]
+            observed = corrupted_labels[rows[warm]]
             scores = influence @ eyes[observed]
             suspicion, alternative = leave_one_out(local, observed, eyes)
             footprints = counterfactual_footprints(influence, scores, observed, alternative)
@@ -280,11 +308,12 @@ def main():
     run.add_argument('seed', type=int, choices=SEEDS)
     run.add_argument('prepared', type=Path)
     run.add_argument('output', type=Path)
+    run.add_argument('--human-labels', action='store_true')
     args = parser.parse_args()
     if args.action == 'prepare':
         prepare(args.graph, args.output)
     else:
-        replay(args.seed, args.prepared, args.output)
+        replay(args.seed, args.prepared, args.output, human=args.human_labels)
 
 
 if __name__ == '__main__':

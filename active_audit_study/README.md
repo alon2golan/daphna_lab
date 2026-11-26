@@ -22,3 +22,7 @@ sbatch --parsable --dependency="afterok:$prep" --array=0-4%3 --job-name=c100-aud
 ```
 
 There are 300 result rows with five seeds, two initial budgets, five noise settings and six policies. `seed_*.json` records request rows, acquisition order, correct counts, software versions, and input and source digests. Resolved observed labels, test labels, images and raw features remain in their existing locations.
+
+## CIFAR-100N follow-up
+
+The follow-up uses the same method, acquisition orders, test targets and geometry with the fixed CIFAR-100N human annotation vector. Seed variation here comes from acquisition. The loader checks the historical annotation file checksum, uses restricted weights-only PyTorch deserialization and verifies all 50,000 clean labels against the frozen BYOL training order before using the annotation vector. To run, place the source and `run_human.slurm.sh` in a fresh child directory of the synthetic replay. Use a 5-task array and limit concurrency to three tasks. Collect results with `python collect.py PATH --human-labels`.

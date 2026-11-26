@@ -9,13 +9,13 @@ from pathlib import Path
 
 import numpy as np
 
-from active_audit import BUDGETS, CONDITIONS, SEEDS
+from active_audit import BUDGETS, CONDITIONS, HUMAN_CONDITIONS, SEEDS
 
 POLICIES = ('no_audit', 'random_audit', 'loo_audit', 'single_footprint', 'diverse_footprint', 'fresh_clean')
 METRICS = ('test_correct', 'test_1nn_correct', 'pool_correct')
 
 
-def collect(root):
+def collect(root, conditions=CONDITIONS):
     runs = {seed: json.loads((root / f'seed_{seed}.json').read_text()) for seed in SEEDS}
     for key in ('geometry_sha256', 'source_sha256'):
         assert len({run[key] for run in runs.values()}) == 1, key
@@ -44,18 +44,19 @@ def collect(root):
             for correct, total in zip(METRICS, (row['test_count'], row['test_count'], row['pool_count'])):
                 assert 0 <= row[correct] <= total
             indexed[key] = row
-    assert set(indexed) == set(product(SEEDS, BUDGETS, [name for name, _ in CONDITIONS], POLICIES))
-    for seed, budget in product(SEEDS, BUDGETS):
-        base = indexed[seed, budget, 'clean', 'no_audit']
-        for policy in POLICIES[:-1]:
-            row = indexed[seed, budget, 'clean', policy]
-            assert row['corrected'] == 0 and all(row[m] == base[m] for m in METRICS)
+    assert set(indexed) == set(product(SEEDS, BUDGETS, [name for name, _ in conditions], POLICIES))
+    if any(name == 'clean' for name, _ in conditions):
+        for seed, budget in product(SEEDS, BUDGETS):
+            base = indexed[seed, budget, 'clean', 'no_audit']
+            for policy in POLICIES[:-1]:
+                row = indexed[seed, budget, 'clean', policy]
+                assert row['corrected'] == 0 and all(row[m] == base[m] for m in METRICS)
     return indexed
 
 
-def summary(indexed):
+def summary(indexed, conditions=CONDITIONS):
     for budget, (condition, _), policy, (metric, total) in product(
-        BUDGETS, CONDITIONS, POLICIES, zip(METRICS, ('test_count', 'test_count', 'pool_count')),
+        BUDGETS, conditions, POLICIES, zip(METRICS, ('test_count', 'test_count', 'pool_count')),
     ):
         rows = [indexed[seed, budget, condition, policy] for seed in SEEDS]
         accuracy = np.array([100 * row[metric] / row[total] for row in rows])
@@ -82,10 +83,12 @@ def write_csv(path, rows):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', type=Path)
+    parser.add_argument('--human-labels', action='store_true')
     args = parser.parse_args()
-    rows = collect(args.directory)
+    conditions = HUMAN_CONDITIONS if args.human_labels else CONDITIONS
+    rows = collect(args.directory, conditions)
     write_csv(args.directory / 'metrics.csv', list(rows.values()))
-    write_csv(args.directory / 'paired_summary.csv', list(summary(rows)))
+    write_csv(args.directory / 'paired_summary.csv', list(summary(rows, conditions)))
     print(f'Verified {len(rows)} matched policy evaluations')
 
 
