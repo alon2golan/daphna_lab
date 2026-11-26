@@ -49,6 +49,9 @@ For local execution in the pinned CUDA environment, use `python -m source_suppor
 | Experiment | Slurm job | Scope |
 |---|---:|---|
 | Replay pilot | 32667663 | Two symmetric-50 cells |
-| Full replay | 32667824 | Four budgets × five conditions |
+| Corrected full replay | 32668091 | Four budgets × five conditions |
 | Student pilot | 32667947 | Two-epoch smoke fits |
-| Matched student | 32668024 | Four cells × two 300-epoch fits |
+| Matched student | 32668024, 32668193 | Four final pairs of 300-epoch fits |
+| Controlled noise channels | 32668187 | Three channels with identical corrupted rows across five seeds |
+
+The numerical correction preserves exact deletion ties. The two symmetric student pairs were re-fitted. The other pairs used identical corrected membership and passed the archive audit. See the [research report](../docs/NOISY_LABEL_RESEARCH_20261126.md) for the results and the [figure script](plot_research.py) for the paired plot.
