@@ -1,0 +1,7 @@
+# Archived acquisition replay with common held-out heads
+
+Use the historical seed-0 BYOL acquisition orders for MaxHerding, fixed-bandwidth U-Herding, one-step JS, original-broadcast JS-10 and soft-broadcast JS-10. Include the exact full-Gaussian backup-coverage order with weight 0.5. All six orders start with the same 100 queries. Score their 400, 800, 1,200, 1,600 and 2,000-label prefixes against the same archived noisy annotation pool in each of seven conditions. The acquisition orders are frozen. The learners are raw and square-root path votes at depths three and six, plus cosine 1NN. Score all 10,000 canonical CIFAR-100 test images.
+
+We verify the full ordered CSVs, all original query snapshots, canonical sample IDs, 45,000 eligible rows, 5,000 excluded validation rows, exact input hashes and the evaluator source hash before replay. The previously saved U-Herding and JS results used observed-label MLP and 1NN training. This experiment holds the evaluation head constant across acquisition orders. The archived U-Herding fixed-bandwidth implementation is a matched lab baseline. Published adaptive-radius U-Herding requires a separate comparison. This archive contains one acquisition/noise seed and seven synthetic or clean annotation conditions.
+
+The Slurm launcher expects an isolated directory beside the archived lab studies. Run `sbatch --array=0-6%4 --output=replay_%A_%a.log run_archive.slurm.sh "$PWD"` from that directory. The source imports the unchanged `evaluate.py` from the earlier confirmation study and verifies its SHA256 before use.

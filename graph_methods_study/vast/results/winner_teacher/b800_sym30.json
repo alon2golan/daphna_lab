@@ -1,0 +1,32 @@
+{
+  "case": "b800_sym30",
+  "depth": 5,
+  "admitted": 17557,
+  "original_sha256": "fb1f30307a346d185842c981181b29885531ae9588e5372be40e5be5f77ed994",
+  "compression_sha256": "745587e7aedbe4d6c7d82905d0a25358f6002f411c98ef35c2652e9b7b74f342",
+  "changed_on_admitted": 1153,
+  "winner_ties_on_admitted": 0,
+  "raw": {
+    "entropy_nats": 1.2418254826885577,
+    "mean_true_class_probability": 0.5696331295214768,
+    "negative_log_likelihood": 1.2195541302150705,
+    "mean_top_probability": 0.6979968167971715,
+    "correct": 13094
+  },
+  "compressed": {
+    "entropy_nats": 2.1861840321810413,
+    "mean_true_class_probability": 0.43642911371880627,
+    "negative_log_likelihood": 1.3754311043479666,
+    "mean_top_probability": 0.5037090346826544,
+    "correct": 13749
+  },
+  "winner_swap": {
+    "entropy_nats": 1.2418254826885577,
+    "mean_true_class_probability": 0.5745947102376832,
+    "negative_log_likelihood": 1.2068649197356622,
+    "mean_top_probability": 0.6979968167971715,
+    "correct": 13749
+  },
+  "variant_source_sha256": "62621a81bfd612edc38e9144da91f5cd6fb35ac9ba61efae63d006e79cc200df",
+  "revised_sha256": "d47440d2d4710a57c18824ca7140663c7d29bae4dc005db9b03183a6f8119009"
+}

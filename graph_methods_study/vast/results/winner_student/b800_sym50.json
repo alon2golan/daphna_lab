@@ -1,0 +1,44 @@
+{
+  "case": "b800_sym50",
+  "budget": 800,
+  "condition": "sym50",
+  "seed": 0,
+  "depth": 5,
+  "epochs": 300,
+  "optimizer_steps": 38100,
+  "n_labeled": 800,
+  "n_admitted": 11833,
+  "revision": "9e70f229c6eefba74ec887b2d9fe8589227792ef",
+  "config_sha256": "801b656f46c9ed9530de2d1a473671cc927f696270dc741dea034ce537c7dc1f",
+  "test_count": 10000,
+  "original_target_sha256": "122b454e97ba9f49e6c621021b6a068f1b7e1d2326eff602ae934706ba6dd8fc",
+  "source_sha256": "7f15c97fb3a80390212f665097dc27f37119ae8b275dfbae7ac089b3862952cb",
+  "archived_reference": {
+    "test_accuracy_percent": 38.48,
+    "best_epoch": 6,
+    "validation_accuracy_percent": 42.09999908447266,
+    "checkpoint_sha256": "fe5f3e5bbd435c8d909b4f48d36720665036bb003089a2d813a6c45c45dfd2db",
+    "prediction_sha256": "ad01bd5e816f3dab6943431e032a7147a83803f491d550e28eb7b07b4a96737f",
+    "result_sha256": "19b737f9e996a54d4a656dd069def64514fcb86559413e2039e01070b4bebcdf"
+  },
+  "gpu": "NVIDIA GeForce RTX 2080 Ti",
+  "reference_refit": {
+    "test_accuracy_percent": 38.48,
+    "best_epoch": 6,
+    "validation_accuracy_percent": 42.09999908447266,
+    "checkpoint_sha256": "fe5f3e5bbd435c8d909b4f48d36720665036bb003089a2d813a6c45c45dfd2db",
+    "prediction_sha256": "ad01bd5e816f3dab6943431e032a7147a83803f491d550e28eb7b07b4a96737f",
+    "result_sha256": "340f69bdee3ae46853ea74fe601d291d45286d5f9421e248c036cb28ed7540a0"
+  },
+  "variant_target_sha256": "f5ff987df6a8d1dfe4a1aac0406e8e61ea85826712640526ef4b289fea5bc048",
+  "winner_swap": {
+    "test_accuracy_percent": 38.99,
+    "best_epoch": 6,
+    "validation_accuracy_percent": 42.07999847412109,
+    "checkpoint_sha256": "1a2b6b66d16ac72537bc3e3e2af1b73d70c94fdbc9255fd99015d2bb51c2f93a",
+    "prediction_sha256": "2e292e453073960838fb69423b3f91b173c3af1a5f330aa95efa4e98f59104bd",
+    "result_sha256": "97e05ccc88b67b4ab2bd7434a27b5154bcb732296286453e7ab10468dcab7ad7"
+  },
+  "variant_source_sha256": "62621a81bfd612edc38e9144da91f5cd6fb35ac9ba61efae63d006e79cc200df",
+  "screen_sha256": "2d4391701f6a59318febef275f737385da502f24e2f870e0e8661101cc4927b2"
+}

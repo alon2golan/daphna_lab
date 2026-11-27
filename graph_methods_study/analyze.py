@@ -115,6 +115,18 @@ def vast_scores(stage, pool="unlabeled"):
             if result["reconstruction_error"] > 3e-6:
                 raise ValueError(f"Teacher failed reconstruction in {path.name}")
             record.update(samples=stats["samples"], raw5=stats["raw"], sqrt5=stats["sqrt"])
+        elif stage == "winner_student":
+            teacher_path = folder / "results" / "winner_teacher" / path.name
+            teacher = read(teacher_path)
+            if (result["variant_source_sha256"] != sha(folder / "winner_swap.py") or result["epochs"] != 300
+                    or result["screen_sha256"] != sha(teacher_path)
+                    or result["original_target_sha256"] != teacher["original_sha256"]
+                    or result["variant_target_sha256"] != teacher["revised_sha256"]):
+                raise ValueError(f"Invalid winner-swap student provenance in {path.name}")
+            samples = result["test_count"]
+            raw = result["archived_reference"]["test_accuracy_percent"]
+            swap = result["winner_swap"]["test_accuracy_percent"]
+            record.update(samples=samples, raw5=round(raw * samples / 100), sqrt5=round(swap * samples / 100))
         else:
             teacher = read(folder / "results" / "teacher" / path.name)
             if (result["source_sha256"] != sha(folder / "train_student.py") or result["epochs"] != 300

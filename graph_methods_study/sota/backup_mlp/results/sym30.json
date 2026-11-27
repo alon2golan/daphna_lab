@@ -1,0 +1,131 @@
+{
+  "condition": "sym30",
+  "seed": 0,
+  "test_count": 10000,
+  "epochs": 300,
+  "observed_sha256": "bfadde141bc8ee738e5f94c2f9205813f2833be17b5c45468c5acc63ba5cf3d6",
+  "source_sha256": "3b21bab72a246173cebfc018b911c6ea2271754c3e58db4ea9721e7f0d789fc6",
+  "orders_sha256": "eff8bdb0a55bce77fa66eb6061c815efa5608b60c047500fe119894b252237e4",
+  "cases": [
+    {
+      "budget": 800,
+      "scores": {
+        "maxherding": {
+          "mlp": 47.18,
+          "1nn": 36.1,
+          "metrics_sha256": "dd8540967c2f9902a77cfdebe1f4a57aba2197e92fee47b5c4fbcf432c53afb2",
+          "membership_key": "b43a5c71ab1468eeffb8ce685cb4da5e1ffad8854f502f38de99ffd591f49d22"
+        },
+        "uherding": {
+          "mlp": 47.67,
+          "1nn": 36.309999999999995,
+          "metrics_sha256": "478c75d1044eb45ecd37396480f365639a1205c7ab42fa4ba46404b040d1d557",
+          "membership_key": "6c605e6cd66a6b729e47f00cf35ef7a2ee625233f1fb4d9c701f505fc9966528"
+        },
+        "js": {
+          "mlp": 48.07,
+          "1nn": 35.88,
+          "metrics_sha256": "4ad8efa2e417dc8399ecf17b485bf3570114cc8b0fbe18b767437851674f4edc",
+          "membership_key": "eab1f1cf92b5a6764bd44bc72319b75261158c1aa67499b08163ec98eebe5070"
+        },
+        "observed_10": {
+          "mlp": 47.43,
+          "1nn": 36.09,
+          "metrics_sha256": "cd042ae713e826952f41b6169f6ce6b866ae7a212103d686f3e84470d8ced2b5",
+          "membership_key": "63ef54529af5fa15c41c916cbe6f7bd6e05f5c0ee3b7e3ad9197d509474f0c65"
+        },
+        "soft_10": {
+          "mlp": 46.949999999999996,
+          "1nn": 35.44,
+          "metrics_sha256": "a9ab2e982ab04e97e81c65951e3413047f802b095584aaa166508f7484836d5d",
+          "membership_key": "a3abbc64b122f00f3513172acf0d26f928ce5c8deacc5cebf21e4cac70710f4e"
+        },
+        "backup_coverage": {
+          "mlp": 48.16,
+          "1nn": 36.66,
+          "membership_key": "d766f990aed88e81627e3bb8f8d445249346b8b300251af42c31429dfa285a13"
+        }
+      }
+    },
+    {
+      "budget": 1200,
+      "scores": {
+        "maxherding": {
+          "mlp": 50.56,
+          "1nn": 37.72,
+          "metrics_sha256": "e757a801b84a23182a8cdc3c21fe82848edad62eea94af7e97e4292dc1253f97",
+          "membership_key": "c1edc65417d74a32645218419cbe7a1d05dd8447f280c57295749c8e6d4d2791"
+        },
+        "uherding": {
+          "mlp": 52.480000000000004,
+          "1nn": 37.730000000000004,
+          "metrics_sha256": "5b31ec6ac531c0344d79a0bc058be1041aa1170aa698be99f0df6906016a20f6",
+          "membership_key": "b6bee0ec6bc2f41bd60fead287e55992c0f74f9f212703f2fc6ca13e573ea20d"
+        },
+        "js": {
+          "mlp": 52.190000000000005,
+          "1nn": 37.78,
+          "metrics_sha256": "a121b57b4641c37cb2a3f686e945b3e6aa0bc2cfd881f2e95be6318eb2662783",
+          "membership_key": "a674e0a9933e005065c188ca19380e891068d28f749c845f283dae8d934963dc"
+        },
+        "observed_10": {
+          "mlp": 52.01,
+          "1nn": 38.080000000000005,
+          "metrics_sha256": "02df9f8231c6d532a52172521a92c61c68795d5de34ab7ce2e0eec91fd20715f",
+          "membership_key": "b177ce5d29ea37905c68218effeb783fd9d50febc475829f35422352c31331cc"
+        },
+        "soft_10": {
+          "mlp": 51.76,
+          "1nn": 37.3,
+          "metrics_sha256": "c04a7175f23d9e3bd113d3d2fe4bd2672e7ecc2e76f126981e2ac5ff46625de0",
+          "membership_key": "5b21154f016b7f4805c5b8b5684e79f0dbaf968b444dc2176daeb965222adb28"
+        },
+        "backup_coverage": {
+          "mlp": 51.44,
+          "1nn": 37.71,
+          "membership_key": "7ae87532545416868eb41b7b226f30936e3a2227e10b4a48a7b24efda76ff8b7"
+        }
+      }
+    },
+    {
+      "budget": 2000,
+      "scores": {
+        "maxherding": {
+          "mlp": 55.269999999999996,
+          "1nn": 38.37,
+          "metrics_sha256": "2c8e64645c35762936d04ad7708c0d87af16459da8a8acc49a8918edce73cbb8",
+          "membership_key": "4e254f448a533f220916faf9d3a8d7b9590814d2d66ad8ea01630e14188ecbdc"
+        },
+        "uherding": {
+          "mlp": 56.49999999999999,
+          "1nn": 38.800000000000004,
+          "metrics_sha256": "14efc79dbd40436f5826479ede174f8fa92a698a06946e6ffc3e3082d4e93a8d",
+          "membership_key": "89378e677c6e7461b42fe2a287209ba25f446fc2b930dc331a84e716b7998f0b"
+        },
+        "js": {
+          "mlp": 55.60000000000001,
+          "1nn": 38.31,
+          "metrics_sha256": "9bd706e36b5331e8ea32be4105fe3b171e9ba6b8a91d1a97899cce564f024ee1",
+          "membership_key": "6f1e214c886585823cea4ebb08aed593b45d8e14a6e199adf3147aaddd75f0c5"
+        },
+        "observed_10": {
+          "mlp": 54.85,
+          "1nn": 37.51,
+          "metrics_sha256": "4919ff41a49b9ba236f3aa916a3bb75b5fcd742566948903209cb5d87bb9bf06",
+          "membership_key": "dda187a3d62ae677b7b97e766a04f4fdee52506d6ad16d41726fd834f78c0494"
+        },
+        "soft_10": {
+          "mlp": 54.75,
+          "1nn": 37.55,
+          "metrics_sha256": "6c2dcd8757e2e0711968ff0f872a162cd1e99ea01f0a15d340ec6f05e7037700",
+          "membership_key": "63cafd00612a318451f66ca48cc2a47dc4261358794c590d140c1d0cf0dbd6a9"
+        },
+        "backup_coverage": {
+          "mlp": 55.05,
+          "1nn": 39.07,
+          "membership_key": "839338a6fe164ba7e19a3ba433fdbeba9ad50875a5020dc43fca9115f6ce3180"
+        }
+      }
+    }
+  ]
+}

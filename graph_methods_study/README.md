@@ -4,6 +4,8 @@
 
 Both changes use the same annotation budget as their references. Positive values in the tables are improvements in percentage points.
 
+The later comparisons add Netta NPC, Weighted NPC, MaxHerding+NAS, lab U-Herding and JS-10. They narrow the acquisition claim and add one useful VAST variant. [Strong-baseline follow-up](sota/RESULTS.md) · [Research scorecard](METHODS.md)
+
 The earlier signed-audit and VAST studies traced mistakes back to individual source annotations. These experiments use the same idea at two earlier decisions. Backup coverage changes which images get queried. Square-root votes change how much influence each acquired annotation receives. [Previous lab results](../docs/NOISY_LABEL_RESEARCH_20261126.md)
 
 ## Backup coverage
