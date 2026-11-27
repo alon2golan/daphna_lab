@@ -80,7 +80,7 @@ def setting_rows(pairs):
 
 def save_csv(path, rows):
     with path.open("x", newline="") as out:
-        writer = csv.DictWriter(out, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(out, fieldnames=list(rows[0]), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 

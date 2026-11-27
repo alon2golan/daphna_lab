@@ -316,13 +316,21 @@ def official_cli(official, args):
     guard = source.body[-1]
     if not isinstance(guard, ast.If) or ast.unparse(guard.test) != "__name__ == '__main__'":
         raise RuntimeError("Pinned train_al.py has an unexpected command-line entry point")
-    entry = ast.Module(body=guard.body[:-1], type_ignores=[])
-    exec(compile(entry, official.__file__, "exec"), vars(official))
-    # The pinned CLI computes this reporting field as ndarray, which YACS cannot
-    # serialize in its stock main. The same numeric values are only used for logs.
-    active = official.cfg.ACTIVE_LEARNING
-    active.EXPECTED_CLEAN_SAMPLES_PER_CLASS = active.EXPECTED_CLEAN_SAMPLES_PER_CLASS.tolist()
-    official.main(official.cfg)
+    entry = ast.Module(body=guard.body, type_ignores=[])
+    # YACS rejects an ndarray at assignment. Convert only the fixed-budget
+    # reporting values, so the stock trainer receives the same numeric list.
+    reporting = [
+        node for node in ast.walk(entry)
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.BinOp)
+        and any(isinstance(target, ast.Attribute)
+                and target.attr == "EXPECTED_CLEAN_SAMPLES_PER_CLASS"
+                for target in node.targets)
+    ]
+    if len(reporting) != 1:
+        raise RuntimeError("Unexpected fixed-budget reporting assignment in pinned CLI")
+    node = reporting[0]
+    node.value = ast.Call(ast.Attribute(node.value, "tolist", ast.Load()), [], [])
+    exec(compile(ast.fix_missing_locations(entry), official.__file__, "exec"), vars(official))
 
 
 def run(args):

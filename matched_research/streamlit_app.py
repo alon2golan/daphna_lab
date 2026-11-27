@@ -7,7 +7,8 @@ import pandas as pd
 import streamlit as st
 
 
-RESULTS = Path(os.environ.get("MATCHED_RESULTS_DIR", Path(__file__).parent / "results"))
+HERE = Path(__file__).parent
+RESULTS = Path(os.environ.get("MATCHED_RESULTS_DIR", HERE / "results"))
 CONDITIONS = {
     "clean": "Clean", "sym0": "Clean",
     "sym30": "Symmetric 30%", "sym40": "Symmetric 40%", "sym50": "Symmetric 50%",
@@ -43,18 +44,27 @@ with npc:
         grid["Noise"] = grid["condition"].map(CONDITIONS)
         st.subheader("Accuracy change by budget (pp)")
         table = grid.pivot(index="Noise", columns="budget", values="delta_pp")
-        st.dataframe(table.style.format("{:+.2f}", na_rep=""), use_container_width=True)
+        st.dataframe(table.style.format("{:+.2f}", na_rep=""), width="stretch")
         chosen = st.selectbox("Noise setting", grid["condition"].unique(),
                               format_func=CONDITIONS.__getitem__, key="npc_noise")
         rows = grid[grid["condition"] == chosen].rename(columns={
             "base_accuracy_pct": "Netta NPC", "peer_accuracy_pct": "Peer-ranked AUM",
         })
-        st.line_chart(rows.set_index("budget")[["Netta NPC", "Peer-ranked AUM"]])
-        st.dataframe(seeds.loc[seeds["condition"] == chosen, [
+        st.line_chart(rows.set_index("budget")[["Netta NPC", "Peer-ranked AUM"]],
+                      x_label="Labels", y_label="Test accuracy (%)")
+        paired = seeds.loc[seeds["condition"] == chosen, [
             "budget", "seed", "base_accuracy_pct", "peer_accuracy_pct", "delta_pp",
             "retained", "replaced", "base_clean_retained", "peer_clean_retained",
-        ]], hide_index=True, use_container_width=True)
+        ]].rename(columns={
+            "budget": "Labels", "seed": "Seed", "base_accuracy_pct": "NPC (%)",
+            "peer_accuracy_pct": "Peer-ranked AUM (%)", "delta_pp": "Δ pp",
+            "retained": "Kept", "replaced": "Swaps", "base_clean_retained": "NPC clean kept",
+            "peer_clean_retained": "Peer clean kept",
+        })
+        st.dataframe(paired, hide_index=True, width="stretch")
         st.download_button("Download paired NPC results", seeds_file.read_bytes(), "npc_per_seed.csv")
+    with st.expander("NPC formulas and pseudocode"):
+        st.markdown((HERE / "netta" / "PROTOCOL.md").read_text())
 
 with vast:
     st.caption("Reference: the archived protected VAST student and its original pseudo-label targets.")
@@ -68,5 +78,16 @@ with vast:
     else:
         results = pd.read_csv(results_file)
         results["condition"] = results["condition"].replace(CONDITIONS)
-        st.dataframe(results, hide_index=True, use_container_width=True)
+        displayed = results[[
+            "condition", "budget", "ranks_aligned", "reference_pct", "candidate_pct",
+            "delta_pp", "prior_winner_swap_pct",
+        ]].rename(columns={
+            "condition": "Noise", "budget": "Labels", "ranks_aligned": "Ranks aligned",
+            "reference_pct": "Protected VAST (%)", "candidate_pct": "Rank alignment (%)",
+            "delta_pp": "Δ pp", "prior_winner_swap_pct": "Prior winner swap (%)",
+        })
+        st.caption("Eight paired settings from archived seed 0. Zero aligned ranks reuses the reference target.")
+        st.dataframe(displayed, hide_index=True, width="stretch")
         st.download_button("Download paired VAST results", results_file.read_bytes(), "vast_per_seed.csv")
+    with st.expander("VAST formulas and protocol"):
+        st.markdown((HERE / "vast_rank" / "PROTOCOL.md").read_text())

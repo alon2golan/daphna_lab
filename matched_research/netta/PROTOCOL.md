@@ -10,6 +10,8 @@ The baseline and candidate use the same acquisition trajectory, observed labels,
 
 Three fresh seeds, 71–73, share the paired feature bank and noise generator. Checkpoints are 400, 800, 1,200, 1,600, and 2,000 queried labels. Conditions are clean, symmetric 30%, 40%, 50%, and within-superclass cyclic asymmetric 30%, 40%, 50%. The asymmetric channel is the lab's existing protocol. Report every three-seed budget/condition mean, all per-seed results, and the win counts by noise condition. Budgets within a seed are nested.
 
+The BYOL adapter supplies frozen arrays and fixed observed-label pools to the pinned program. It also converts one fixed-budget logging field from an array to the same numeric values in a list for YACS. The baseline and its replay use the same release trainer and installed runtime.
+
 ## Algorithm
 
 Let `L` be acquired images, `U` be unqueried images, and `ỹ[i]` the noisy annotator label. Let `D_i = {j : ‖z_i − z_j‖₂ < 0.65}` for unit-norm query features. The released acquisition loop is shared.
@@ -30,6 +32,13 @@ for each round:
 
 For AUM, add `ceil(|L|/100)` threshold examples from `U` with one fake class and fit the detector for 40 epochs. The per-image score is the mean observed-class logit minus strongest other logit across its training visits. The reference keeps `K = {i in L : AUM[i] ≥ P80(AUM[fakes])}` as its final training set.
 
+$$
+a_i=\operatorname{mean}_t\big(g_t(z_i)_{\tilde y_i}-\max_{c\ne\tilde y_i}g_t(z_i)_c\big),
+\qquad \tau=P_{80}\{a_j:j\in\text{fake class}\}.
+$$
+
+For the fitted set $I$, the final classifier is $s_i=Wz_i+b$. Its minibatch objective is mean cross-entropy on $\tilde y_i$ for sampled $i\in I$, with the release's SGD weight decay. The learning rate at epoch $e$ is $0.025(1+\cos(\pi e/500))/2$; the test prediction is the highest-logit class.
+
 The candidate changes final retention only. Use locally scaled neighbor agreement among the acquired images. For each image `i`, let `N_i` be its 13 closest other acquired images by Euclidean distance between unit BYOL embeddings. Let `b_i` be the largest squared distance in `N_i`. When `b_i=0`, set it to 1.
 
 ```text
@@ -47,4 +56,12 @@ train the released linear classifier on the resulting set
 predict argmax of its logits on each test image
 ```
 
-Ranks increase with agreement and AUM. Within each class, keeping the highest rank sums maximizes the total retained-over-rejected pairwise comparisons favored by the two signals, with tied comparisons counting one half. Comparisons within the retained set sum to a constant for a fixed quota. This score allows peer evidence to offset the AUM rank difference while preserving the released filter's class counts. Under independent uniform wrong-class flips, the noisy class probability is an increasing affine function of clean class probability for rates below 99%. This motivates the peer score under symmetric noise. The behavior under asymmetric noise is empirical. [Related representation-based filtering](https://proceedings.neurips.cc/paper_files/paper/2020/hash/f4e3ce3e7b581ff32e40968298ba013d-Abstract.html)
+Ranks increase with agreement and AUM. Within each class, keeping the highest rank sums maximizes the total retained-over-rejected pairwise comparisons favored by the two signals, with tied comparisons counting one half. Comparisons within the retained set sum to a constant for a fixed quota. This score allows peer evidence to offset the AUM rank difference while preserving the released filter's class counts.
+
+For a fresh label at feature vector $z$, under uniform wrong-class flips with rate $\eta$,
+
+$$
+P(\tilde Y=c\mid z)=(1-\eta-\eta/99)P(Y=c\mid z)+\eta/99.
+$$
+
+The coefficient is positive below 99% noise. This motivates using observed neighbor agreement to rank support under symmetric noise. The behavior under asymmetric noise is empirical. [Topological filtering](https://proceedings.neurips.cc/paper_files/paper/2020/hash/f4e3ce3e7b581ff32e40968298ba013d-Abstract.html) · [Class-balanced filtering](https://www.ecva.net/papers/eccv_2024/papers_ECCV/html/3908_ECCV_2024_paper.php)

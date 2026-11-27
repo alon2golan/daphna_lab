@@ -1,0 +1,33 @@
+{
+  "case": "b1200_sym30",
+  "archive": {
+    "test_accuracy_percent": 52.769999999999996,
+    "best_epoch": 6,
+    "validation_accuracy_percent": 56.879998779296876,
+    "checkpoint_sha256": "ac1a5cb759c9cda4691bc5406d746196cdb9c87e99ec9d7dd970009cb8886bd1",
+    "prediction_sha256": "bdab80f8155d0461b1378caedaea3422a6677e42b5e5289b9780bff4d8096503",
+    "result_sha256": "78b3ce5c9a5a6fe0d893d2eff9887bc6d1225788314e8d198a77dd3daee9307a"
+  },
+  "candidate": {
+    "test_accuracy_percent": 52.59,
+    "best_epoch": 10,
+    "validation_accuracy_percent": 57.07999870300293,
+    "checkpoint_sha256": "f44ddbb716ee72aef0c4e4474ed898743800b393aea24f1aafa0dc48ac9d900c",
+    "prediction_sha256": "8172a77bf58163359dfd094c63d87248ba5b20ba03302bd0a7e6a210079b2cad",
+    "result_sha256": "3ef4f8be326ce248f7c3f43253d9bc2775535e2f64e101c81ed28e20d29de50f"
+  },
+  "permutation": 3,
+  "candidate_is_exact_reference": false,
+  "delta_pp": -0.1799999999999926,
+  "seed": 0,
+  "revision": "9e70f229c6eefba74ec887b2d9fe8589227792ef",
+  "optimizer_steps": 54300,
+  "epochs": 300,
+  "labeled": 1200,
+  "admitted": 16879,
+  "test_count": 10000,
+  "config_sha256": "801b656f46c9ed9530de2d1a473671cc927f696270dc741dea034ce537c7dc1f",
+  "original_sha256": "996a83e2c8073c84c9d0d329da1f8c1c25f6091623f66d0f1c0e5f69945c3f19",
+  "target_sha256": "58b21c2e96a806a190c90b4d183d3e4365837a04e42552579daebe06445f010f",
+  "selection_sha256": "d38845ce265477a6f778b3228cf5133687b1d074cd93bd9535477e72269ab2cc"
+}
