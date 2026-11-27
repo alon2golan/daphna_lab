@@ -41,11 +41,21 @@ with npc:
         )
         gain.metric("Mean gain across complete settings",
                     f"{complete['delta_pp'].mean():+.2f} pp" if len(complete) else "Pending")
+        family_results = []
+        for prefix, label in (("clean", "Clean"), ("sym", "Symmetric"), ("asym", "Cyclic asymmetric")):
+            deltas = complete.loc[complete["condition"].str.startswith(prefix), "delta_pp"]
+            if not deltas.empty:
+                wins = int((deltas > 1e-8).sum())
+                family_results.append(f"{label} {deltas.mean():+.2f} pp · {wins}/{len(deltas)} wins")
+        if family_results:
+            st.caption(" | ".join(family_results))
         grid["Noise"] = grid["condition"].map(CONDITIONS)
         st.subheader("Accuracy change by budget (pp)")
         table = grid.pivot(index="Noise", columns="budget", values="delta_pp")
+        table = table.reindex(grid["Noise"].unique())
         st.dataframe(table.style.format("{:+.2f}", na_rep=""), width="stretch")
-        chosen = st.selectbox("Noise setting", grid["condition"].unique(),
+        options = grid["condition"].drop_duplicates().tolist()
+        chosen = st.selectbox("Noise setting", options, index=options.index("sym50") if "sym50" in options else 0,
                               format_func=CONDITIONS.__getitem__, key="npc_noise")
         rows = grid[grid["condition"] == chosen].rename(columns={
             "base_accuracy_pct": "Netta NPC", "peer_accuracy_pct": "Peer-ranked AUM",

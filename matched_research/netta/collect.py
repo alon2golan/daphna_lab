@@ -8,6 +8,10 @@ import math
 from pathlib import Path
 from statistics import mean
 
+import numpy as np
+
+from run_official import BANK_HASHES, UPSTREAM_COMMIT, UPSTREAM_SOURCE_SHA256, file_sha256
+
 CONDITIONS = ("clean", "sym30", "sym40", "sym50", "asym30", "asym40", "asym50")
 SEEDS = (71, 72, 73)
 BUDGETS = (400, 800, 1200, 1600, 2000)
@@ -18,6 +22,9 @@ def read(path):
 
 
 def paired_rows(root):
+    source = Path(__file__).parent
+    wrapper_hash = file_sha256(source / "run_official.py")
+    candidate_hash = file_sha256(source / "filter_swap.py")
     for condition in CONDITIONS:
         for seed in SEEDS:
             case = f"{condition}_s{seed}"
@@ -27,6 +34,12 @@ def paired_rows(root):
             reference = read(reference_path)
             if (reference["condition"], reference["seed"], reference["smoke"]) != (condition, seed, False):
                 raise ValueError(f"Wrong reference run in {reference_path}")
+            provenance = read(reference_path.with_name("provenance.json"))
+            if (provenance["upstream_commit"] != UPSTREAM_COMMIT
+                    or provenance["upstream_source_sha256"] != UPSTREAM_SOURCE_SHA256
+                    or provenance["wrapper_sha256"] != wrapper_hash
+                    or provenance["input_manifest"]["bank_sha256"] != BANK_HASHES):
+                raise ValueError(f"Reference source or inputs changed in {reference_path}")
             by_budget = {cell["budget"]: cell for cell in reference["cells"]}
             for budget in BUDGETS:
                 candidate_path = root / "peer" / case / f"{budget:05d}" / "result.json"
@@ -39,6 +52,8 @@ def paired_rows(root):
                     raise ValueError(f"Different training set sizes in {candidate_path}")
                 if candidate["baseline_prediction_sha256"] != base["prediction_sha256"]:
                     raise ValueError(f"Reference predictions changed in {candidate_path}")
+                if candidate["mask_function_sha256"] != candidate_hash:
+                    raise ValueError(f"Peer filter source changed in {candidate_path}")
                 identity = read(candidate_path.with_name("identity_result.json"))
                 for field in ("prediction_sha256", "fitted_model_sha256"):
                     if identity[field] != base[field]:
@@ -48,6 +63,17 @@ def paired_rows(root):
                 snapshot = reference_path.parent / "fits" / f"{budget:05d}" / "fit_inputs.npz"
                 if hashlib.sha256(snapshot.read_bytes()).hexdigest() != candidate["fit_inputs_sha256"]:
                     raise ValueError(f"Fit input mismatch in {candidate_path}")
+                with np.load(snapshot, allow_pickle=False) as frozen:
+                    observed = frozen["observed_labels"]
+                    original_keep = frozen["base_keep"]
+                revised_keep = np.load(candidate_path.with_name("keep.npy"), allow_pickle=False)
+                if (original_keep.shape != (budget,) or revised_keep.shape != original_keep.shape
+                        or original_keep.dtype != np.bool_ or revised_keep.dtype != np.bool_
+                        or not np.array_equal(np.bincount(observed[original_keep], minlength=100),
+                                              np.bincount(observed[revised_keep], minlength=100))
+                        or int(original_keep.sum()) != base["kept"]
+                        or int((original_keep & ~revised_keep).sum()) != candidate["changed_pairs"]):
+                    raise ValueError(f"Retention or class quotas changed in {candidate_path}")
                 if not all(0 <= record["accuracy"] <= 100 and math.isfinite(record["accuracy"])
                            for record in (base, candidate)):
                     raise ValueError(f"Invalid test accuracy in {candidate_path}")
