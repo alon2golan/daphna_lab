@@ -152,6 +152,14 @@ def match(data, candidate, candidate_head, reference, reference_head):
                         win=delta.gt(0), tie=delta.eq(0)).drop(columns=["correct_method", "correct_reference"])
 
 
+def best_reference(scores, heads):
+    policies = ("maxherding", "uherding", "js", "observed_10", "soft_10",
+                "probcover", "npc", "weighted_npc", "maxherding_nas")
+    baseline = scores.loc[scores.method.isin(policies) & scores["head"].isin(heads)]
+    winners = baseline.groupby(["seed", "condition", "budget"], as_index=False).correct.max()
+    return winners.assign(method="envelope", head="best")
+
+
 def grouped_scores():
     folder = SOTA / "grouped_backup"
     values = []

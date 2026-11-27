@@ -1,18 +1,18 @@
 """Explore paired CIFAR-100 results for backup coverage and square-root votes."""
 
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from analyze import CHANNELS, CONDITIONS, collision_scores, compare, confirmation_scores, sparse_scores, summarize, vast_scores
-from sota_scores import ACQUISITIONS, acquisition_scores, grouped_scores, match
+from research_guide import audit_detail, render_guide
+from sota_scores import ACQUISITIONS, acquisition_scores, best_reference, grouped_scores, match
 
 STUDIES = {
-    "methods": "Research scorecard",
+    "methods": "Research guide",
     "sota": "Strong-baseline comparisons",
+    "audit": "Signed graph audits",
     "exact": "Backup coverage · exact MaxHerding",
     "sparse": "Backup coverage · sparse affinities",
     "grouped": "Backup coverage · distinct groups",
@@ -35,15 +35,16 @@ STAGES = {"student": "Student · square-root targets", "winner_student": "Studen
           "admitted": "Teacher · admitted pseudo-labels"}
 
 
-def strong_baselines():
+def strong_baselines(preset):
     scores = acquisition_scores()
     available = ["Graph", "Shared 300-epoch MLP"] if scores.training_filter.eq("mlp").any() else ["Graph"]
     protocol = st.selectbox("Protocol", available)
     scores = scores.loc[scores.training_filter.eq("mlp") == (protocol != "Graph")].copy()
     hard = scores.training_filter.eq("aum")
     scores.loc[hard, "head"] = "aum_" + scores.loc[hard, "head"]
-    cohort = st.selectbox("Noise draws", ["Fresh NPC seeds", "Archived seed 0"]
-                          if scores.seed.ne(0).any() else ["Archived seed 0"])
+    cohorts = ["Fresh NPC seeds", "Archived seed 0"] if scores.seed.ne(0).any() else ["Archived seed 0"]
+    requested = preset.get("cohort")
+    cohort = st.selectbox("Noise draws", cohorts, index=cohorts.index(requested) if requested in cohorts else 0)
     scores = scores.loc[scores.seed.eq(0) if cohort == "Archived seed 0" else scores.seed.ne(0)]
     methods = [key for key in ACQUISITIONS if key in set(scores.method)]
     reference_labels = {**ACQUISITIONS, "envelope": "Best baseline in each cell"}
@@ -59,8 +60,11 @@ def strong_baselines():
     candidate = columns[0].selectbox("Candidate acquisition", methods,
                                     index=methods.index("npc") if cohort == "Fresh NPC seeds" else 0,
                                     format_func=ACQUISITIONS.get)
-    reference = columns[1].selectbox("Reference acquisition", [*methods, "envelope"],
-                                     index=methods.index("npc") if "npc" in methods else 1,
+    references = [*methods, "envelope"]
+    default_reference = "npc" if "npc" in methods else methods[1]
+    requested = preset.get("reference", default_reference)
+    reference = columns[1].selectbox("Reference acquisition", references,
+                                     index=references.index(requested),
                                      format_func=reference_labels.get)
     candidate_heads = [h for h in head_labels if h in set(scores.loc[scores.method.eq(candidate), "head"])]
     preferred = "cap6" if cohort == "Fresh NPC seeds" else candidate_heads[0]
@@ -68,12 +72,8 @@ def strong_baselines():
                                 index=candidate_heads.index(preferred) if preferred in candidate_heads else 0,
                                 format_func=head_labels.get)
     if reference == "envelope":
-        policies = ("maxherding", "uherding", "js", "observed_10", "soft_10",
-                    "probcover", "npc", "weighted_npc", "maxherding_nas")
         raw_heads = ("raw3", "raw6", "aum_raw3", "aum_raw6") if protocol == "Graph" else ("mlp",)
-        comparisons = scores.loc[scores.method.isin(policies) & scores["head"].isin(raw_heads)]
-        greatest = comparisons.groupby(["seed", "condition", "budget"], as_index=False).correct.max()
-        scores = pd.concat([scores, greatest.assign(method="envelope", head="best")], ignore_index=True)
+        scores = pd.concat([scores, best_reference(scores, raw_heads)], ignore_index=True)
         baseline_head = "best"
         reference_label = reference_labels[reference]
         st.caption("The strongest reference is selected separately after scoring each noise, budget and seed.")
@@ -128,9 +128,11 @@ def heatmap(summary):
                     alt="Mean paired accuracy differences in percentage points by noise and budget.")
 
 
-def select_comparison(study):
+def select_comparison(study, preset):
     if study == "sota":
-        return strong_baselines()
+        return strong_baselines(preset)
+    if study == "audit":
+        return audit_detail()
     if study == "grouped":
         return group_comparison()
     if study in ("exact", "sparse"):
@@ -167,7 +169,8 @@ def select_comparison(study):
         data = collision_scores() if study == "channels" else confirmation_scores().query("acquisition == @arm")
         return compare(data, arm, arm, head, reference), HEADS[head], option
 
-    stage = st.selectbox("Stage", STAGES, format_func=STAGES.get)
+    stage = st.selectbox("Stage", STAGES, index=list(STAGES).index(preset.get("stage", "student")),
+                         format_func=STAGES.get)
     student = stage in ("student", "winner_student")
     data = vast_scores(stage) if student else vast_scores("teacher", stage)
     st.caption("One archived seed. Protected five-update propagation, admission masks and confidence weights are shared.")
@@ -186,16 +189,26 @@ def select_comparison(study):
     return compare(data, "protected", "protected", "sqrt5", "raw5"), method, "Protected VAST"
 
 
+def open_experiment(study, **preset):
+    st.session_state["experiment"] = study
+    st.session_state["guide_preset"] = (study, preset)
+
+
 def render():
     st.set_page_config(page_title="CIFAR-100 graph methods", layout="wide")
     st.title("CIFAR-100 graph methods")
-    study = st.selectbox("Experiment", STUDIES, format_func=STUDIES.get)
+    study = st.selectbox("Experiment", STUDIES, format_func=STUDIES.get, key="experiment")
+    target, preset = st.session_state.get("guide_preset", (None, {}))
+    if target != study:
+        st.session_state.pop("guide_preset", None)
+        preset = {}
     if study == "methods":
-        st.markdown(Path(__file__).with_name("METHODS.md").read_text())
+        render_guide(open_experiment)
         return
-    pairs, method, reference = select_comparison(study)
+    pairs, method, reference = select_comparison(study, preset)
     summary = summarize(pairs)
     st.header("Paired accuracy change")
+    st.caption("Positive cells favor the candidate. Hover for paired wins, or use the table for absolute accuracy.")
     heatmap(summary)
     available = [key for key in NOISE_LABELS if key in summary.index.get_level_values("condition")]
     preferred = "cluster50" if study == "grouped" else "sym50"

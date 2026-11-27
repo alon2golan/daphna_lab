@@ -1,6 +1,8 @@
-## Research scorecard
+## 26–27 November experiment inventory
 
 The runner-up cap is the strongest graph candidate. It improved all 24 fresh noise/budget means against raw six-hop NPC and Weighted NPC. The VAST winner swap is a smaller learned-model lead. Evidence covers one representation and test split.
+
+We matched label budgets and test heads, replayed fixed noise channels, and checked transfer to the original trained models. The acquisition comparisons included MaxHerding, ProbCover, Netta’s NPC variants, MaxHerding+NAS, lab U-Herding and both JS-10 variants.
 
 | Method | Change | Finding |
 |---|---|---|
@@ -15,8 +17,10 @@ The runner-up cap is the strongest graph candidate. It improved all 24 fresh noi
 | Grouped backup | Count the closest two different feature groups | More group coverage. Lower accuracy than ordinary backup in the clustered-noise pilot. |
 | Adaptive depth | Pick depth by a source-standardized margin | Lost to the best fixed depth in 32/32 cells. |
 | Equal source mass | Normalize the total contribution from each original label | Lost to the best fixed depth in 32/32 cells. |
+| Binary votes | Give each reached annotation one vote | Lost substantial accuracy at six hops. |
 | Non-backtracking walks | Remove immediate two-edge returns | Small effect. Fixed depth four was stronger. |
 | Signed graph audits | Rank potential corrections by their downstream peer support | Strong under a separate budget for verified labels. |
+| Unsigned and diverse impact audits | Count or diversify the predictions touched by a potential correction | Gains in synthetic pilots. The unsigned footprint lost to leave-one-out on CIFAR-100N before signed auditing. |
 | Source-stability shortlist | Rank VAST pseudo-labels by margin after deleting the strongest source | Helped a small shortlist in symmetric noise. Poorer at full coverage and under heavy asymmetric noise. |
 
 The benchmark uses one representation and one fixed test split. Comparisons share the displayed classifier, except where the two classifier selectors specify different rules.
