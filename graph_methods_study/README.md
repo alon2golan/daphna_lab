@@ -85,7 +85,7 @@ Reconstruct the archived seed-0 Itai protected teacher at five updates, includin
 
 On the full unlabeled pool, symmetric 30% gains were 5.40 and 4.44 pp at 800 and 1,200 labels. Symmetric 50% gains were 7.34 and 9.35 pp. For the original admitted rows the corresponding gains were 3.73, 2.59, 3.02 and 9.35 pp. At asymmetric 50% the full-pool change was below 0.2 pp at both budgets.
 
-The original 300-epoch MLP used these frozen targets with matching membership, confidence, optimizer steps and validation schedule. The 800-label symmetric-50 reference re-fit on the same GPU reproduced the archived test predictions exactly. Test accuracy fell in the five retrieved student cases. The last run, symmetric 50% at 1,200 labels, awaits retrieval after the lab SSH session expired.
+The original 300-epoch MLP used these frozen targets with matching membership, confidence, optimizer steps and validation schedule. The 800-label symmetric-50 reference re-fit on the same GPU reproduced the archived test predictions exactly. Test accuracy fell by 0.35–1.62 pp in all six verified student cases.
 
 | Labels and noise | Itai protected VAST | Square-root targets | Change (pp) |
 |---|---:|---:|---:|
@@ -94,7 +94,7 @@ The original 300-epoch MLP used these frozen targets with matching membership, c
 | 800, symmetric 50% | 38.48% | 38.13% | −0.35 |
 | 800, asymmetric 50% | 29.29% | 28.76% | −0.53 |
 | 1,200, symmetric 30% | 52.77% | 51.75% | −1.02 |
-| 1,200, symmetric 50% | 43.93% | Pending retrieval | Pending retrieval |
+| 1,200, symmetric 50% | 43.93% | 42.31% | −1.62 |
 
 The revised distribution had higher entropy in all eight teacher cells. Mean probability on the true class fell 8.12–13.50 percentage points across their admitted sets, even where top-1 accuracy rose. Negative log likelihood was mixed. [Probability diagnostic](vast/results/target_probabilities.json)
 
