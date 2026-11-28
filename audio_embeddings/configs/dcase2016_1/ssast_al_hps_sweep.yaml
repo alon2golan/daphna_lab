@@ -1,0 +1,18 @@
+# DCASE 2016 Task 1 uses the SSAST non-CLS hyperparameter sweep.
+base_config: ../esc50/ssast_al_hps_sweep.yaml
+
+dataset:
+  name: dcase2016-1
+  manifest: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/data/datasets/DCASE-2016-1/dcase2016_1.jsonl
+model:
+  name: ssast
+  checkpoint: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/models_src/SSAST/pretrained_model/SSAST-Base-Frame-400.pth
+  checkpoint_metadata: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/models_src/SSAST/pretrained_model/ssast_pretrained.provenance.json
+output: /cs/labs/daphna/yael.bs444/outputs/dcase2016-1-ssast
+feature_cache: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/features/dcase2016-1-ssast/feature_cache
+audio_index: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/data/datasets/DCASE-2016-1/audio_index.json
+report_full_label_reference: false
+folds: [1, 2, 3, 4]
+budget:
+  unit: percent
+  values: [2.5, 5, 10, 20, 30]

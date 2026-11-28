@@ -44,6 +44,8 @@ FSD50K expects `ground_truth/dev.csv`, `ground_truth/eval.csv`, and extracted de
 
 DCASE aliases `dcase`, `dcase2016`, and Task 1 spellings (`dcase2016_1`, `dcase20161`, including hyphenated equivalents) mean **DCASE 2016 Task 1: TUT Acoustic Scenes**, a multiclass task. Its normalized metadata CSV requires `recording_id,audio_path,scene,fold`; optional `official_split` or `split` values are retained. Use `dcase2016_4`, `dcase20164`, or explicit hyphenated equivalents only for **Task 4**, the multilabel sound event tagging task. Task 4 metadata uses `recording_id,audio_path,scene,fold,event_class,onset,offset`, one event per row. Provide `official_split` (or `split`) as `development`/`evaluation` when available. Supply `duration_seconds` whenever audio is unavailable so empty windows remain represented. Task 4 manifests use non-overlapping 10-second windows, multi-label targets, and relative event boundaries. Audio paths may be absolute or relative to `--root`.
 
+For the local DCASE 2016 Task 1 release layout, metadata generation, audio preparation, extraction, and AL sweep commands, see [the DCASE 2016 Task 1 workflow](docs/dcase2016_1.md).
+
 Speech Commands expects the extracted version root with `validation_list.txt` and `testing_list.txt`. Those official lists define validation and test; remaining WAV files are train. The v1 manifest retains native labels and speaker IDs and labels the task as keyword/unknown/silence; silence examples are task-generated and are not fabricated in the source manifest. v2 retains its 35 native keyword classes. Use the dataset release documentation to select the version.
 
 ## Extract
@@ -70,17 +72,17 @@ python -m audio_embeddings pack-audio \
   --output /shared/audio/esc50/compact --batch-size 500
 
 python -m audio_embeddings extract-array \
-  --manifest /shared/audio/esc50/esc50.jsonl \
-  --audio-index /shared/audio/esc50/compact/audio_index.json \
+  --manifest /data/datasets/ESC-50/esc50.jsonl \
+  --audio-index /data/datasets/ESC-50/audio_index.json \
   --model ssast \
-  --checkpoint /shared/audio/checkpoints/SSAST-Base-Frame-400.pth \
-  --checkpoint-metadata /shared/audio/checkpoints/ssast_pretrained.provenance.json \
-  --output /shared/audio/features/esc50-ssast \
-  --job-dir /shared/audio/slurm/esc50-ssast-extract \
-  --batch-size 16 --device cuda:0 --gres gpu:1 \
+  --checkpoint /models_src/SSAST/pretrained_model/SSAST-Base-Frame-400.pth \
+  --checkpoint-metadata /models_src/SSAST/pretrained_model/ssast_pretrained.provenance.json \
+  --output /features/esc50-ssast \
+  --job-dir /slurm/esc50-ssast-extract \
+  --batch-size 16 --device cuda \
   --temporary-root /scratch/audio-extract \
-  --activate /shared/envs/audio/bin/activate \
-  --working-directory /shared/projects/daphna_lab
+  --activate /.venv-audio/bin/activate \
+  --working-directory /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings
 
 EXTRACT_JOB=$(sbatch --parsable /shared/audio/slurm/esc50-ssast-extract/audio-extract-array.sh)
 

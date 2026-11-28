@@ -1,0 +1,14 @@
+# BEATs counterpart to ssast_al_hps_sweep.yaml, using the remote project paths.
+base_config: ssast_al_hps_sweep.yaml
+
+model:
+  name: beats
+  checkpoint: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/models_src/BEATs/ckpts/BEATs_iter3_plus_AS2M.pt
+  checkpoint_metadata: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/models_src/BEATs/ckpts/beats_pretrained.provenance.json
+
+output: /cs/labs/daphna/yael.bs444/outputs/esc50-beats
+feature_cache: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/features/esc50-beats/feature_cache
+preprocessing:
+  channel_mode: mean
+  pad_mode: constant
+  window_seconds: 10
