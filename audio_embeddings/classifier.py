@@ -90,4 +90,4 @@ def predict(model, features: np.ndarray, objective: dict, device: str, mc_passes
             logits = model(x)
             results.append(calc_probs(logits, task))
         model.eval()
-        return torch.stack(results)
+        return results[0] if mc_passes == 1 else torch.stack(results)

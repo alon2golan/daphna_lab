@@ -11,3 +11,5 @@ sweep:
       adaptation: linearprob
     - acquisition.method: typiclust
       adaptation: linearprob
+    - acquisition.method: random
+      adaptation: linearprob

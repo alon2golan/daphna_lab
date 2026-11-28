@@ -575,37 +575,40 @@ def run_experiment(config: dict[str, Any]) -> Path:
                                         dynamic = encode_records(finetune_adapter, mapped_records, pool,
                                             config.get("preprocessing", {}), batch_size=int(config.get("extraction", {}).get("batch_size", 16)))
                                         pool_probs = predict(finetune_head, dynamic, objective, str(device))
-                                        probabilities = torch.zeros((len(X), len(class_names)), dtype=torch.float32, device=device)
+                                        # Instead of zeros((len(X), len(class_names)), ...)
+                                        probabilities = torch.full((len(X), len(class_names)), 1.0 / len(class_names), dtype=torch.float32, device=device)
                                         pool_index = torch.as_tensor(pool, dtype=torch.long, device=device)
                                         probabilities[pool_index] = pool_probs
                                         if method == "cls_al":
+                                            probabilities = None
                                             long_probs = predict(finetune_shadows[1], encode_records(finetune_adapter, mapped_records, pool,
                                                 config.get("preprocessing", {}), encoder=finetune_shadows[0].model,
                                                 batch_size=int(config.get("extraction", {}).get("batch_size", 16))), objective, str(device))
                                             short_probs = predict(finetune_shadows[3], encode_records(finetune_adapter, mapped_records, pool,
                                                 config.get("preprocessing", {}), encoder=finetune_shadows[2].model,
                                                 batch_size=int(config.get("extraction", {}).get("batch_size", 16))), objective, str(device))
-                                            mc_probabilities = torch.zeros((2, len(X), len(class_names)), dtype=torch.float32, device=device)
+                                            mc_probabilities = torch.full((2, len(X), len(class_names)), 1.0 / len(class_names), dtype=torch.float32, device=device)
                                             mc_probabilities[0, pool_index], mc_probabilities[1, pool_index] = long_probs, short_probs
                                         elif method == "bald":
                                             if float(finetune_cfg.get("dropout", 0)) <= 0:
                                                 raise ValueError("BALD requires training.dropout > 0")
                                             mc_pool = predict(finetune_head, dynamic, objective, str(device),
                                                               mc_passes=int(al_cfg.get("mc_passes", 20)))
-                                            mc_probabilities = torch.zeros((len(mc_pool), len(X), len(class_names)), dtype=torch.float32, device=device)
+                                            mc_probabilities = torch.full((len(mc_pool), len(X), len(class_names)), 1.0 / len(class_names), dtype=torch.float32, device=device)
                                             mc_probabilities[:, pool_index] = mc_pool
+                                            probabilities = mc_probabilities.mean(dim=0)
                                     else:
                                         train_model, long_model, short_model = fit_head(_take_rows(X, selected, device), target_rows(selected),
                                               len(class_names), objective, model_train_cfg, str(device), seed,
                                               shadow=(method == "cls_al"))
                                         if method == "cls_al":
                                             probabilities = None
-                                            mc_probabilities = torch.zeros((2, len(X), len(class_names)), dtype=torch.float32, device=device)
+                                            mc_probabilities = torch.full((2, len(X), len(class_names)), 1.0 / len(class_names), dtype=torch.float32, device=device)
                                             pool_index = torch.as_tensor(pool, dtype=torch.long, device=device)
                                             mc_probabilities[0, pool_index] = predict(long_model, _take_rows(X, pool, device), objective, str(device))
                                             mc_probabilities[1, pool_index] = predict(short_model, _take_rows(X, pool, device), objective, str(device))
                                         else:
-                                            probabilities = torch.zeros((len(X), len(class_names)), dtype=torch.float32, device=device)
+                                            probabilities = torch.full((len(X), len(class_names)), 1.0 / len(class_names), dtype=torch.float32, device=device)
                                             pool_index = torch.as_tensor(pool, dtype=torch.long, device=device)
                                             probabilities[pool_index] = predict(train_model, _take_rows(X, pool, device), objective, str(device))
                                         if method == "bald":
@@ -613,8 +616,9 @@ def run_experiment(config: dict[str, Any]) -> Path:
                                                 raise ValueError("BALD requires training.dropout > 0")
                                             mc_pool = predict(train_model, _take_rows(X, pool, device), objective, str(device),
                                                               mc_passes=int(al_cfg.get("mc_passes", 20)))
-                                            mc_probabilities = torch.zeros((len(mc_pool), len(X), len(class_names)), dtype=torch.float32, device=device)
+                                            mc_probabilities = torch.full((len(mc_pool), len(X), len(class_names)), 1.0 / len(class_names), dtype=torch.float32, device=device)
                                             mc_probabilities[:, pool_index] = mc_pool
+                                            probabilities = mc_probabilities.mean(dim=0)
                                 context = AcquisitionContext(
                                     pool_ids=torch.arange(len(X)),
                                     labeled_ids=torch.as_tensor(selected, dtype=torch.long),

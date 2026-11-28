@@ -3,8 +3,8 @@ dataset:
   manifest: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/data/datasets/ESC-50/ecs50.jsonl
 model:
   name: ssast
-  checkpoint: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/models_src/SSAST/pretrained_model/SSAST-Base-Frame-400.pth
-  checkpoint_metadata: D:/checkpoints/ssast_pretrained.provenance.json
+  checkpoint: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/models_src/SSAST/pretrained_model/SSAST-Base-Patch-400.pth
+  checkpoint_metadata: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/models_src/SSAST/pretrained_model/ssast_pretrained.provenance.json
 adaptation: frozen_representation
 objective:
   name: cross_entropy
@@ -27,7 +27,7 @@ training:
   cls_alpha_long: 0.9999
   cls_alpha_short: 0.85
 extraction:
-  batch_size: 16
+  batch_size: 32
 preprocessing:
   channel_mode: mean
   pad_mode: constant

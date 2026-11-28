@@ -7,6 +7,4 @@ scikit-learn>=1.2
 matplotlib>=3.7
 sed_eval>=0.2.1
 zstandard>=0.22
-
-# Model-specific dependencies (install only the adapter you use):
-# BEATs and SSAST source code is vendored in models_src; SSAST requires timm==0.4.5.
+timm==0.4.5

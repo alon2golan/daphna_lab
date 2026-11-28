@@ -2,29 +2,29 @@
 # This sweep creates one independent AL job per canonical acquisition method.
 dataset:
   name: esc50
-  manifest: /shared/audio/esc50/esc50.jsonl
+  manifest: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/data/datasets/ESC-50/esc50.jsonl
 model:
   name: ssast
-  checkpoint: /shared/audio/checkpoints/SSAST-Base-Frame-400.pth
-  checkpoint_metadata: /shared/audio/checkpoints/ssast_pretrained.provenance.json
+  checkpoint: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/models_src/SSAST/pretrained_model/SSAST-Base-Frame-400.pth
+  checkpoint_metadata: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/models_src/SSAST/pretrained_model/ssast_pretrained.provenance.json
 adaptation: linearprob
 objective:
   name: cross_entropy
   task: multiclass
   target: class_index
-device: cuda:0
-output: /shared/audio/al-runs/esc50-ssast
-feature_cache: /shared/audio/features/esc50-ssast/feature_cache
-audio_index: /shared/audio/esc50/compact/audio_index.json
-temporary_audio_root: /scratch/audio-al
-report_full_label_reference: false
+device: cuda
+output: /cs/labs/daphna/yael.bs444/outputs/esc50-ssast
+feature_cache: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/features/esc50-ssast/feature_cache
+audio_index: /cs/labs/daphna/yael.bs444/projects/daphna_lab/audio_embeddings/data/datasets/ESC-50/audio_index.json
+temporary_audio_root: /tmp/yael.bs444/audio-al
+report_full_label_reference: true
 seeds: [42, 43, 44, 45, 46]
 folds: [1, 2, 3, 4, 5]
 budget:
-  unit: percent
-  values: [1, 2.5, 5]
+  unit: count
+  values: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
 training:
-  epochs: 20
+  epochs: 25
   batch_size: 64
   learning_rate: 0.001
   weight_decay: 0.0001
@@ -33,7 +33,7 @@ training:
   cls_alpha_long: 0.9999
   cls_alpha_short: 0.85
 extraction:
-  batch_size: 16
+  batch_size: 32
 preprocessing:
   channel_mode: mean
   pad_mode: constant
@@ -65,12 +65,10 @@ sweep:
       adaptation: linearprob
     - acquisition.method: probcover
       adaptation: linearprob
-    - acquisition.method: cls_al
-      adaptation: fine_tune
   slurm:
     time: "24:00:00"
     mem: 32G
     cpus-per-task: 4
-    gres: "gpu:1"
-    activate: /shared/envs/audio/bin/activate
-    working_directory: /shared/projects/daphna_lab
+    gres: "gg:g0"
+    activate: /cs/labs/daphna/yael.bs444/projects/daphna_lab/.venv-audio/bin/activate
+    working_directory: /cs/labs/daphna/yael.bs444/projects/daphna_lab

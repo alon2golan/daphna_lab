@@ -1,0 +1,121 @@
+# Hyperparameter sweep for acquisition methods on ESC-50 with SSAST.
+# Uses the shared paths and SLURM settings from ssast_all_methods_sweep.yaml.
+# Each job is one independent setting; sweep.py expands these overrides.
+base_config: ssast_all_methods_sweep.yaml
+output: /cs/labs/daphna/yael.bs444/outputs/esc50-ssast-al-hps
+# Keep budgets, folds, seeds, and training settings fixed across methods.
+# See acquisition.method and parameter overrides below for the sweep matrix.
+sweep:
+  jobs:
+    # Random baseline (replicated by the shared seeds).
+    - acquisition.method: random
+      adaptation: linearprob
+
+    # Probability-based uncertainty methods: vary the size of the random warm start.
+    - acquisition.method: uncertainty
+      acquisition.initial_random_count: 1
+      adaptation: linearprob
+    - acquisition.method: uncertainty
+      acquisition.initial_random_count: 5
+      adaptation: linearprob
+    - acquisition.method: uncertainty
+      acquisition.initial_random_count: 10
+      adaptation: linearprob
+    - acquisition.method: min_margin
+      acquisition.initial_random_count: 1
+      adaptation: linearprob
+    - acquisition.method: min_margin
+      acquisition.initial_random_count: 5
+      adaptation: linearprob
+    - acquisition.method: min_margin
+      acquisition.initial_random_count: 10
+      adaptation: linearprob
+    - acquisition.method: max_entropy
+      acquisition.initial_random_count: 1
+      adaptation: linearprob
+    - acquisition.method: max_entropy
+      acquisition.initial_random_count: 5
+      adaptation: linearprob
+    - acquisition.method: max_entropy
+      acquisition.initial_random_count: 10
+      adaptation: linearprob
+
+    # BALD: warm-start size x MC dropout passes.
+    - acquisition.method: bald
+      acquisition.initial_random_count: 1
+      acquisition.mc_passes: 10
+      adaptation: frozen_representation
+    - acquisition.method: bald
+      acquisition.initial_random_count: 1
+      acquisition.mc_passes: 20
+      adaptation: frozen_representation
+    - acquisition.method: bald
+      acquisition.initial_random_count: 1
+      acquisition.mc_passes: 40
+      adaptation: frozen_representation
+    - acquisition.method: bald
+      acquisition.initial_random_count: 5
+      acquisition.mc_passes: 10
+      adaptation: frozen_representation
+    - acquisition.method: bald
+      acquisition.initial_random_count: 5
+      acquisition.mc_passes: 20
+      adaptation: frozen_representation
+    - acquisition.method: bald
+      acquisition.initial_random_count: 5
+      acquisition.mc_passes: 40
+      adaptation: frozen_representation
+    - acquisition.method: bald
+      acquisition.initial_random_count: 10
+      acquisition.mc_passes: 10
+      adaptation: frozen_representation
+    - acquisition.method: bald
+      acquisition.initial_random_count: 10
+      acquisition.mc_passes: 20
+      adaptation: frozen_representation
+    - acquisition.method: bald
+      acquisition.initial_random_count: 10
+      acquisition.mc_passes: 40
+      adaptation: frozen_representation
+
+    # Geometry methods: compare normalized and unnormalized SSAST embeddings.
+    - acquisition.method: core_set
+      acquisition.feature_transform: l2
+      adaptation: linearprob
+    - acquisition.method: core_set
+      acquisition.feature_transform: identity
+      adaptation: linearprob
+    - acquisition.method: typiclust
+      acquisition.feature_transform: l2
+      adaptation: linearprob
+    - acquisition.method: typiclust
+      acquisition.feature_transform: identity
+      adaptation: linearprob
+
+    # ProbCover radius and MaxHerding RBF scale, on L2-normalized features.
+    - acquisition.method: probcover
+      acquisition.feature_transform: l2
+      acquisition.deltas: [0.10]
+      adaptation: linearprob
+    - acquisition.method: probcover
+      acquisition.feature_transform: l2
+      acquisition.deltas: [0.25]
+      adaptation: linearprob
+    - acquisition.method: probcover
+      acquisition.feature_transform: l2
+      acquisition.deltas: [0.50]
+      adaptation: linearprob
+    - acquisition.method: max_herding
+      acquisition.feature_transform: l2
+      acquisition.sigma: 0.10
+      adaptation: linearprob
+    - acquisition.method: max_herding
+      acquisition.feature_transform: l2
+      acquisition.sigma: 0.25
+      adaptation: linearprob
+    - acquisition.method: max_herding
+      acquisition.feature_transform: l2
+      acquisition.sigma: 0.50
+      adaptation: linearprob
+
+  # Inherit the cluster resources and environment from the base sweep config.
