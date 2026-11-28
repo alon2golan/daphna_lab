@@ -1,0 +1,62 @@
+{
+  "all": {
+    "settings": 35,
+    "peer_only_minus_base_pp": {
+      "mean": -0.21685714285714283,
+      "wins": 14
+    },
+    "fusion_minus_peer_only_pp": {
+      "mean": 0.39257142857142857,
+      "wins": 25
+    },
+    "fusion_minus_base_pp": {
+      "mean": 0.1757142857142857,
+      "wins": 23
+    }
+  },
+  "clean": {
+    "settings": 5,
+    "peer_only_minus_base_pp": {
+      "mean": -0.07133333333333333,
+      "wins": 1
+    },
+    "fusion_minus_peer_only_pp": {
+      "mean": 0.076,
+      "wins": 3
+    },
+    "fusion_minus_base_pp": {
+      "mean": 0.004666666666666667,
+      "wins": 4
+    }
+  },
+  "symmetric": {
+    "settings": 15,
+    "peer_only_minus_base_pp": {
+      "mean": 0.514,
+      "wins": 13
+    },
+    "fusion_minus_peer_only_pp": {
+      "mean": -0.036888888888888895,
+      "wins": 7
+    },
+    "fusion_minus_base_pp": {
+      "mean": 0.4771111111111111,
+      "wins": 15
+    }
+  },
+  "cyclic": {
+    "settings": 15,
+    "peer_only_minus_base_pp": {
+      "mean": -0.9962222222222222,
+      "wins": 0
+    },
+    "fusion_minus_peer_only_pp": {
+      "mean": 0.9275555555555556,
+      "wins": 15
+    },
+    "fusion_minus_base_pp": {
+      "mean": -0.06866666666666665,
+      "wins": 4
+    }
+  }
+}

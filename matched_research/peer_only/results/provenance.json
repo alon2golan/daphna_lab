@@ -1,0 +1,49 @@
+{
+  "canary_job": 32702724,
+  "grid_job": 32702750,
+  "remote_root": "/cs/labs/daphna/tomn/projects/cifar_npc_peer_only_20261128.Y7F10A",
+  "verified_gpu_logs": [
+    "npc-peer-canary_32702724_3.out",
+    "npc-peer-only_32702750_0.out",
+    "npc-peer-only_32702750_1.out",
+    "npc-peer-only_32702750_2.out",
+    "npc-peer-only_32702750_3.out",
+    "npc-peer-only_32702750_4.out",
+    "npc-peer-only_32702750_5.out",
+    "npc-peer-only_32702750_6.out",
+    "npc-peer-only_32702750_7.out",
+    "npc-peer-only_32702750_8.out",
+    "npc-peer-only_32702750_9.out",
+    "npc-peer-only_32702750_10.out",
+    "npc-peer-only_32702750_11.out",
+    "npc-peer-only_32702750_12.out",
+    "npc-peer-only_32702750_13.out",
+    "npc-peer-only_32702750_14.out",
+    "npc-peer-only_32702750_15.out",
+    "npc-peer-only_32702750_16.out",
+    "npc-peer-only_32702750_17.out",
+    "npc-peer-only_32702750_18.out",
+    "npc-peer-only_32702750_19.out",
+    "npc-peer-only_32702750_20.out"
+  ],
+  "runtime": {
+    "gpu": "NVIDIA GeForce RTX 2080 Ti",
+    "packages": {
+      "aum": "1.0.2",
+      "numpy": "2.2.6",
+      "pandas": "2.2.3",
+      "scikit-learn": "1.6.1",
+      "scipy": "1.14.1",
+      "torch": "2.6.0",
+      "torchvision": "0.21.0+cu124",
+      "yacs": "0.1.8"
+    },
+    "wrapper_sha256": "d5db57a7116111953ffdaa046b9f6369b6f6682f0fd02cbc04511330631db6b4"
+  },
+  "source_sha256": {
+    "peer_only.py": "70f9882c6f1c83b3614fc40a18448693e446d1ab6d14dd64a4dff1dd403f4b16",
+    "test_peer_only.py": "76fff54d3460c6362aa8e3433219b336c7ce0f723b8ae707767575b76dbed5c0",
+    "run.slurm.sh": "14293c3b51179d2754a9f2ee024002c842889b749c5d4fc64103fbd41fbfd882",
+    "collect_peer_only.py": "d80106d68d354960782252f5d077eb21318af39fe73aad2aab76bfa113abc549"
+  }
+}

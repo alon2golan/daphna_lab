@@ -22,4 +22,8 @@ The reference is the pinned Netta NPC release with LowBudgetAUM and the full 500
 
 Slurm array `32699969` completed all 21 tasks. The fit inputs, output masks and prediction hashes are archived under `/cs/labs/daphna/tomn/projects/cifar_matched_npc_20261127`.
 
+## Peer-only ablation
+
+At the same AUM quotas, ranking by agreement alone gained +0.51 pp over the released filter under symmetric noise and lost 1.00 pp under cyclic noise. Adding the AUM term recovered +0.93 pp under cyclic noise, with a gain over peer-only in all 15 cyclic settings. Under symmetric noise the fused mean was 0.04 pp below peer-only, with wins against the released filter in 15/15 settings versus 13/15 for peer-only. All 105 identity replays again matched the reference model and prediction hashes. [Peer-only results](../peer_only/RESULTS.md)
+
 In [Streamlit](http://127.0.0.1:18529), open **NPC · final AUM filter**. The grid shows every paired mean. Choose **Symmetric 50%** to see both models and all three seeds for each budget. Expand **NPC formulas and pseudocode** for the method.

@@ -1,0 +1,132 @@
+{
+  "80": {
+    "archive_sha256": "72df76b08512438890caa902f8df8f81f0c9f61fe6b5e652833e9b401c10337d",
+    "aum_package": "1.0.2",
+    "depth": 3,
+    "geometry_sha256": "486509610f2947676c2bf5dfc7d3e6950e79805580290f9ca0d54790058e682b",
+    "gpu": "NVIDIA GeForce RTX 2080 Ti",
+    "numpy": "2.2.6",
+    "provenance": {
+      "bank_sha256": {
+        "test_features": "d7ba6cfb072039698da1b4e67fe97636ab0d4e6b6158bd9d66b42959bab18e36",
+        "test_targets": "7827272d0fbeee517a81b235f35fae2128af64393371c2fdde1c8f9a638e4a1a",
+        "train_features": "4e91020dcd15d77dcbe35ad32e63020bd156ad610808866ae49eb696d2035476",
+        "train_targets": "233cdd4afc94cd00f3ddec6f8640168bf76a6872168cf6c5a9990ac9f144be3b"
+      },
+      "faiss": "1.9.0",
+      "graph_sha256": "fd806145da93d36f1e96665dc4cf85a1a211369abba932f1020c981a4a7256dc",
+      "groups_sha256": "cd0b84973042743f1719cccfb94939d784659737e2aa74f46e86e8bcf25886ce",
+      "human_sha256": "bd2d80409754d420292d622e15e25248ba21e37d27429efac49c8da723f44394",
+      "test_rows": 10000,
+      "train_rows": 45000
+    },
+    "source_sha256": "2dcd7d2e277baecb8dad5700d2a23ef245e26bce5e2718c41601442bd406bba8",
+    "torch": "2.6.0+cu124",
+    "upstream_commit": "733651bb0943a96392895103eb2ffc4e99a7c7d1",
+    "upstream_source_sha256": "332f671b58881695340c13904c09ed48bc25a44600d63cc44ba7ff5823cf5ff5"
+  },
+  "81": {
+    "archive_sha256": "72df76b08512438890caa902f8df8f81f0c9f61fe6b5e652833e9b401c10337d",
+    "aum_package": "1.0.2",
+    "depth": 3,
+    "geometry_sha256": "486509610f2947676c2bf5dfc7d3e6950e79805580290f9ca0d54790058e682b",
+    "gpu": "NVIDIA GeForce RTX 2080 Ti",
+    "numpy": "2.2.6",
+    "provenance": {
+      "bank_sha256": {
+        "test_features": "d7ba6cfb072039698da1b4e67fe97636ab0d4e6b6158bd9d66b42959bab18e36",
+        "test_targets": "7827272d0fbeee517a81b235f35fae2128af64393371c2fdde1c8f9a638e4a1a",
+        "train_features": "4e91020dcd15d77dcbe35ad32e63020bd156ad610808866ae49eb696d2035476",
+        "train_targets": "233cdd4afc94cd00f3ddec6f8640168bf76a6872168cf6c5a9990ac9f144be3b"
+      },
+      "faiss": "1.9.0",
+      "graph_sha256": "fd806145da93d36f1e96665dc4cf85a1a211369abba932f1020c981a4a7256dc",
+      "groups_sha256": "cd0b84973042743f1719cccfb94939d784659737e2aa74f46e86e8bcf25886ce",
+      "human_sha256": "bd2d80409754d420292d622e15e25248ba21e37d27429efac49c8da723f44394",
+      "test_rows": 10000,
+      "train_rows": 45000
+    },
+    "source_sha256": "2dcd7d2e277baecb8dad5700d2a23ef245e26bce5e2718c41601442bd406bba8",
+    "torch": "2.6.0+cu124",
+    "upstream_commit": "733651bb0943a96392895103eb2ffc4e99a7c7d1",
+    "upstream_source_sha256": "332f671b58881695340c13904c09ed48bc25a44600d63cc44ba7ff5823cf5ff5"
+  },
+  "82": {
+    "archive_sha256": "72df76b08512438890caa902f8df8f81f0c9f61fe6b5e652833e9b401c10337d",
+    "aum_package": "1.0.2",
+    "depth": 3,
+    "geometry_sha256": "486509610f2947676c2bf5dfc7d3e6950e79805580290f9ca0d54790058e682b",
+    "gpu": "NVIDIA GeForce RTX 2080 Ti",
+    "numpy": "2.2.6",
+    "provenance": {
+      "bank_sha256": {
+        "test_features": "d7ba6cfb072039698da1b4e67fe97636ab0d4e6b6158bd9d66b42959bab18e36",
+        "test_targets": "7827272d0fbeee517a81b235f35fae2128af64393371c2fdde1c8f9a638e4a1a",
+        "train_features": "4e91020dcd15d77dcbe35ad32e63020bd156ad610808866ae49eb696d2035476",
+        "train_targets": "233cdd4afc94cd00f3ddec6f8640168bf76a6872168cf6c5a9990ac9f144be3b"
+      },
+      "faiss": "1.9.0",
+      "graph_sha256": "fd806145da93d36f1e96665dc4cf85a1a211369abba932f1020c981a4a7256dc",
+      "groups_sha256": "cd0b84973042743f1719cccfb94939d784659737e2aa74f46e86e8bcf25886ce",
+      "human_sha256": "bd2d80409754d420292d622e15e25248ba21e37d27429efac49c8da723f44394",
+      "test_rows": 10000,
+      "train_rows": 45000
+    },
+    "source_sha256": "2dcd7d2e277baecb8dad5700d2a23ef245e26bce5e2718c41601442bd406bba8",
+    "torch": "2.6.0+cu124",
+    "upstream_commit": "733651bb0943a96392895103eb2ffc4e99a7c7d1",
+    "upstream_source_sha256": "332f671b58881695340c13904c09ed48bc25a44600d63cc44ba7ff5823cf5ff5"
+  },
+  "83": {
+    "archive_sha256": "72df76b08512438890caa902f8df8f81f0c9f61fe6b5e652833e9b401c10337d",
+    "aum_package": "1.0.2",
+    "depth": 3,
+    "geometry_sha256": "486509610f2947676c2bf5dfc7d3e6950e79805580290f9ca0d54790058e682b",
+    "gpu": "NVIDIA GeForce RTX 2080 Ti",
+    "numpy": "2.2.6",
+    "provenance": {
+      "bank_sha256": {
+        "test_features": "d7ba6cfb072039698da1b4e67fe97636ab0d4e6b6158bd9d66b42959bab18e36",
+        "test_targets": "7827272d0fbeee517a81b235f35fae2128af64393371c2fdde1c8f9a638e4a1a",
+        "train_features": "4e91020dcd15d77dcbe35ad32e63020bd156ad610808866ae49eb696d2035476",
+        "train_targets": "233cdd4afc94cd00f3ddec6f8640168bf76a6872168cf6c5a9990ac9f144be3b"
+      },
+      "faiss": "1.9.0",
+      "graph_sha256": "fd806145da93d36f1e96665dc4cf85a1a211369abba932f1020c981a4a7256dc",
+      "groups_sha256": "cd0b84973042743f1719cccfb94939d784659737e2aa74f46e86e8bcf25886ce",
+      "human_sha256": "bd2d80409754d420292d622e15e25248ba21e37d27429efac49c8da723f44394",
+      "test_rows": 10000,
+      "train_rows": 45000
+    },
+    "source_sha256": "2dcd7d2e277baecb8dad5700d2a23ef245e26bce5e2718c41601442bd406bba8",
+    "torch": "2.6.0+cu124",
+    "upstream_commit": "733651bb0943a96392895103eb2ffc4e99a7c7d1",
+    "upstream_source_sha256": "332f671b58881695340c13904c09ed48bc25a44600d63cc44ba7ff5823cf5ff5"
+  },
+  "84": {
+    "archive_sha256": "72df76b08512438890caa902f8df8f81f0c9f61fe6b5e652833e9b401c10337d",
+    "aum_package": "1.0.2",
+    "depth": 3,
+    "geometry_sha256": "486509610f2947676c2bf5dfc7d3e6950e79805580290f9ca0d54790058e682b",
+    "gpu": "NVIDIA GeForce RTX 2080 Ti",
+    "numpy": "2.2.6",
+    "provenance": {
+      "bank_sha256": {
+        "test_features": "d7ba6cfb072039698da1b4e67fe97636ab0d4e6b6158bd9d66b42959bab18e36",
+        "test_targets": "7827272d0fbeee517a81b235f35fae2128af64393371c2fdde1c8f9a638e4a1a",
+        "train_features": "4e91020dcd15d77dcbe35ad32e63020bd156ad610808866ae49eb696d2035476",
+        "train_targets": "233cdd4afc94cd00f3ddec6f8640168bf76a6872168cf6c5a9990ac9f144be3b"
+      },
+      "faiss": "1.9.0",
+      "graph_sha256": "fd806145da93d36f1e96665dc4cf85a1a211369abba932f1020c981a4a7256dc",
+      "groups_sha256": "cd0b84973042743f1719cccfb94939d784659737e2aa74f46e86e8bcf25886ce",
+      "human_sha256": "bd2d80409754d420292d622e15e25248ba21e37d27429efac49c8da723f44394",
+      "test_rows": 10000,
+      "train_rows": 45000
+    },
+    "source_sha256": "2dcd7d2e277baecb8dad5700d2a23ef245e26bce5e2718c41601442bd406bba8",
+    "torch": "2.6.0+cu124",
+    "upstream_commit": "733651bb0943a96392895103eb2ffc4e99a7c7d1",
+    "upstream_source_sha256": "332f671b58881695340c13904c09ed48bc25a44600d63cc44ba7ff5823cf5ff5"
+  }
+}

@@ -12,15 +12,12 @@ RESULTS = Path(os.environ.get("MATCHED_RESULTS_DIR", HERE / "results"))
 CONDITIONS = {
     "clean": "Clean", "sym0": "Clean",
     "sym30": "Symmetric 30%", "sym40": "Symmetric 40%", "sym50": "Symmetric 50%",
-    "asym30": "Asymmetric 30%", "asym40": "Asymmetric 40%", "asym50": "Asymmetric 50%",
+    "asym30": "Cyclic asymmetric 30%", "asym40": "Cyclic asymmetric 40%", "asym50": "Cyclic asymmetric 50%",
 }
 
-st.set_page_config(page_title="CIFAR-100 paired comparisons", layout="wide")
-st.title("CIFAR-100 paired comparisons")
-npc, vast = st.tabs(["NPC · final AUM filter", "Protected VAST · pseudo-label ranks"])
 
-with npc:
-    st.caption("Reference: released Netta NPC + LowBudgetAUM + supervised linear classifier on BYOL.")
+def show_npc():
+    st.caption("The reference is released Netta NPC with LowBudgetAUM and its supervised linear classifier on BYOL.")
     st.markdown(
         "Peer-ranked AUM changes the final training mask. Each observed class keeps "
         "its original number of training images."
@@ -76,8 +73,9 @@ with npc:
     with st.expander("NPC formulas and pseudocode"):
         st.markdown((HERE / "netta" / "PROTOCOL.md").read_text())
 
-with vast:
-    st.caption("Reference: the archived protected VAST student and its original pseudo-label targets.")
+
+def show_vast():
+    st.caption("The reference is the archived protected VAST student with its original pseudo-label targets.")
     st.markdown(
         "Cross-fitted rank alignment chooses a permutation on acquired labels, then fits the "
         "same student with the resulting targets."
@@ -101,3 +99,17 @@ with vast:
         st.download_button("Download paired VAST results", results_file.read_bytes(), "vast_per_seed.csv")
     with st.expander("VAST formulas and protocol"):
         st.markdown((HERE / "vast_rank" / "PROTOCOL.md").read_text())
+
+
+def main():
+    st.set_page_config(page_title="CIFAR-100 paired comparisons", layout="wide")
+    st.title("CIFAR-100 paired comparisons")
+    npc, vast = st.tabs(["NPC · final AUM filter", "Protected VAST · pseudo-label ranks"])
+    with npc:
+        show_npc()
+    with vast:
+        show_vast()
+
+
+if __name__ == "__main__":
+    main()

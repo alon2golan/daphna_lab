@@ -4,7 +4,7 @@ The earlier runner-up cap, square-root votes, backup coverage, and VAST results 
 
 ## Reference
 
-Run Shafir et al.'s released NPC + LowBudgetAUM and their Framework 2 linear fit from pinned revision `733651bb0943a96392895103eb2ffc4e99a7c7d1`. Use the aligned CIFAR-100 BYOL feature bank with 50,000 training and 10,000 test images. Start acquisition from an empty labeled set, in batches of 100. Use the release's constant Euclidean radius 0.65 on unit-norm features for query selection. Use the official feature handling for the detector and final classifier. Fit a linear classifier for 500 epochs using batch size 100, SGD, Nesterov momentum 0.9, weight decay 0.0003, and cosine learning rate from 0.025. Source and data fingerprints accompany the runs. [Paper and protocol](https://arxiv.org/html/2504.04506v1) · [Pinned release](https://github.com/nettashafir/active_learning_with_label_noise/tree/733651bb0943a96392895103eb2ffc4e99a7c7d1)
+Run Shafir et al.'s released NPC + LowBudgetAUM and their Framework 2 linear fit from pinned revision `733651bb0943a96392895103eb2ffc4e99a7c7d1`. Use the aligned CIFAR-100 BYOL feature bank with 50,000 training and 10,000 test images. Start acquisition from an empty labeled set, in batches of 100. Use ordinary NPC with constant Euclidean radius 0.65 on unit-norm query features and noise dropout disabled. Use the raw BYOL feature arrays for the detector and final classifier. Fit a linear classifier for 500 epochs using batch size 100, SGD, Nesterov momentum 0.9, weight decay 0.0003, and cosine learning rate from 0.025. Source and data fingerprints accompany the runs. [Paper and protocol](https://arxiv.org/html/2504.04506v1) · [Pinned release](https://github.com/nettashafir/active_learning_with_label_noise/tree/733651bb0943a96392895103eb2ffc4e99a7c7d1)
 
 The baseline and candidate use the same acquisition trajectory, observed labels, AUM model outputs, model initialization, scheduled optimization, minibatch permutation stream, and test images. Score the baseline before fitting the candidate from its saved training state. Check that an identity replay reproduces the released fit. The class counts and total number of training items are paired by construction.
 
@@ -21,16 +21,17 @@ L = empty, U = all training images, K = empty
 for each round:
     Q = empty
     repeat 100 times:
-        i = argmax over U minus Q of |D_i minus union(D_j for j in K ∪ Q)|
+        tied = argmax set over U minus Q of |D_i minus union(D_j for j in K ∪ Q)|
+        i = seeded uniform choice from tied
         add i to Q
-    run the release's internal NPC AUM refresh after the batch
-    L = L ∪ Q, U = U minus Q
+    run the release's internal NPC AUM refresh on L ∪ Q and U minus Q
+    append Q to L and remove Q from U
     AUM scores, K = released outer AUM pass on L and U
     reference training set = K
     fit the released supervised classifier from its saved initialization
 ```
 
-For AUM, add `ceil(|L|/100)` threshold examples from `U` with one fake class and fit the detector for 40 epochs. The per-image score is the mean observed-class logit minus strongest other logit across its training visits. The reference keeps `K = {i in L : AUM[i] ≥ P80(AUM[fakes])}` as its final training set.
+For AUM, draw `ceil(|L|/100)` threshold examples uniformly without replacement from `U` and assign them one fake class. Fit a 101-output linear detector by cross-entropy for 40 epochs. It uses batches of 64, learning rate 0.1, Nesterov momentum 0.9 and weight decay 0.0001. The per-image score is the mean observed-class logit minus strongest other logit across its training visits. The reference keeps `K = {i in L : AUM[i] ≥ P80(AUM[fakes])}` as its final training set. The outer pass supplies the clean centers for the next round.
 
 $$
 a_i=\operatorname{mean}_t\big(g_t(z_i)_{\tilde y_i}-\max_{c\ne\tilde y_i}g_t(z_i)_c\big),
@@ -65,3 +66,5 @@ P(\tilde Y=c\mid z)=(1-\eta-\eta/99)P(Y=c\mid z)+\eta/99.
 $$
 
 The coefficient is positive below 99% noise. This motivates using observed neighbor agreement to rank support under symmetric noise. The behavior under asymmetric noise is empirical. [Topological filtering](https://proceedings.neurips.cc/paper_files/paper/2020/hash/f4e3ce3e7b581ff32e40968298ba013d-Abstract.html) · [Class-balanced filtering](https://www.ecva.net/papers/eccv_2024/papers_ECCV/html/3908_ECCV_2024_paper.php)
+
+SimiFeat already uses neighbor-based label consistency and class-specific filtering quotas. The proposed component here is the sum of AUM and neighbor-agreement ranks while preserving the released NPC quota for each observed class. The peer-only control keeps those same NPC quotas and uses agreement alone. [SimiFeat](https://proceedings.mlr.press/v162/zhu22a/zhu22a.pdf) · [Peer-only protocol](../peer_only/PROTOCOL.md)
